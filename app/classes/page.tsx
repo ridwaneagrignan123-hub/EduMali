@@ -1,0 +1,269 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { supabase } from "@/src/lib/supabase"
+
+type ClassItem = {
+  id: string
+  name: string
+  level: string | null
+  academic_year: string | null
+}
+
+export default function ClassesPage() {
+  const router = useRouter()
+
+  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+
+  const [name, setName] = useState("")
+  const [level, setLevel] = useState("")
+  const [academicYear, setAcademicYear] = useState("2026-2027")
+
+  useEffect(() => {
+    loadClasses()
+  }, [])
+
+  async function loadClasses() {
+    setLoading(true)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      router.push("/login")
+      return
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("school_id")
+      .eq("id", user.id)
+      .single()
+
+    if (profileError || !profile?.school_id) {
+      router.push("/setup-school")
+      return
+    }
+
+    const { data, error } = await supabase
+      .from("classes")
+      .select("id, name, level, academic_year")
+      .eq("school_id", profile.school_id)
+      .order("created_at", { ascending: false })
+
+    if (error) {
+      console.error("Erreur lors du chargement des classes :", error)
+      setLoading(false)
+      return
+    }
+
+    setClasses(data ?? [])
+    setLoading(false)
+  }
+
+  async function createClass(event: React.FormEvent) {
+    event.preventDefault()
+
+    if (!name.trim()) {
+      alert("Veuillez saisir le nom de la classe.")
+      return
+    }
+
+    setCreating(true)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      router.push("/login")
+      return
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("school_id")
+      .eq("id", user.id)
+      .single()
+
+    if (profileError || !profile?.school_id) {
+      alert("Aucune école associée à votre compte.")
+      setCreating(false)
+      return
+    }
+
+    const { error } = await supabase.from("classes").insert({
+      school_id: profile.school_id,
+      name: name.trim(),
+      level: level.trim() || null,
+      academic_year: academicYear.trim() || null,
+    })
+
+    if (error) {
+      console.error("Erreur lors de la création de la classe :", error)
+      alert(error.message)
+      setCreating(false)
+      return
+    }
+
+    setName("")
+    setLevel("")
+    setAcademicYear("2026-2027")
+
+    await loadClasses()
+
+    setCreating(false)
+  }
+
+  return (
+    <main className="min-h-screen bg-muted/30">
+      <header className="border-b bg-background">
+        <div className="flex h-16 items-center justify-between px-6">
+          <div>
+            <h1 className="text-xl font-bold">EduMali</h1>
+            <p className="text-sm text-muted-foreground">
+              Gestion des classes
+            </p>
+          </div>
+
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+          >
+            Retour au dashboard
+          </button>
+        </div>
+      </header>
+
+      <section className="mx-auto max-w-6xl space-y-8 p-6">
+        <div>
+          <h2 className="text-3xl font-bold">
+            Classes
+          </h2>
+
+          <p className="mt-2 text-muted-foreground">
+            Créez et gérez les classes de votre établissement.
+          </p>
+        </div>
+
+        <div className="grid gap-8 lg:grid-cols-[380px_1fr]">
+          <div className="rounded-xl border bg-background p-6">
+            <h3 className="text-xl font-semibold">
+              Ajouter une classe
+            </h3>
+
+            <form
+              onSubmit={createClass}
+              className="mt-6 space-y-4"
+            >
+              <div className="space-y-2">
+                <label htmlFor="name">
+                  Nom de la classe
+                </label>
+
+                <input
+                  id="name"
+                  type="text"
+                  placeholder="Exemple : CM2 A"
+                  value={name}
+                  onChange={(event) =>
+                    setName(event.target.value)
+                  }
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="level">
+                  Niveau
+                </label>
+
+                <input
+                  id="level"
+                  type="text"
+                  placeholder="Exemple : CM2"
+                  value={level}
+                  onChange={(event) =>
+                    setLevel(event.target.value)
+                  }
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="academicYear">
+                  Année scolaire
+                </label>
+
+                <input
+                  id="academicYear"
+                  type="text"
+                  value={academicYear}
+                  onChange={(event) =>
+                    setAcademicYear(event.target.value)
+                  }
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={creating}
+                className="w-full rounded-md bg-primary px-4 py-3 text-primary-foreground disabled:opacity-50"
+              >
+                {creating
+                  ? "Création..."
+                  : "Créer la classe"}
+              </button>
+            </form>
+          </div>
+
+          <div className="rounded-xl border bg-background p-6">
+            <h3 className="text-xl font-semibold">
+              Mes classes
+            </h3>
+
+            {loading ? (
+              <p className="mt-6 text-muted-foreground">
+                Chargement des classes...
+              </p>
+            ) : classes.length === 0 ? (
+              <p className="mt-6 text-muted-foreground">
+                Aucune classe créée pour le moment.
+              </p>
+            ) : (
+              <div className="mt-6 space-y-3">
+                {classes.map((classItem) => (
+                  <div
+                    key={classItem.id}
+                    className="flex items-center justify-between rounded-lg border p-4"
+                  >
+                    <div>
+                      <p className="font-semibold">
+                        {classItem.name}
+                      </p>
+
+                      <p className="text-sm text-muted-foreground">
+                        {classItem.level || "Niveau non défini"}
+                      </p>
+                    </div>
+
+                    <span className="text-sm text-muted-foreground">
+                      {classItem.academic_year ||
+                        "Année non définie"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </main>
+  )
+}

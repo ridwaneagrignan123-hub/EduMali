@@ -19,13 +19,9 @@ export default function DashboardPage() {
   const router = useRouter()
 
   const [loading, setLoading] = useState(true)
-
-  const [userEmail, setUserEmail] =
-    useState("")
-
+  const [userEmail, setUserEmail] = useState("")
   const [profile, setProfile] =
     useState<Profile | null>(null)
-
   const [school, setSchool] =
     useState<School | null>(null)
 
@@ -191,11 +187,13 @@ export default function DashboardPage() {
     /*
      * Présences du jour
      *
-     * Cette requête suppose que la table
-     * attendance possède les colonnes :
+     * Nous comptons les présences
+     * enregistrées aujourd'hui.
      *
-     * school_id
-     * attendance_date
+     * Si la table attendance n'existe
+     * pas encore, le compteur restera 0
+     * et une erreur sera affichée dans
+     * la console.
      */
 
     const today =
@@ -315,17 +313,6 @@ export default function DashboardPage() {
             <button
               onClick={() =>
                 router.push(
-                  "/teachers"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Enseignants
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
                   "/classes"
                 )
               }
@@ -337,23 +324,23 @@ export default function DashboardPage() {
             <button
               onClick={() =>
                 router.push(
+                  "/teachers"
+                )
+              }
+              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
+            >
+              Enseignants
+            </button>
+
+            <button
+              onClick={() =>
+                router.push(
                   "/grades"
                 )
               }
               className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
             >
               Notes
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/averages"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Moyennes
             </button>
 
             <button
