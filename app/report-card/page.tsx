@@ -29,6 +29,8 @@ type Student = {
   id: string
   first_name: string
   last_name: string
+  matricule: string | null
+  parent_name: string | null
 }
 
 type Subject = {
@@ -41,6 +43,7 @@ type School = {
   name: string
   address: string | null
   phone: string | null
+  logo_url: string | null
 }
 
 type SubjectResult = {
@@ -60,10 +63,14 @@ type ReportCardStudent = {
 export default function ReportCardPage() {
   const router = useRouter()
 
-  const gradingScale = 10
+  // Barème officiel malien / francophone : notes sur 20
+  const gradingScale = 20
 
   const [loading, setLoading] = useState(true)
   const [loadingReport, setLoadingReport] = useState(false)
+
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(null)
+  const [reportLoadError, setReportLoadError] = useState<string | null>(null)
 
   const [schoolId, setSchoolId] = useState("")
   const [school, setSchool] = useState<School | null>(null)
@@ -71,9 +78,12 @@ export default function ReportCardPage() {
   const [academicYear, setAcademicYear] =
     useState<AcademicYear | null>(null)
 
-  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [classes, setClasses] =
+    useState<ClassItem[]>([])
+
   const [periods, setPeriods] =
     useState<AcademicPeriod[]>([])
+
   const [subjects, setSubjects] =
     useState<Subject[]>([])
 
@@ -86,12 +96,40 @@ export default function ReportCardPage() {
   const [reportCards, setReportCards] =
     useState<ReportCardStudent[]>([])
 
+  // "all" = imprimer tous les bulletins, un id = un seul bulletin, null = pas d'impression en cours
+  const [printTarget, setPrintTarget] =
+    useState<string | null>(null)
+
   useEffect(() => {
     loadInitialData()
   }, [])
 
+  useEffect(() => {
+    if (printTarget === null) {
+      return
+    }
+
+    const timer = setTimeout(() => {
+      window.print()
+    }, 100)
+
+    return () => clearTimeout(timer)
+  }, [printTarget])
+
+  useEffect(() => {
+    function handleAfterPrint() {
+      setPrintTarget(null)
+    }
+
+    window.addEventListener("afterprint", handleAfterPrint)
+
+    return () =>
+      window.removeEventListener("afterprint", handleAfterPrint)
+  }, [])
+
   async function loadInitialData() {
     setLoading(true)
+    setInitialLoadError(null)
 
     const {
       data: { user },
@@ -117,6 +155,9 @@ export default function ReportCardPage() {
         profileError
       )
 
+      setInitialLoadError(
+        "Impossible de charger votre profil. Réessayez ou contactez le support."
+      )
       setLoading(false)
       return
     }
@@ -131,17 +172,13 @@ export default function ReportCardPage() {
 
     setSchoolId(currentSchoolId)
 
-    // =========================
-    // ÉCOLE
-    // =========================
-
     const {
       data: schoolData,
       error: schoolError,
     } = await supabase
       .from("schools")
       .select(
-        "name, address, phone"
+        "name, address, phone, logo_url"
       )
       .eq(
         "id",
@@ -154,15 +191,15 @@ export default function ReportCardPage() {
         "Erreur école :",
         schoolError
       )
+
+      setInitialLoadError(
+        "Impossible de charger les informations de l'établissement."
+      )
     } else {
       setSchool(
         schoolData as School
       )
     }
-
-    // =========================
-    // ANNÉE SCOLAIRE ACTIVE
-    // =========================
 
     const {
       data: academicYearData,
@@ -193,10 +230,6 @@ export default function ReportCardPage() {
       )
     }
 
-    // =========================
-    // CLASSES
-    // =========================
-
     const {
       data: classesData,
       error: classesError,
@@ -209,25 +242,22 @@ export default function ReportCardPage() {
         "school_id",
         currentSchoolId
       )
-      .order(
-        "name"
-      )
+      .order("name")
 
     if (classesError) {
       console.error(
         "Erreur classes :",
         classesError
       )
+
+      setInitialLoadError(
+        "Impossible de charger la liste des classes."
+      )
     } else {
       setClasses(
-        (classesData as ClassItem[]) ??
-          []
+        (classesData as ClassItem[]) ?? []
       )
     }
-
-    // =========================
-    // PÉRIODES
-    // =========================
 
     const {
       data: periodsData,
@@ -253,10 +283,13 @@ export default function ReportCardPage() {
         "Erreur périodes :",
         periodsError
       )
+
+      setInitialLoadError(
+        "Impossible de charger les périodes scolaires."
+      )
     } else {
       const loadedPeriods =
-        (periodsData as AcademicPeriod[]) ??
-        []
+        (periodsData as AcademicPeriod[]) ?? []
 
       setPeriods(
         loadedPeriods
@@ -281,10 +314,6 @@ export default function ReportCardPage() {
       }
     }
 
-    // =========================
-    // MATIÈRES
-    // =========================
-
     const {
       data: subjectsData,
       error: subjectsError,
@@ -297,19 +326,20 @@ export default function ReportCardPage() {
         "school_id",
         currentSchoolId
       )
-      .order(
-        "name"
-      )
+      .order("name")
 
     if (subjectsError) {
       console.error(
         "Erreur matières :",
         subjectsError
       )
+
+      setInitialLoadError(
+        "Impossible de charger la liste des matières."
+      )
     } else {
       setSubjects(
-        (subjectsData as Subject[]) ??
-          []
+        (subjectsData as Subject[]) ?? []
       )
     }
 
@@ -326,10 +356,7 @@ export default function ReportCardPage() {
     }
 
     setLoadingReport(true)
-
-    // =========================
-    // ÉLÈVES DE LA CLASSE
-    // =========================
+    setReportLoadError(null)
 
     const {
       data: enrollments,
@@ -343,7 +370,9 @@ export default function ReportCardPage() {
         students (
           id,
           first_name,
-          last_name
+          last_name,
+          matricule,
+          parent_name
         )
       `)
       .eq(
@@ -361,6 +390,9 @@ export default function ReportCardPage() {
         enrollmentError
       )
 
+      setReportLoadError(
+        "Impossible de charger la liste des élèves de cette classe. Réessayez."
+      )
       setReportCards([])
       setLoadingReport(false)
       return
@@ -377,6 +409,9 @@ export default function ReportCardPage() {
     if (
       students.length === 0
     ) {
+      setReportLoadError(
+        "Aucun élève trouvé dans cette classe pour cette période."
+      )
       setReportCards([])
       setLoadingReport(false)
       return
@@ -388,17 +423,11 @@ export default function ReportCardPage() {
           student.id
       )
 
-    // =========================
-    // NOTES
-    // =========================
-
     const {
       data: gradesData,
       error: gradesError,
     } = await supabase
-      .from(
-        "grades"
-      )
+      .from("grades")
       .select(`
         student_id,
         score,
@@ -425,36 +454,34 @@ export default function ReportCardPage() {
         gradesError
       )
 
+      setReportLoadError(
+        "Impossible de charger les notes des élèves. Réessayez."
+      )
       setReportCards([])
       setLoadingReport(false)
       return
     }
-
-    // =========================
-    // CALCUL DES RÉSULTATS
-    // =========================
 
     const calculatedResults:
       ReportCardStudent[] =
       students.map(
         (student) => {
           const studentGrades =
-            (gradesData ?? [])
-              .filter(
-                (grade: any) => {
-                  const assessment =
-                    grade.assessments
+            (gradesData ?? []).filter(
+              (grade: any) => {
+                const assessment =
+                  grade.assessments
 
-                  return (
-                    grade.student_id ===
-                      student.id &&
-                    assessment?.class_id ===
-                      selectedClassId &&
-                    assessment?.academic_period_id ===
-                      selectedPeriodId
-                  )
-                }
-              )
+                return (
+                  grade.student_id ===
+                    student.id &&
+                  assessment?.class_id ===
+                    selectedClassId &&
+                  assessment?.academic_period_id ===
+                    selectedPeriodId
+                )
+              }
+            )
 
           const subjectResults:
             SubjectResult[] =
@@ -475,13 +502,10 @@ export default function ReportCardPage() {
                   return {
                     subjectId:
                       subject.id,
-
                     subjectName:
                       subject.name,
-
                     average:
                       null,
-
                     coefficient:
                       Number(
                         subject.coefficient
@@ -496,9 +520,7 @@ export default function ReportCardPage() {
                   0
 
                 subjectGrades.forEach(
-                  (
-                    grade: any
-                  ) => {
+                  (grade: any) => {
                     const assessment =
                       grade.assessments
 
@@ -553,12 +575,9 @@ export default function ReportCardPage() {
                 return {
                   subjectId:
                     subject.id,
-
                   subjectName:
                     subject.name,
-
                   average,
-
                   coefficient:
                     Number(
                       subject.coefficient
@@ -575,8 +594,7 @@ export default function ReportCardPage() {
             )
 
           let generalAverage:
-            number | null =
-            null
+            number | null = null
 
           if (
             evaluatedSubjects.length >
@@ -594,7 +612,6 @@ export default function ReportCardPage() {
                     0
                   ) *
                     subject.coefficient,
-
                 0
               )
 
@@ -606,7 +623,6 @@ export default function ReportCardPage() {
                 ) =>
                   sum +
                   subject.coefficient,
-
                 0
               )
 
@@ -630,10 +646,6 @@ export default function ReportCardPage() {
         }
       )
 
-    // =========================
-    // CLASSEMENT
-    // =========================
-
     const sortedResults =
       [
         ...calculatedResults,
@@ -649,46 +661,62 @@ export default function ReportCardPage() {
           )
       )
 
-   const rankedResults: ReportCardStudent[] = []
+    const rankedResults:
+      ReportCardStudent[] =
+      []
 
-let currentRank = 0
+    let currentRank =
+      0
 
-let previousAverage: number | null = null
+    let previousAverage:
+      number | null = null
 
-for (
-  let index = 0;
-  index < sortedResults.length;
-  index++
-) {
-  const result = sortedResults[index]
+    for (
+      let index = 0;
+      index <
+      sortedResults.length;
+      index++
+    ) {
+      const result =
+        sortedResults[index]
 
-  if (result.generalAverage === null) {
-    rankedResults.push({
-      ...result,
-      rank: null,
-    })
+      if (
+        result.generalAverage ===
+        null
+      ) {
+        rankedResults.push({
+          ...result,
+          rank: null,
+        })
 
-    continue
-  }
+        continue
+      }
 
-  const currentAverage = Number(
-    result.generalAverage.toFixed(2)
-  )
+      const currentAverage =
+        Number(
+          result.generalAverage.toFixed(
+            2
+          )
+        )
 
-  if (
-    previousAverage === null ||
-    currentAverage !== previousAverage
-  ) {
-    currentRank = index + 1
-  }
+      if (
+        previousAverage ===
+          null ||
+        currentAverage !==
+          previousAverage
+      ) {
+        currentRank =
+          index + 1
+      }
 
-  rankedResults.push({
-    ...result,
-    rank: currentRank,
-  })
+      rankedResults.push({
+        ...result,
+        rank: currentRank,
+      })
 
-  previousAverage = currentAverage
-}
+      previousAverage =
+        currentAverage
+    }
 
     setReportCards(
       rankedResults
@@ -697,225 +725,24 @@ for (
     setLoadingReport(false)
   }
 
-  // =========================
-  // IMPRESSION D'UN BULLETIN
-  // =========================
-
-  function printReportCard(
-    studentId: string
+  function formatRank(
+    rank: number | null
   ) {
-    const element =
-      document.getElementById(
-        `report-card-${studentId}`
-      )
-
-    if (!element) {
-      return
+    if (!rank) {
+      return "—"
     }
 
-    const printWindow =
-      window.open(
-        "",
-        "_blank",
-        "width=900,height=1200"
-      )
-
-    if (!printWindow) {
-      return
+    if (rank === 1) {
+      return "1er"
     }
 
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Bulletin scolaire</title>
-
-          <style>
-            * {
-              box-sizing: border-box;
-            }
-
-            body {
-              margin: 0;
-              padding: 20px;
-              font-family: Arial, sans-serif;
-              background: white;
-              color: black;
-            }
-
-            .print-container {
-              width: 100%;
-              max-width: 800px;
-              margin: 0 auto;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 20px;
-            }
-
-            th,
-            td {
-              border: 1px solid #000;
-              padding: 10px;
-              text-align: left;
-            }
-
-            th {
-              font-weight: bold;
-            }
-
-            @page {
-              size: A4;
-              margin: 15mm;
-            }
-          </style>
-        </head>
-
-        <body>
-          <div class="print-container">
-            ${element.innerHTML}
-          </div>
-        </body>
-      </html>
-    `)
-
-    printWindow.document.close()
-
-    printWindow.focus()
-
-    setTimeout(() => {
-      printWindow.print()
-      printWindow.close()
-    }, 500)
-  }
-
-  // =========================
-  // IMPRESSION DE TOUS LES BULLETINS
-  // =========================
-
-  function printAllReportCards() {
-    if (
-      reportCards.length ===
-      0
-    ) {
-      return
-    }
-
-    const printWindow =
-      window.open(
-        "",
-        "_blank",
-        "width=900,height=1200"
-      )
-
-    if (!printWindow) {
-      return
-    }
-
-    const allReportCards =
-      reportCards
-        .map(
-          (
-            report
-          ) => {
-            const element =
-              document.getElementById(
-                `report-card-${report.student.id}`
-              )
-
-            if (!element) {
-              return ""
-            }
-
-            return `
-              <div class="report-card">
-                ${element.innerHTML}
-              </div>
-            `
-          }
-        )
-        .join("")
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>
-            Bulletins scolaires
-          </title>
-
-          <style>
-            * {
-              box-sizing: border-box;
-            }
-
-            body {
-              margin: 0;
-              padding: 0;
-              font-family: Arial, sans-serif;
-              background: white;
-              color: black;
-            }
-
-            .report-card {
-              width: 100%;
-              min-height: 250mm;
-              padding: 10mm;
-              page-break-after: always;
-              break-after: page;
-            }
-
-            .report-card:last-child {
-              page-break-after: auto;
-              break-after: auto;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 20px;
-            }
-
-            th,
-            td {
-              border: 1px solid #000;
-              padding: 10px;
-              text-align: left;
-            }
-
-            th {
-              font-weight: bold;
-            }
-
-            @page {
-              size: A4;
-              margin: 10mm;
-            }
-          </style>
-        </head>
-
-        <body>
-          ${allReportCards}
-        </body>
-      </html>
-    `)
-
-    printWindow.document.close()
-
-    printWindow.focus()
-
-    setTimeout(() => {
-      printWindow.print()
-      printWindow.close()
-    }, 700)
+    return `${rank}e`
   }
 
   function getSelectedClassName() {
     return (
       classes.find(
-        (
-          classItem
-        ) =>
+        (classItem) =>
           classItem.id ===
           selectedClassId
       )?.name ?? ""
@@ -925,59 +752,151 @@ for (
   function getSelectedPeriodName() {
     return (
       periods.find(
-        (
-          period
-        ) =>
+        (period) =>
           period.id ===
           selectedPeriodId
       )?.name ?? ""
     )
   }
 
+  function formatToday() {
+    return new Date().toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    })
+  }
+
+  // Seuils sur barème /20 (standard francophone)
   function getAppreciation(
     average: number | null
   ) {
-    if (
-      average ===
-      null
-    ) {
+    if (average === null) {
       return "Non évalué"
     }
 
-    if (
-      average >=
-      9
-    ) {
+    if (average >= 18) {
       return "Excellent"
     }
 
-    if (
-      average >=
-      8
-    ) {
+    if (average >= 16) {
       return "Très bien"
     }
 
-    if (
-      average >=
-      7
-    ) {
+    if (average >= 14) {
       return "Bien"
     }
 
-    if (
-      average >=
-      5
-    ) {
+    if (average >= 10) {
       return "Passable"
     }
 
     return "Insuffisant"
   }
 
-  if (
-    loading
+  // Renommé de "Décision" à "Résultat" : un bulletin périodique ne prononce pas
+  // de décision de passage en classe supérieure (réservée au conseil de fin d'année).
+  function getPeriodResult(
+    average: number | null
   ) {
+    if (average === null) {
+      return "Non évalué"
+    }
+
+    if (average >= 10) {
+      return "Satisfaisant"
+    }
+
+    return "Insuffisant"
+  }
+
+  function getAutomaticObservation(
+    average: number | null
+  ) {
+    if (average === null) {
+      return "Élève non évalué pour cette période."
+    }
+
+    if (average >= 18) {
+      return "Excellent travail. Les résultats sont remarquables. Félicitations pour les efforts et la régularité."
+    }
+
+    if (average >= 16) {
+      return "Très bons résultats. Le travail est sérieux et les efforts doivent être poursuivis."
+    }
+
+    if (average >= 14) {
+      return "Bon travail dans l'ensemble. Les résultats sont satisfaisants. Il faut continuer les efforts."
+    }
+
+    if (average >= 10) {
+      return "Résultats passables. Des efforts supplémentaires et un travail plus régulier permettront de progresser."
+    }
+
+    return "Résultats insuffisants. Un travail régulier et un accompagnement renforcé sont nécessaires."
+  }
+
+  function getTotalCoefficients(
+    report: ReportCardStudent
+  ) {
+    return report.subjects
+      .filter(
+        (subject) =>
+          subject.average !==
+          null
+      )
+      .reduce(
+        (
+          total,
+          subject
+        ) =>
+          total +
+          subject.coefficient,
+        0
+      )
+  }
+
+  function getTotalPoints(
+    report: ReportCardStudent
+  ) {
+    return report.subjects
+      .filter(
+        (subject) =>
+          subject.average !==
+          null
+      )
+      .reduce(
+        (
+          total,
+          subject
+        ) =>
+          total +
+          (
+            subject.average ??
+            0
+          ) *
+            subject.coefficient,
+        0
+      )
+  }
+
+  function printReportCard(
+    studentId: string
+  ) {
+    setPrintTarget(studentId)
+  }
+
+  function printAllReportCards() {
+    if (
+      reportCards.length === 0
+    ) {
+      return
+    }
+
+    setPrintTarget("all")
+  }
+
+  if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
         <p className="text-muted-foreground">
@@ -989,15 +908,40 @@ for (
 
   return (
     <main className="min-h-screen bg-muted/30">
-      <header className="border-b bg-background">
+
+      <style>{`
+        @media print {
+          .print-hidden {
+            display: none !important;
+          }
+          .print-exclude {
+            display: none !important;
+          }
+          .report-card-print {
+            page-break-after: always;
+            break-after: page;
+          }
+          .report-card-print:last-of-type {
+            page-break-after: auto;
+            break-after: auto;
+          }
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
+        }
+      `}</style>
+
+      <header className="border-b bg-background print-hidden">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
+
           <div>
             <h1 className="text-xl font-bold">
               EduMali
             </h1>
 
             <p className="text-sm text-muted-foreground">
-              Bulletins scolaires
+              Gestion des bulletins scolaires
             </p>
           </div>
 
@@ -1011,11 +955,19 @@ for (
           >
             Retour au dashboard
           </button>
+
         </div>
       </header>
 
       <section className="mx-auto max-w-7xl space-y-8 p-6">
-        <div>
+
+        {initialLoadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive print-hidden">
+            {initialLoadError}
+          </div>
+        )}
+
+        <div className="print-hidden">
           <h2 className="text-3xl font-bold">
             Bulletins scolaires
           </h2>
@@ -1025,11 +977,8 @@ for (
           </p>
         </div>
 
-        {/* =========================
-            FILTRES
-        ========================= */}
+        <div className="grid gap-4 rounded-xl border bg-background p-6 md:grid-cols-2 print-hidden">
 
-        <div className="grid gap-4 rounded-xl border bg-background p-6 md:grid-cols-2">
           <div>
             <label
               htmlFor="class"
@@ -1043,9 +992,7 @@ for (
               value={
                 selectedClassId
               }
-              onChange={(
-                event
-              ) =>
+              onChange={(event) =>
                 setSelectedClassId(
                   event.target.value
                 )
@@ -1057,9 +1004,7 @@ for (
               </option>
 
               {classes.map(
-                (
-                  classItem
-                ) => (
+                (classItem) => (
                   <option
                     key={
                       classItem.id
@@ -1090,9 +1035,7 @@ for (
               value={
                 selectedPeriodId
               }
-              onChange={(
-                event
-              ) =>
+              onChange={(event) =>
                 setSelectedPeriodId(
                   event.target.value
                 )
@@ -1104,9 +1047,7 @@ for (
               </option>
 
               {periods.map(
-                (
-                  period
-                ) => (
+                (period) => (
                   <option
                     key={
                       period.id
@@ -1125,6 +1066,7 @@ for (
           </div>
 
           <div className="flex flex-wrap gap-3 md:col-span-2">
+
             <button
               onClick={
                 loadReportCards
@@ -1136,235 +1078,348 @@ for (
               }
               className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loadingReport
-                ? "Chargement..."
-                : "Afficher les bulletins"}
+              {
+                loadingReport
+                  ? "Chargement..."
+                  : "Afficher les bulletins"
+              }
             </button>
 
             {reportCards.length >
               0 && (
-              <button
-                onClick={
-                  printAllReportCards
-                }
-                className="rounded-md border bg-background px-6 py-3 font-medium hover:bg-muted"
-              >
-                🖨️ Imprimer tous les bulletins
-              </button>
-            )}
+                <button
+                  onClick={
+                    printAllReportCards
+                  }
+                  className="rounded-md border bg-background px-6 py-3 font-medium hover:bg-muted"
+                >
+                  🖨️ Imprimer tous les bulletins
+                </button>
+              )}
+
           </div>
+
+          {reportLoadError && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive md:col-span-2">
+              {reportLoadError}
+            </div>
+          )}
+
         </div>
 
-        {/* =========================
-            BULLETINS
-        ========================= */}
-
         <div className="space-y-8">
+
           {reportCards.length ===
           0 ? (
-            <div className="rounded-xl border border-dashed bg-background p-10 text-center">
+
+            <div className="rounded-xl border border-dashed bg-background p-10 text-center print-hidden">
               <p className="text-muted-foreground">
                 Sélectionnez une classe et une période pour afficher les bulletins.
               </p>
             </div>
+
           ) : (
+
             reportCards.map(
-              (
-                report
-              ) => (
+              (report) => (
+
                 <article
                   id={`report-card-${report.student.id}`}
                   key={
                     report.student.id
                   }
-                  className="overflow-hidden rounded-xl border bg-background shadow-sm"
+                  className={`overflow-hidden rounded-xl border bg-background shadow-sm report-card-print ${
+                    printTarget !== null &&
+                    printTarget !== "all" &&
+                    printTarget !== report.student.id
+                      ? "print-exclude"
+                      : ""
+                  }`}
                 >
-                  {/* =========================
-                      EN-TÊTE
-                  ========================= */}
 
-                  <div className="border-b p-8 text-center">
-                    <h2 className="text-2xl font-bold uppercase">
-                      {
-                        school?.name ||
-                        "Établissement scolaire"
-                      }
-                    </h2>
+ <div className="border-b-4 bg-muted/10 p-8 text-center">
 
-                    {school?.address && (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {
-                          school.address
-                        }
-                      </p>
-                    )}
+  {school?.logo_url && (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={school.logo_url}
+      alt={`Logo ${school?.name ?? "établissement"}`}
+      className="mx-auto mb-4 h-20 w-20 object-contain"
+    />
+  )}
 
-                    {school?.phone && (
-                      <p className="text-sm text-muted-foreground">
-                        Tél :{" "}
-                        {
-                          school.phone
-                        }
-                      </p>
-                    )}
+  <p className="text-xs font-bold uppercase tracking-[0.25em] text-muted-foreground">
+    Établissement scolaire
+  </p>
 
-                    <div className="mt-6">
-                      <h3 className="text-xl font-bold uppercase">
-                        Bulletin scolaire
-                      </h3>
+  <h2 className="mt-3 text-3xl font-black uppercase tracking-wide">
+    {
+      school?.name ||
+      "Établissement scolaire"
+    }
+  </h2>
 
-                      <p className="mt-2 text-muted-foreground">
-                        Année scolaire :{" "}
-                        {
-                          academicYear?.name ||
-                          "—"
-                        }
-                      </p>
+  <div className="mt-3 space-y-1 text-sm text-muted-foreground">
 
-                      <p className="text-sm text-muted-foreground">
-                        Période :{" "}
-                        {
-                          getSelectedPeriodName()
-                        }
-                      </p>
-                    </div>
-                  </div>
+    {school?.address && (
+      <p>
+        {school.address}
+      </p>
+    )}
 
-                  {/* =========================
-                      INFORMATIONS ÉLÈVE
-                  ========================= */}
+    {school?.phone && (
+      <p>
+        Tél :{" "}
+        {school.phone}
+      </p>
+    )}
 
-                  <div className="grid gap-4 border-b p-6 md:grid-cols-2">
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        Élève
-                      </p>
+  </div>
 
-                      <p className="text-lg font-bold uppercase">
-                        {
-                          report.student.last_name
-                        }{" "}
-                        {
-                          report.student.first_name
-                        }
-                      </p>
-                    </div>
+  <div className="mx-auto mt-8 max-w-2xl rounded-2xl border-2 bg-background p-6 shadow-sm">
 
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        Classe
-                      </p>
+    <p className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
+      Année scolaire
+    </p>
 
-                      <p className="text-lg font-bold">
-                        {
-                          getSelectedClassName()
-                        }
-                      </p>
-                    </div>
+    <p className="mt-2 text-xl font-bold">
+      {
+        academicYear?.name ||
+        "—"
+      }
+    </p>
 
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        Période
-                      </p>
+    <div className="mx-auto my-5 h-px max-w-xs bg-border" />
 
-                      <p className="font-medium">
-                        {
-                          getSelectedPeriodName()
-                        }
-                      </p>
-                    </div>
+    <h3 className="text-3xl font-black uppercase tracking-wide">
+      Bulletin scolaire
+    </h3>
 
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        Rang
-                      </p>
+    <p className="mt-3 text-sm font-medium text-muted-foreground">
+      Période :{" "}
+      {
+        getSelectedPeriodName()
+      }
+    </p>
 
-                      <p className="font-bold">
-                        {
-                          report.rank
-                            ? `${report.rank}e`
-                            : "—"
-                        }
-                      </p>
-                    </div>
-                  </div>
+    <p className="mt-1 text-xs text-muted-foreground">
+      Édité le {formatToday()}
+    </p>
 
-                  {/* =========================
-                      TABLEAU DES MATIÈRES
-                  ========================= */}
+  </div>
 
-                  <div className="p-6">
+</div>
+
+<div className="grid gap-4 border-b bg-muted/20 p-6 md:grid-cols-4">
+
+  <div className="rounded-lg border bg-background p-4 md:col-span-2">
+
+    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      Élève
+    </p>
+
+    <p className="mt-2 text-xl font-bold uppercase">
+      {
+        report.student.last_name
+      }{" "}
+      {
+        report.student.first_name
+      }
+    </p>
+
+    {report.student.matricule && (
+      <p className="mt-1 text-xs text-muted-foreground">
+        Matricule : {report.student.matricule}
+      </p>
+    )}
+
+    {report.student.parent_name && (
+      <p className="mt-1 text-xs text-muted-foreground">
+        Parent / Tuteur : {report.student.parent_name}
+      </p>
+    )}
+
+  </div>
+
+  <div className="rounded-lg border bg-background p-4">
+
+    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      Classe
+    </p>
+
+    <p className="mt-2 text-lg font-bold">
+      {
+        getSelectedClassName()
+      }
+    </p>
+
+  </div>
+
+  <div className="rounded-lg border bg-background p-4">
+
+    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      Rang
+    </p>
+
+    <p className="mt-2 text-lg font-bold">
+      {
+        formatRank(
+          report.rank
+        )
+      }
+    </p>
+
+  </div>
+
+  <div className="rounded-lg border bg-background p-4 md:col-span-4">
+
+    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      Période scolaire
+    </p>
+
+    <p className="mt-2 font-medium">
+      {
+        getSelectedPeriodName()
+      }
+    </p>
+
+  </div>
+
+</div>
+
+<div className="p-6">
+
                     <div className="overflow-x-auto">
+
                       <table className="w-full border-collapse text-left">
+
                         <thead>
                           <tr className="border-b-2">
+
                             <th className="px-4 py-4">
                               Matière
                             </th>
 
                             <th className="px-4 py-4">
-                              Moyenne / 10
+                              Moyenne / 20
                             </th>
 
                             <th className="px-4 py-4">
                               Coefficient
                             </th>
+
+                            <th className="px-4 py-4">
+                              Points
+                            </th>
+
                           </tr>
                         </thead>
 
                         <tbody>
-                          {
-                            report.subjects.map(
-                              (
-                                subject
-                              ) => (
-                                <tr
-                                  key={
-                                    subject.subjectId
+
+                          {report.subjects.map(
+                            (subject) => (
+
+                              <tr
+                                key={
+                                  subject.subjectId
+                                }
+                                className="border-b"
+                              >
+
+                                <td className="px-4 py-4 font-medium">
+                                  {
+                                    subject.subjectName
                                   }
-                                  className="border-b"
-                                >
-                                  <td className="px-4 py-4 font-medium">
-                                    {
-                                      subject.subjectName
-                                    }
-                                  </td>
+                                </td>
 
-                                  <td className="px-4 py-4">
-                                    {
-                                      subject.average !==
-                                      null
-                                        ? `${subject.average.toFixed(
-                                            2
-                                          )} / 10`
-                                        : "—"
-                                    }
-                                  </td>
+                                <td className="px-4 py-4">
 
-                                  <td className="px-4 py-4">
-                                    {
-                                      subject.coefficient
-                                    }
-                                  </td>
-                                </tr>
-                              )
+                                  {
+                                    subject.average !==
+                                    null
+                                      ? `${subject.average.toFixed(
+                                          2
+                                        )} / 20`
+                                      : "—"
+                                  }
+
+                                </td>
+
+                                <td className="px-4 py-4">
+                                  {
+                                    subject.coefficient
+                                  }
+                                </td>
+
+                                <td className="px-4 py-4 font-medium">
+                                  {
+                                    subject.average !==
+                                    null
+                                      ? (
+                                          subject.average *
+                                          subject.coefficient
+                                        ).toFixed(
+                                          2
+                                        )
+                                      : "—"
+                                  }
+                                </td>
+
+                              </tr>
+
                             )
-                          }
+                          )}
+
                         </tbody>
+
                       </table>
+
                     </div>
 
-                    {/* =========================
-                        RÉSUMÉ
-                    ========================= */}
+                    <div className="mt-8 grid gap-4 md:grid-cols-4">
 
-                    <div className="mt-6 grid gap-4 md:grid-cols-3">
-                      <div className="rounded-lg border p-4">
+                      <div className="rounded-lg border p-5">
+
+                        <p className="text-sm text-muted-foreground">
+                          Total points
+                        </p>
+
+                        <p className="mt-2 text-2xl font-bold">
+                          {
+                            getTotalPoints(
+                              report
+                            ).toFixed(
+                              2
+                            )
+                          }
+                        </p>
+
+                      </div>
+
+                      <div className="rounded-lg border p-5">
+
+                        <p className="text-sm text-muted-foreground">
+                          Total coefficients
+                        </p>
+
+                        <p className="mt-2 text-2xl font-bold">
+                          {
+                            getTotalCoefficients(
+                              report
+                            )
+                          }
+                        </p>
+
+                      </div>
+
+                      <div className="rounded-lg border p-5">
+
                         <p className="text-sm text-muted-foreground">
                           Moyenne générale
                         </p>
 
-                        <p className="mt-1 text-2xl font-bold">
+                        <p className="mt-2 text-2xl font-bold">
                           {
                             report.generalAverage !==
                             null
@@ -1373,45 +1428,93 @@ for (
                                 )
                               : "—"
                           }{" "}
-                          / 10
+                          <span className="text-base font-normal">
+                            / 20
+                          </span>
                         </p>
+
                       </div>
 
-                      <div className="rounded-lg border p-4">
+                      <div className="rounded-lg border p-5">
+
                         <p className="text-sm text-muted-foreground">
-                          Appréciation
+                          Rang
                         </p>
 
-                        <p className="mt-1 text-xl font-semibold">
+                        <p className="mt-2 text-2xl font-bold">
+                          {
+                            formatRank(
+                              report.rank
+                            )
+                          }
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                    <div className="mt-6 grid gap-4 md:grid-cols-2">
+
+                      <div className="rounded-lg border p-5">
+
+                        <p className="text-sm text-muted-foreground">
+                          Appréciation générale
+                        </p>
+
+                        <p className="mt-2 text-xl font-bold">
                           {
                             getAppreciation(
                               report.generalAverage
                             )
                           }
                         </p>
+
                       </div>
 
-                      <div className="rounded-lg border p-4">
+                      <div className="rounded-lg border p-5">
+
                         <p className="text-sm text-muted-foreground">
-                          Rang
+                          Résultat
                         </p>
 
-                        <p className="mt-1 text-2xl font-bold">
+                        <p className="mt-2 text-xl font-bold">
                           {
-                            report.rank
-                              ? `${report.rank}e`
-                              : "—"
+                            getPeriodResult(
+                              report.generalAverage
+                            )
                           }
                         </p>
+
                       </div>
+
                     </div>
+
+<div className="mt-8 rounded-lg border p-5">
+
+  <div className="flex items-center justify-between gap-4">
+
+    <p className="font-semibold">
+      Observation du conseil de classe
+    </p>
+
+    <span className="rounded-full border px-3 py-1 text-xs font-semibold uppercase">
+      Automatique
+    </span>
+
+  </div>
+
+  <p className="mt-4 leading-7 text-muted-foreground">
+    {getAutomaticObservation(
+      report.generalAverage
+    )}
+  </p>
+
+</div>
+
                   </div>
 
-                  {/* =========================
-                      IMPRESSION D'UN BULLETIN
-                  ========================= */}
+                  <div className="border-t p-6 text-right print-hidden">
 
-                  <div className="border-t p-6 text-right print:hidden">
                     <button
                       onClick={() =>
                         printReportCard(
@@ -1422,35 +1525,44 @@ for (
                     >
                       🖨️ Imprimer le bulletin
                     </button>
+
                   </div>
 
-                  {/* =========================
-                      SIGNATURES
-                  ========================= */}
+                  <div className="grid gap-12 border-t p-10 text-center md:grid-cols-2">
 
-                  <div className="grid gap-8 border-t p-8 text-center md:grid-cols-2">
                     <div>
+
                       <p className="font-semibold">
                         Signature de l'enseignant
                       </p>
 
-                      <div className="mt-16 border-t" />
+                      <div className="mt-20 border-t" />
+
                     </div>
 
                     <div>
+
                       <p className="font-semibold">
-                        Signature du directeur
+                        Signature et cachet du directeur
                       </p>
 
-                      <div className="mt-16 border-t" />
+                      <div className="mt-20 border-t" />
+
                     </div>
+
                   </div>
+
                 </article>
+
               )
             )
+
           )}
+
         </div>
+
       </section>
+
     </main>
   )
 }
