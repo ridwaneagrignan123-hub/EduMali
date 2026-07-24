@@ -86,41 +86,99 @@ export default function TeachersPage() {
     setLoading(false)
   }
 
-  async function createTeacher(
-    event: FormEvent<HTMLFormElement>
+ async function createTeacher(
+  event: FormEvent<HTMLFormElement>
+) {
+  event.preventDefault()
+
+  if (
+    !firstName.trim() ||
+    !lastName.trim() ||
+    !email.trim()
   ) {
-    event.preventDefault()
+    alert(
+      "Le prénom, le nom et l'email sont obligatoires."
+    )
 
-    if (!firstName.trim() || !lastName.trim()) {
-      alert("Le prénom et le nom sont obligatoires.")
-      return
-    }
+    return
+  }
 
-    setCreating(true)
+  setCreating(true)
 
-    const { error } = await supabase
-      .from("teachers")
-      .insert({
-        school_id: schoolId,
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
-        specialty: specialty.trim() || null,
-        hire_date: hireDate || null,
-        status: "active",
-      })
+  try {
+    const {
+      data: {
+        session,
+      },
+    } =
+      await supabase.auth.getSession()
 
-    if (error) {
-      console.error(
-        "Erreur lors de la création de l'enseignant :",
-        error
+    if (
+      !session?.access_token
+    ) {
+      alert(
+        "Votre session a expiré. Veuillez vous reconnecter."
       )
 
-      alert(error.message)
-      setCreating(false)
+      router.push("/login")
+
       return
     }
+
+    const response =
+      await fetch(
+        "/api/teachers/invite",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            Authorization:
+              `Bearer ${session.access_token}`,
+          },
+
+          body: JSON.stringify({
+            firstName:
+              firstName.trim(),
+
+            lastName:
+              lastName.trim(),
+
+            email:
+              email.trim(),
+
+            phone:
+              phone.trim(),
+
+            specialty:
+              specialty.trim(),
+
+            hireDate:
+              hireDate ||
+              null,
+          }),
+        }
+      )
+
+    const result =
+      await response.json()
+
+    if (
+      !response.ok
+    ) {
+      alert(
+        result.error ||
+          "Impossible d'envoyer l'invitation."
+      )
+
+      return
+    }
+
+    alert(
+      "Invitation envoyée avec succès à l'enseignant."
+    )
 
     setFirstName("")
     setLastName("")
@@ -130,9 +188,19 @@ export default function TeachersPage() {
     setHireDate("")
 
     await loadData()
+  } catch (error) {
+    console.error(
+      "Erreur invitation enseignant :",
+      error
+    )
 
+    alert(
+      "Une erreur est survenue lors de l'envoi de l'invitation."
+    )
+  } finally {
     setCreating(false)
   }
+}
 
   return (
     <main className="min-h-screen bg-muted/30">
