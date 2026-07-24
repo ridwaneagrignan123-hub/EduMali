@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { Logo } from "@/components/logo"
 
 type Profile = {
   school_id: string | null
@@ -297,7 +298,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center bg-background">
         <p className="text-muted-foreground">
           Chargement du tableau de bord...
         </p>
@@ -306,61 +307,79 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-muted/30">
-      <header className="border-b bg-background">
+    <main className="min-h-screen bg-background">
+      <header className="border-b border-border bg-background">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
-          <div>
-            <h1 className="text-xl font-bold">
-              EduMali
-            </h1>
+          <div className="flex items-center gap-4">
+            <Logo size="sm" />
 
-            <p className="text-sm text-muted-foreground">
-              {school?.name ||
-                "Gestion scolaire"}
-            </p>
+            <span className="hidden text-sm text-muted-foreground sm:inline">
+              {school?.name || "Gestion scolaire"}
+            </span>
           </div>
 
-          <div className="text-right">
-            <p className="text-sm font-medium">
-              {getUserName()}
-            </p>
+          <div className="flex items-center gap-3">
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-primary-foreground"
+              style={{ background: "oklch(0.58 0.15 45)" }}
+            >
+              {getUserName().charAt(0).toUpperCase() || "?"}
+            </div>
 
-            <p className="text-xs text-muted-foreground">
-              {userEmail}
-            </p>
+            <div className="text-right">
+              <p className="text-sm font-medium">
+                {getUserName()}
+              </p>
+
+              <p className="text-xs text-muted-foreground">
+                {userEmail}
+              </p>
+            </div>
           </div>
         </div>
       </header>
 
       <div className="flex min-h-[calc(100vh-81px)]">
-        <aside className="hidden w-64 border-r bg-background p-4 md:flex md:flex-col md:justify-between">
-          <nav className="space-y-2">
+        <aside
+          className="hidden w-64 flex-col justify-between p-4 md:flex"
+          style={{ background: "oklch(0.24 0.02 60)" }}
+        >
+          <nav className="space-y-1.5">
             {navItems
               .filter((item) =>
                 item.roles.includes(
                   profile?.role || "admin"
                 )
               )
-              .map((item) => (
-                <button
-                  key={item.path}
-                  onClick={() =>
-                    router.push(item.path)
-                  }
-                  className={
-                    item.path === "/dashboard"
-                      ? "w-full rounded-md bg-primary px-4 py-3 text-left text-sm font-medium text-primary-foreground"
-                      : "w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-                  }
-                >
-                  {item.label}
-                </button>
-              ))}
+              .map((item) => {
+                const isActive = item.path === "/dashboard"
+
+                return (
+                  <button
+                    key={item.path}
+                    onClick={() =>
+                      router.push(item.path)
+                    }
+                    className={
+                      isActive
+                        ? "w-full rounded-lg px-4 py-3 text-left text-sm font-semibold text-white"
+                        : "w-full rounded-lg px-4 py-3 text-left text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+                    }
+                    style={
+                      isActive
+                        ? { background: "oklch(0.58 0.15 45)" }
+                        : undefined
+                    }
+                  >
+                    {item.label}
+                  </button>
+                )
+              })}
           </nav>
 
           <button
             onClick={handleLogout}
-            className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted"
+            className="w-full rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
           >
             Déconnexion
           </button>
@@ -391,17 +410,27 @@ export default function DashboardPage() {
                     "/students"
                   )
                 }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
+                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
               >
+                <div
+                  className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
+                  style={{ background: "oklch(0.58 0.15 45 / 0.12)" }}
+                >
+                  <div
+                    className="h-4 w-4 rounded-sm"
+                    style={{ background: "oklch(0.58 0.15 45)" }}
+                  />
+                </div>
+
                 <p className="text-sm text-muted-foreground">
                   Élèves
                 </p>
 
-                <p className="mt-2 text-3xl font-bold">
+                <p className="mt-1 font-heading text-3xl font-extrabold">
                   {studentCount}
                 </p>
 
-                <p className="mt-2 text-sm text-primary">
+                <p className="mt-2 text-sm font-medium text-primary">
                   Gérer les élèves →
                 </p>
               </button>
@@ -412,17 +441,27 @@ export default function DashboardPage() {
                     "/teachers"
                   )
                 }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
+                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
               >
+                <div
+                  className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
+                  style={{ background: "oklch(0.56 0.13 150 / 0.12)" }}
+                >
+                  <div
+                    className="h-4 w-4 rounded-full"
+                    style={{ background: "oklch(0.56 0.13 150)" }}
+                  />
+                </div>
+
                 <p className="text-sm text-muted-foreground">
                   Enseignants
                 </p>
 
-                <p className="mt-2 text-3xl font-bold">
+                <p className="mt-1 font-heading text-3xl font-extrabold">
                   {teacherCount}
                 </p>
 
-                <p className="mt-2 text-sm text-primary">
+                <p className="mt-2 text-sm font-medium text-primary">
                   Gérer les enseignants →
                 </p>
               </button>
@@ -433,17 +472,27 @@ export default function DashboardPage() {
                     "/classes"
                   )
                 }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
+                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
               >
+                <div
+                  className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
+                  style={{ background: "oklch(0.78 0.14 85 / 0.18)" }}
+                >
+                  <div
+                    className="h-4 w-4 rounded-[3px]"
+                    style={{ background: "oklch(0.6 0.14 85)" }}
+                  />
+                </div>
+
                 <p className="text-sm text-muted-foreground">
                   Classes
                 </p>
 
-                <p className="mt-2 text-3xl font-bold">
+                <p className="mt-1 font-heading text-3xl font-extrabold">
                   {classCount}
                 </p>
 
-                <p className="mt-2 text-sm text-primary">
+                <p className="mt-2 text-sm font-medium text-primary">
                   Gérer les classes →
                 </p>
               </button>
@@ -454,23 +503,33 @@ export default function DashboardPage() {
                     "/attendance"
                   )
                 }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
+                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
               >
+                <div
+                  className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
+                  style={{ background: "oklch(0.58 0.15 45 / 0.12)" }}
+                >
+                  <div
+                    className="h-4 w-4 rounded-[50%_50%_50%_0]"
+                    style={{ background: "oklch(0.58 0.15 45)" }}
+                  />
+                </div>
+
                 <p className="text-sm text-muted-foreground">
                   Présences aujourd'hui
                 </p>
 
-                <p className="mt-2 text-3xl font-bold">
+                <p className="mt-1 font-heading text-3xl font-extrabold">
                   {attendanceCount}
                 </p>
 
-                <p className="mt-2 text-sm text-primary">
+                <p className="mt-2 text-sm font-medium text-primary">
                   Gérer les présences →
                 </p>
               </button>
             </div>
 
-            <div className="rounded-xl border bg-background p-6">
+            <div className="rounded-xl border border-border bg-card p-6">
               <h3 className="text-xl font-semibold">
                 Activité récente
               </h3>
