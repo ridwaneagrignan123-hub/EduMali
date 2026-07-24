@@ -15,10 +15,34 @@ type School = {
   name: string | null
 }
 
+type NavItem = {
+  label: string
+  path: string
+  roles: string[]
+}
+
+const navItems: NavItem[] = [
+  { label: "Tableau de bord", path: "/dashboard", roles: ["admin", "teacher"] },
+  { label: "Élèves", path: "/students", roles: ["admin", "teacher"] },
+  { label: "Enseignants", path: "/teachers", roles: ["admin"] },
+  { label: "Classes", path: "/classes", roles: ["admin", "teacher"] },
+  { label: "Matières", path: "/subjects", roles: ["admin"] },
+  { label: "Classes / Matières", path: "/class_subjects", roles: ["admin"] },
+  { label: "Année scolaire", path: "/academic", roles: ["admin"] },
+  { label: "Évaluations", path: "/assessments", roles: ["admin", "teacher"] },
+  { label: "Notes", path: "/grades", roles: ["admin", "teacher"] },
+  { label: "Moyennes", path: "/averages", roles: ["admin", "teacher"] },
+  { label: "Bulletins", path: "/report-card", roles: ["admin", "teacher"] },
+  { label: "Présences", path: "/attendance", roles: ["admin", "teacher"] },
+  { label: "Frais scolaires", path: "/fees", roles: ["admin"] },
+  { label: "Paramètres", path: "/settings", roles: ["admin"] },
+]
+
 export default function DashboardPage() {
   const router = useRouter()
 
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [userEmail, setUserEmail] =
     useState("")
@@ -47,6 +71,7 @@ export default function DashboardPage() {
 
   async function checkUserAndLoadDashboard() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -76,6 +101,9 @@ export default function DashboardPage() {
         profileError
       )
 
+      setLoadError(
+        "Impossible de charger votre profil. Rechargez la page ou reconnectez-vous."
+      )
       setLoading(false)
       return
     }
@@ -95,6 +123,8 @@ export default function DashboardPage() {
     const schoolId =
       profileData.school_id
 
+    const dashboardErrors: string[] = []
+
     const {
       data: schoolData,
       error: schoolError,
@@ -109,6 +139,7 @@ export default function DashboardPage() {
         "Erreur école :",
         schoolError
       )
+      dashboardErrors.push("les informations de l'établissement")
     }
 
     setSchool(schoolData)
@@ -132,6 +163,7 @@ export default function DashboardPage() {
         "Erreur nombre d'élèves :",
         studentsError
       )
+      dashboardErrors.push("le nombre d'élèves")
     } else {
       setStudentCount(
         studentsCount ?? 0
@@ -157,6 +189,7 @@ export default function DashboardPage() {
         "Erreur nombre de classes :",
         classesError
       )
+      dashboardErrors.push("le nombre de classes")
     } else {
       setClassCount(
         classesCount ?? 0
@@ -182,6 +215,7 @@ export default function DashboardPage() {
         "Erreur nombre d'enseignants :",
         teachersError
       )
+      dashboardErrors.push("le nombre d'enseignants")
     } else {
       setTeacherCount(
         teachersCount ?? 0
@@ -234,6 +268,12 @@ export default function DashboardPage() {
       )
     }
 
+    if (dashboardErrors.length > 0) {
+      setLoadError(
+        `Certaines données n'ont pas pu être chargées (${dashboardErrors.join(", ")}). Rechargez la page.`
+      )
+    }
+
     setLoading(false)
   }
 
@@ -248,6 +288,11 @@ export default function DashboardPage() {
     }
 
     return userEmail
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push("/login")
   }
 
   if (loading) {
@@ -288,111 +333,47 @@ export default function DashboardPage() {
       </header>
 
       <div className="flex min-h-[calc(100vh-81px)]">
-        <aside className="hidden w-64 border-r bg-background p-4 md:block">
+        <aside className="hidden w-64 border-r bg-background p-4 md:flex md:flex-col md:justify-between">
           <nav className="space-y-2">
-            <button
-              onClick={() =>
-                router.push(
-                  "/dashboard"
+            {navItems
+              .filter((item) =>
+                item.roles.includes(
+                  profile?.role || "admin"
                 )
-              }
-              className="w-full rounded-md bg-primary px-4 py-3 text-left text-sm font-medium text-primary-foreground"
-            >
-              Tableau de bord
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/students"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Élèves
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/teachers"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Enseignants
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/classes"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Classes
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/grades"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Notes
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/averages"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Moyennes
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/attendance"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Présences
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/fees"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Frais scolaires
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/settings"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Paramètres
-            </button>
+              )
+              .map((item) => (
+                <button
+                  key={item.path}
+                  onClick={() =>
+                    router.push(item.path)
+                  }
+                  className={
+                    item.path === "/dashboard"
+                      ? "w-full rounded-md bg-primary px-4 py-3 text-left text-sm font-medium text-primary-foreground"
+                      : "w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
+                  }
+                >
+                  {item.label}
+                </button>
+              ))}
           </nav>
+
+          <button
+            onClick={handleLogout}
+            className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted"
+          >
+            Déconnexion
+          </button>
         </aside>
 
         <section className="flex-1 p-6">
           <div className="mx-auto max-w-7xl space-y-8">
+            {loadError && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                {loadError}
+              </div>
+            )}
+
             <div>
               <h2 className="text-3xl font-bold">
                 Tableau de bord

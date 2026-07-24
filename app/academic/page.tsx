@@ -32,6 +32,7 @@ export default function AcademicPage() {
   const [loading, setLoading] = useState(true)
   const [creatingYear, setCreatingYear] = useState(false)
   const [creatingPeriod, setCreatingPeriod] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [yearName, setYearName] = useState("")
   const [yearStartDate, setYearStartDate] = useState("")
@@ -49,6 +50,7 @@ export default function AcademicPage() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -90,11 +92,14 @@ export default function AcademicPage() {
           ascending: false,
         })
 
+    const loadErrors: string[] = []
+
     if (yearsError) {
       console.error(
         "Erreur années scolaires :",
         yearsError
       )
+      loadErrors.push("les années scolaires")
     }
 
     const { data: periodsData, error: periodsError } =
@@ -112,6 +117,13 @@ export default function AcademicPage() {
       console.error(
         "Erreur périodes scolaires :",
         periodsError
+      )
+      loadErrors.push("les périodes scolaires")
+    }
+
+    if (loadErrors.length > 0) {
+      setLoadError(
+        `Impossible de charger ${loadErrors.join(", ")}. Réessayez.`
       )
     }
 
@@ -455,6 +467,12 @@ export default function AcademicPage() {
             Gérez les années scolaires et leurs périodes d'évaluation.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
           <div className="rounded-xl border bg-background p-6">

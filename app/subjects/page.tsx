@@ -18,6 +18,7 @@ export default function SubjectsPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [schoolId, setSchoolId] = useState("")
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
@@ -29,6 +30,7 @@ export default function SubjectsPage() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -71,6 +73,7 @@ export default function SubjectsPage() {
         "Erreur lors du chargement des matières :",
         subjectsError
       )
+      setLoadError("Impossible de charger la liste des matières.")
     }
 
     setSubjects(subjectsData ?? [])
@@ -178,6 +181,12 @@ export default function SubjectsPage() {
             Ajoutez et gérez les matières enseignées dans votre établissement.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
           <div className="rounded-xl border bg-background p-6">

@@ -63,6 +63,7 @@ export default function AssessmentsPage() {
 
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [classId, setClassId] = useState("")
   const [subjectId, setSubjectId] = useState("")
@@ -79,6 +80,7 @@ export default function AssessmentsPage() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -172,11 +174,14 @@ export default function AssessmentsPage() {
         }),
     ])
 
+    const loadErrors: string[] = []
+
     if (classesResult.error) {
       console.error(
         "Erreur classes :",
         classesResult.error
       )
+      loadErrors.push("les classes")
     }
 
     if (subjectsResult.error) {
@@ -184,6 +189,7 @@ export default function AssessmentsPage() {
         "Erreur matières :",
         subjectsResult.error
       )
+      loadErrors.push("les matières")
     }
 
     if (yearsResult.error) {
@@ -191,6 +197,7 @@ export default function AssessmentsPage() {
         "Erreur années scolaires :",
         yearsResult.error
       )
+      loadErrors.push("les années scolaires")
     }
 
     if (periodsResult.error) {
@@ -198,12 +205,20 @@ export default function AssessmentsPage() {
         "Erreur périodes :",
         periodsResult.error
       )
+      loadErrors.push("les périodes scolaires")
     }
 
     if (assessmentsResult.error) {
       console.error(
         "Erreur évaluations :",
         assessmentsResult.error
+      )
+      loadErrors.push("les évaluations")
+    }
+
+    if (loadErrors.length > 0) {
+      setLoadError(
+        `Impossible de charger ${loadErrors.join(", ")}. Réessayez.`
       )
     }
 
@@ -215,7 +230,7 @@ export default function AssessmentsPage() {
     setYears(loadedYears)
     setPeriods(loadedPeriods)
     setAssessments(
-      (assessmentsResult.data as Assessment[]) ?? []
+      (assessmentsResult.data as unknown as Assessment[]) ?? []
     )
 
     const activeYear =
@@ -408,6 +423,12 @@ export default function AssessmentsPage() {
             Créez et gérez les évaluations de vos classes.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
           <div className="rounded-xl border bg-background p-6">

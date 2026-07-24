@@ -52,6 +52,7 @@ export default function ClassSubjectsPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [schoolId, setSchoolId] = useState("")
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [classId, setClassId] = useState("")
   const [subjectId, setSubjectId] = useState("")
@@ -64,6 +65,7 @@ export default function ClassSubjectsPage() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -144,11 +146,14 @@ export default function ClassSubjectsPage() {
         }),
     ])
 
+    const loadErrors: string[] = []
+
     if (classesResult.error) {
       console.error(
         "Erreur classes :",
         classesResult.error
       )
+      loadErrors.push("les classes")
     }
 
     if (subjectsResult.error) {
@@ -156,6 +161,7 @@ export default function ClassSubjectsPage() {
         "Erreur matières :",
         subjectsResult.error
       )
+      loadErrors.push("les matières")
     }
 
     if (teachersResult.error) {
@@ -163,6 +169,7 @@ export default function ClassSubjectsPage() {
         "Erreur enseignants :",
         teachersResult.error
       )
+      loadErrors.push("les enseignants")
     }
 
     if (assignmentsResult.error) {
@@ -170,13 +177,20 @@ export default function ClassSubjectsPage() {
         "Erreur affectations :",
         assignmentsResult.error
       )
+      loadErrors.push("les affectations")
+    }
+
+    if (loadErrors.length > 0) {
+      setLoadError(
+        `Impossible de charger ${loadErrors.join(", ")}. Réessayez.`
+      )
     }
 
     setClasses(classesResult.data ?? [])
     setSubjects(subjectsResult.data ?? [])
     setTeachers(teachersResult.data ?? [])
     setAssignments(
-      (assignmentsResult.data as ClassSubject[]) ?? []
+      (assignmentsResult.data as unknown as ClassSubject[]) ?? []
     )
 
     setLoading(false)
@@ -308,6 +322,12 @@ export default function ClassSubjectsPage() {
             Affectez les matières, les enseignants et les coefficients à chaque classe.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
           <div className="rounded-xl border bg-background p-6">

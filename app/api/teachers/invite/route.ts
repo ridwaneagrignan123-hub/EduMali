@@ -2,15 +2,6 @@ import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
-console.log("URL présente :", !!process.env.NEXT_PUBLIC_SUPABASE_URL)
-console.log(
-  "SERVICE ROLE présente :",
-  !!process.env.SUPABASE_SERVICE_ROLE_KEY
-)
-console.log(
-  "Début de la clé :",
-  process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 10)
-)
 export async function POST(request: Request) {
   try {
     const authorization =

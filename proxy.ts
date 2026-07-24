@@ -31,7 +31,29 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { pathname } = request.nextUrl
+
+  // Les routes /api gèrent leur propre authentification (ex: Authorization header)
+  if (pathname.startsWith("/api")) {
+    return response
+  }
+
+  const publicPaths = ["/", "/login"]
+  const isPublicPath = publicPaths.includes(pathname)
+
+  if (!user && !isPublicPath) {
+    const loginUrl = new URL("/login", request.url)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  if (user && pathname === "/login") {
+    const dashboardUrl = new URL("/dashboard", request.url)
+    return NextResponse.redirect(dashboardUrl)
+  }
 
   return response
 }

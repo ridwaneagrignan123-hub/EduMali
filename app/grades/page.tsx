@@ -4,45 +4,57 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 
-type Profile = {
-  school_id: string | null
-  first_name: string | null
-  last_name: string | null
-  role: string | null
+type Assessment = {
+  id: string
+  class_id: string
+  subject_id: string
+  academic_period_id: string
+  title: string
+  max_score: number
+  coefficient: number
+  assessment_date: string
+  classes: { name: string } | null
+  subjects: { name: string } | null
+  academic_periods: { name: string } | null
 }
 
-type School = {
-  name: string | null
+type Student = {
+  id: string
+  first_name: string
+  last_name: string
 }
 
-export default function DashboardPage() {
+type GradeEntry = {
+  gradeId: string | null
+  score: string
+}
+
+export default function GradesPage() {
   const router = useRouter()
 
+  const [schoolId, setSchoolId] = useState("")
+
   const [loading, setLoading] = useState(true)
-  const [userEmail, setUserEmail] = useState("")
-  const [profile, setProfile] =
-    useState<Profile | null>(null)
-  const [school, setSchool] =
-    useState<School | null>(null)
+  const [loadingStudents, setLoadingStudents] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const [studentCount, setStudentCount] =
-    useState(0)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [studentsError, setStudentsError] = useState<string | null>(null)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
-  const [classCount, setClassCount] =
-    useState(0)
+  const [assessments, setAssessments] = useState<Assessment[]>([])
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState("")
 
-  const [teacherCount, setTeacherCount] =
-    useState(0)
-
-  const [attendanceCount, setAttendanceCount] =
-    useState(0)
+  const [students, setStudents] = useState<Student[]>([])
+  const [grades, setGrades] = useState<Record<string, GradeEntry>>({})
 
   useEffect(() => {
-    checkUserAndLoadDashboard()
+    loadInitialData()
   }, [])
 
-  async function checkUserAndLoadDashboard() {
+  async function loadInitialData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -53,206 +65,235 @@ export default function DashboardPage() {
       return
     }
 
-    setUserEmail(user.email || "")
-
-    const {
-      data: profileData,
-      error: profileError,
-    } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select(
-        "school_id, first_name, last_name, role"
-      )
+      .select("school_id")
       .eq("id", user.id)
       .maybeSingle()
 
     if (profileError) {
-      console.error(
-        "Erreur profil :",
-        profileError
+      console.error("Erreur profil :", profileError)
+      setLoadError(
+        "Impossible de charger votre profil. Réessayez ou reconnectez-vous."
       )
-
       setLoading(false)
       return
     }
 
-    if (!profileData) {
+    if (!profile?.school_id) {
       router.push("/setup-school")
       return
     }
 
-    setProfile(profileData)
+    setSchoolId(profile.school_id)
 
-    if (!profileData.school_id) {
-      router.push("/setup-school")
-      return
-    }
+    const { data: assessmentsData, error: assessmentsError } =
+      await supabase
+        .from("assessments")
+        .select(`
+          id,
+          class_id,
+          subject_id,
+          academic_period_id,
+          title,
+          max_score,
+          coefficient,
+          assessment_date,
+          classes ( name ),
+          subjects ( name ),
+          academic_periods ( name )
+        `)
+        .eq("school_id", profile.school_id)
+        .order("assessment_date", { ascending: false })
 
-    const schoolId =
-      profileData.school_id
-
-    const {
-      data: schoolData,
-      error: schoolError,
-    } = await supabase
-      .from("schools")
-      .select("name")
-      .eq("id", schoolId)
-      .maybeSingle()
-
-    if (schoolError) {
-      console.error(
-        "Erreur école :",
-        schoolError
-      )
-    }
-
-    setSchool(schoolData)
-
-    const {
-      count: studentsCount,
-      error: studentsError,
-    } = await supabase
-      .from("students")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-
-    if (studentsError) {
-      console.error(
-        "Erreur nombre d'élèves :",
-        studentsError
+    if (assessmentsError) {
+      console.error("Erreur évaluations :", assessmentsError)
+      setLoadError(
+        "Impossible de charger la liste des évaluations."
       )
     } else {
-      setStudentCount(
-        studentsCount ?? 0
-      )
-    }
-
-    const {
-      count: classesCount,
-      error: classesError,
-    } = await supabase
-      .from("classes")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-
-    if (classesError) {
-      console.error(
-        "Erreur nombre de classes :",
-        classesError
-      )
-    } else {
-      setClassCount(
-        classesCount ?? 0
-      )
-    }
-
-    const {
-      count: teachersCount,
-      error: teachersError,
-    } = await supabase
-      .from("teachers")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-
-    if (teachersError) {
-      console.error(
-        "Erreur nombre d'enseignants :",
-        teachersError
-      )
-    } else {
-      setTeacherCount(
-        teachersCount ?? 0
-      )
-    }
-
-    /*
-     * Présences du jour
-     *
-     * Nous comptons les présences
-     * enregistrées aujourd'hui.
-     *
-     * Si la table attendance n'existe
-     * pas encore, le compteur restera 0
-     * et une erreur sera affichée dans
-     * la console.
-     */
-
-    const today =
-      new Date()
-        .toISOString()
-        .split("T")[0]
-
-    const {
-      count: attendanceTodayCount,
-      error: attendanceError,
-    } = await supabase
-      .from("attendance")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-      .eq(
-        "attendance_date",
-        today
-      )
-
-    if (attendanceError) {
-      console.error(
-        "Erreur présences :",
-        attendanceError
-      )
-
-      setAttendanceCount(0)
-    } else {
-      setAttendanceCount(
-        attendanceTodayCount ?? 0
-      )
+      setAssessments((assessmentsData as unknown as Assessment[]) ?? [])
     }
 
     setLoading(false)
   }
 
-  function getUserName() {
-    if (
-      profile?.first_name ||
-      profile?.last_name
-    ) {
-      return `${profile.first_name || ""} ${
-        profile.last_name || ""
-      }`.trim()
+  async function loadStudentsAndGrades(assessmentId: string) {
+    setSelectedAssessmentId(assessmentId)
+    setSaveMessage(null)
+    setStudentsError(null)
+
+    if (!assessmentId) {
+      setStudents([])
+      setGrades({})
+      return
     }
 
-    return userEmail
+    const assessment = assessments.find(
+      (item) => item.id === assessmentId
+    )
+
+    if (!assessment) {
+      return
+    }
+
+    setLoadingStudents(true)
+
+    const { data: enrollments, error: enrollmentError } =
+      await supabase
+        .from("student_class_enrollments")
+        .select(`
+          student_id,
+          students ( id, first_name, last_name )
+        `)
+        .eq("school_id", schoolId)
+        .eq("class_id", assessment.class_id)
+
+    if (enrollmentError) {
+      console.error("Erreur inscriptions :", enrollmentError)
+      setStudentsError(
+        "Impossible de charger les élèves de cette classe."
+      )
+      setStudents([])
+      setGrades({})
+      setLoadingStudents(false)
+      return
+    }
+
+    const loadedStudents: Student[] = (enrollments ?? [])
+      .map((enrollment: any) => enrollment.students)
+      .filter(Boolean)
+      .sort((a: Student, b: Student) =>
+        a.last_name.localeCompare(b.last_name)
+      )
+
+    setStudents(loadedStudents)
+
+    const { data: existingGrades, error: gradesError } =
+      await supabase
+        .from("grades")
+        .select("id, student_id, score")
+        .eq("school_id", schoolId)
+        .eq("assessment_id", assessmentId)
+
+    if (gradesError) {
+      console.error("Erreur notes existantes :", gradesError)
+      setStudentsError(
+        "Les élèves ont été chargés, mais les notes existantes n'ont pas pu être récupérées."
+      )
+    }
+
+    const gradesMap: Record<string, GradeEntry> = {}
+
+    loadedStudents.forEach((student) => {
+      const existing = (existingGrades ?? []).find(
+        (grade: any) => grade.student_id === student.id
+      )
+
+      gradesMap[student.id] = {
+        gradeId: existing?.id ?? null,
+        score:
+          existing?.score !== undefined &&
+          existing?.score !== null
+            ? String(existing.score)
+            : "",
+      }
+    })
+
+    setGrades(gradesMap)
+    setLoadingStudents(false)
+  }
+
+  function updateScore(studentId: string, value: string) {
+    setGrades((current) => ({
+      ...current,
+      [studentId]: {
+        gradeId: current[studentId]?.gradeId ?? null,
+        score: value,
+      },
+    }))
+  }
+
+  const selectedAssessment = assessments.find(
+    (item) => item.id === selectedAssessmentId
+  )
+
+  async function saveGrades() {
+    if (!selectedAssessment) {
+      return
+    }
+
+    const maxScore = Number(selectedAssessment.max_score)
+
+    for (const student of students) {
+      const entry = grades[student.id]
+
+      if (!entry || entry.score.trim() === "") {
+        continue
+      }
+
+      const scoreNumber = Number(entry.score)
+
+      if (
+        Number.isNaN(scoreNumber) ||
+        scoreNumber < 0 ||
+        scoreNumber > maxScore
+      ) {
+        alert(
+          `La note de ${student.first_name} ${student.last_name} doit être comprise entre 0 et ${maxScore}.`
+        )
+        return
+      }
+    }
+
+    setSaving(true)
+    setSaveMessage(null)
+
+    const updates = students
+      .filter((student) => {
+        const entry = grades[student.id]
+        return entry && entry.score.trim() !== ""
+      })
+      .map((student) => {
+        const entry = grades[student.id]
+        const scoreNumber = Number(entry.score)
+
+        if (entry.gradeId) {
+          return supabase
+            .from("grades")
+            .update({ score: scoreNumber })
+            .eq("id", entry.gradeId)
+        }
+
+        return supabase.from("grades").insert({
+          school_id: schoolId,
+          assessment_id: selectedAssessmentId,
+          student_id: student.id,
+          score: scoreNumber,
+        })
+      })
+
+    const results = await Promise.all(updates)
+    const failed = results.filter((result) => result.error)
+
+    if (failed.length > 0) {
+      console.error("Erreurs lors de l'enregistrement :", failed)
+      setSaveMessage(
+        `${failed.length} note(s) n'ont pas pu être enregistrées. Réessayez.`
+      )
+    } else {
+      setSaveMessage("Notes enregistrées avec succès.")
+    }
+
+    await loadStudentsAndGrades(selectedAssessmentId)
+    setSaving(false)
   }
 
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
         <p className="text-muted-foreground">
-          Chargement du tableau de bord...
+          Chargement des notes...
         </p>
       </main>
     )
@@ -263,231 +304,165 @@ export default function DashboardPage() {
       <header className="border-b bg-background">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <h1 className="text-xl font-bold">
-              EduMali
-            </h1>
-
+            <h1 className="text-xl font-bold">EduMali</h1>
             <p className="text-sm text-muted-foreground">
-              {school?.name ||
-                "Gestion scolaire"}
+              Saisie des notes
             </p>
           </div>
 
-          <div className="text-right">
-            <p className="text-sm font-medium">
-              {getUserName()}
-            </p>
-
-            <p className="text-xs text-muted-foreground">
-              {userEmail}
-            </p>
-          </div>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+          >
+            Retour au dashboard
+          </button>
         </div>
       </header>
 
-      <div className="flex min-h-[calc(100vh-81px)]">
-        <aside className="hidden w-64 border-r bg-background p-4 md:block">
-          <nav className="space-y-2">
-            <button
-              onClick={() =>
-                router.push(
-                  "/dashboard"
-                )
-              }
-              className="w-full rounded-md bg-primary px-4 py-3 text-left text-sm font-medium text-primary-foreground"
-            >
-              Tableau de bord
-            </button>
+      <section className="mx-auto max-w-5xl space-y-8 p-6">
+        <div>
+          <h2 className="text-3xl font-bold">Notes</h2>
+          <p className="mt-2 text-muted-foreground">
+            Sélectionnez une évaluation pour saisir les notes des
+            élèves.
+          </p>
+        </div>
 
-            <button
-              onClick={() =>
-                router.push(
-                  "/students"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Élèves
-            </button>
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
-            <button
-              onClick={() =>
-                router.push(
-                  "/classes"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Classes
-            </button>
+        <div className="rounded-xl border bg-background p-6">
+          <label htmlFor="assessment" className="mb-2 block font-medium">
+            Évaluation
+          </label>
 
-            <button
-              onClick={() =>
-                router.push(
-                  "/teachers"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Enseignants
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/grades"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Notes
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/attendance"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Présences
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/fees"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Frais scolaires
-            </button>
-
-            <button
-              onClick={() =>
-                router.push(
-                  "/settings"
-                )
-              }
-              className="w-full rounded-md px-4 py-3 text-left text-sm hover:bg-muted"
-            >
-              Paramètres
-            </button>
-          </nav>
-        </aside>
-
-        <section className="flex-1 p-6">
-          <div className="mx-auto max-w-7xl space-y-8">
-            <div>
-              <h2 className="text-3xl font-bold">
-                Tableau de bord
-              </h2>
-
-              <p className="mt-2 text-muted-foreground">
-                Bienvenue sur votre espace de gestion scolaire.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {assessments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Aucune évaluation n'a encore été créée.{" "}
               <button
-                onClick={() =>
-                  router.push(
-                    "/students"
-                  )
-                }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
+                onClick={() => router.push("/assessments")}
+                className="font-medium text-primary underline"
               >
-                <p className="text-sm text-muted-foreground">
-                  Élèves
-                </p>
-
-                <p className="mt-2 text-3xl font-bold">
-                  {studentCount}
-                </p>
-
-                <p className="mt-2 text-sm text-primary">
-                  Gérer les élèves →
-                </p>
+                Créer une évaluation
               </button>
+            </p>
+          ) : (
+            <select
+              id="assessment"
+              value={selectedAssessmentId}
+              onChange={(event) =>
+                loadStudentsAndGrades(event.target.value)
+              }
+              className="w-full rounded-md border bg-background px-3 py-3"
+            >
+              <option value="">
+                Sélectionner une évaluation
+              </option>
+
+              {assessments.map((assessment) => (
+                <option key={assessment.id} value={assessment.id}>
+                  {assessment.title} — {assessment.classes?.name ?? "—"}
+                  {" / "}
+                  {assessment.subjects?.name ?? "—"}
+                  {" ("}
+                  {assessment.academic_periods?.name ?? "—"}
+                  {")"}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {selectedAssessment && (
+          <div className="rounded-xl border bg-background p-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold">
+                  {selectedAssessment.title}
+                </h3>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedAssessment.classes?.name ?? "—"} —{" "}
+                  {selectedAssessment.subjects?.name ?? "—"} — Sur{" "}
+                  {selectedAssessment.max_score} — Coef.{" "}
+                  {selectedAssessment.coefficient}
+                </p>
+              </div>
 
               <button
-                onClick={() =>
-                  router.push(
-                    "/teachers"
-                  )
-                }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
+                onClick={saveGrades}
+                disabled={saving || loadingStudents || students.length === 0}
+                className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <p className="text-sm text-muted-foreground">
-                  Enseignants
-                </p>
-
-                <p className="mt-2 text-3xl font-bold">
-                  {teacherCount}
-                </p>
-
-                <p className="mt-2 text-sm text-primary">
-                  Gérer les enseignants →
-                </p>
-              </button>
-
-              <button
-                onClick={() =>
-                  router.push(
-                    "/classes"
-                  )
-                }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
-              >
-                <p className="text-sm text-muted-foreground">
-                  Classes
-                </p>
-
-                <p className="mt-2 text-3xl font-bold">
-                  {classCount}
-                </p>
-
-                <p className="mt-2 text-sm text-primary">
-                  Gérer les classes →
-                </p>
-              </button>
-
-              <button
-                onClick={() =>
-                  router.push(
-                    "/attendance"
-                  )
-                }
-                className="rounded-xl border bg-background p-6 text-left transition hover:shadow-md"
-              >
-                <p className="text-sm text-muted-foreground">
-                  Présences aujourd'hui
-                </p>
-
-                <p className="mt-2 text-3xl font-bold">
-                  {attendanceCount}
-                </p>
-
-                <p className="mt-2 text-sm text-primary">
-                  Gérer les présences →
-                </p>
+                {saving ? "Enregistrement..." : "Enregistrer les notes"}
               </button>
             </div>
 
-            <div className="rounded-xl border bg-background p-6">
-              <h3 className="text-xl font-semibold">
-                Activité récente
-              </h3>
-
-              <p className="mt-4 text-muted-foreground">
-                Aucune activité récente pour le moment.
+            {saveMessage && (
+              <p className="mt-4 text-sm text-muted-foreground">
+                {saveMessage}
               </p>
+            )}
+
+            {studentsError && (
+              <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                {studentsError}
+              </div>
+            )}
+
+            <div className="mt-6 overflow-x-auto">
+              {loadingStudents ? (
+                <p className="text-muted-foreground">
+                  Chargement des élèves...
+                </p>
+              ) : students.length === 0 ? (
+                <p className="text-muted-foreground">
+                  Aucun élève inscrit dans cette classe.
+                </p>
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b">
+                    <tr>
+                      <th className="px-4 py-3">Élève</th>
+                      <th className="px-4 py-3">
+                        Note (/ {selectedAssessment.max_score})
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {students.map((student) => (
+                      <tr key={student.id} className="border-b last:border-0">
+                        <td className="px-4 py-4 font-medium">
+                          {student.last_name} {student.first_name}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <input
+                            type="number"
+                            min="0"
+                            max={selectedAssessment.max_score}
+                            step="0.25"
+                            value={grades[student.id]?.score ?? ""}
+                            onChange={(event) =>
+                              updateScore(student.id, event.target.value)
+                            }
+                            className="w-28 rounded-md border bg-background px-3 py-2"
+                            placeholder="—"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
-        </section>
-      </div>
+        )}
+      </section>
     </main>
   )
 }

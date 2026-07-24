@@ -22,6 +22,7 @@ export default function TeachersPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [schoolId, setSchoolId] = useState("")
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -36,6 +37,7 @@ export default function TeachersPage() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -80,6 +82,7 @@ export default function TeachersPage() {
         "Erreur lors du chargement des enseignants :",
         teachersError
       )
+      setLoadError("Impossible de charger la liste des enseignants.")
     }
 
     setTeachers(teachersData ?? [])
@@ -235,6 +238,12 @@ export default function TeachersPage() {
             Ajoutez et gérez les enseignants de votre établissement.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
           <div className="rounded-xl border bg-background p-6">

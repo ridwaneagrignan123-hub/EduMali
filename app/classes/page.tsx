@@ -8,7 +8,6 @@ type ClassItem = {
   id: string
   name: string
   level: string | null
-  academic_year: string | null
 }
 
 export default function ClassesPage() {
@@ -17,10 +16,10 @@ export default function ClassesPage() {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [name, setName] = useState("")
   const [level, setLevel] = useState("")
-  const [academicYear, setAcademicYear] = useState("2026-2027")
 
   useEffect(() => {
     loadClasses()
@@ -28,6 +27,7 @@ export default function ClassesPage() {
 
   async function loadClasses() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -42,7 +42,7 @@ export default function ClassesPage() {
       .from("profiles")
       .select("school_id")
       .eq("id", user.id)
-      .single()
+      .maybeSingle()
 
     if (profileError || !profile?.school_id) {
       router.push("/setup-school")
@@ -51,12 +51,13 @@ export default function ClassesPage() {
 
     const { data, error } = await supabase
       .from("classes")
-      .select("id, name, level, academic_year")
+      .select("id, name, level")
       .eq("school_id", profile.school_id)
       .order("created_at", { ascending: false })
 
     if (error) {
       console.error("Erreur lors du chargement des classes :", error)
+      setLoadError("Impossible de charger la liste des classes.")
       setLoading(false)
       return
     }
@@ -88,7 +89,7 @@ export default function ClassesPage() {
       .from("profiles")
       .select("school_id")
       .eq("id", user.id)
-      .single()
+      .maybeSingle()
 
     if (profileError || !profile?.school_id) {
       alert("Aucune école associée à votre compte.")
@@ -100,7 +101,6 @@ export default function ClassesPage() {
       school_id: profile.school_id,
       name: name.trim(),
       level: level.trim() || null,
-      academic_year: academicYear.trim() || null,
     })
 
     if (error) {
@@ -112,7 +112,6 @@ export default function ClassesPage() {
 
     setName("")
     setLevel("")
-    setAcademicYear("2026-2027")
 
     await loadClasses()
 
@@ -149,6 +148,12 @@ export default function ClassesPage() {
             Créez et gérez les classes de votre établissement.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-8 lg:grid-cols-[380px_1fr]">
           <div className="rounded-xl border bg-background p-6">
@@ -195,22 +200,6 @@ export default function ClassesPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <label htmlFor="academicYear">
-                  Année scolaire
-                </label>
-
-                <input
-                  id="academicYear"
-                  type="text"
-                  value={academicYear}
-                  onChange={(event) =>
-                    setAcademicYear(event.target.value)
-                  }
-                  className="w-full rounded-md border bg-background px-3 py-2"
-                />
-              </div>
-
               <button
                 type="submit"
                 disabled={creating}
@@ -252,11 +241,6 @@ export default function ClassesPage() {
                         {classItem.level || "Niveau non défini"}
                       </p>
                     </div>
-
-                    <span className="text-sm text-muted-foreground">
-                      {classItem.academic_year ||
-                        "Année non définie"}
-                    </span>
                   </div>
                 ))}
               </div>

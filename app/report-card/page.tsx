@@ -29,13 +29,13 @@ type Student = {
   id: string
   first_name: string
   last_name: string
-  matricule: string | null
+  student_number: string | null
   parent_name: string | null
 }
 
-type Subject = {
-  id: string
-  name: string
+type ClassSubjectInfo = {
+  subjectId: string
+  subjectName: string
   coefficient: number
 }
 
@@ -83,9 +83,6 @@ export default function ReportCardPage() {
 
   const [periods, setPeriods] =
     useState<AcademicPeriod[]>([])
-
-  const [subjects, setSubjects] =
-    useState<Subject[]>([])
 
   const [selectedClassId, setSelectedClassId] =
     useState("")
@@ -314,35 +311,6 @@ export default function ReportCardPage() {
       }
     }
 
-    const {
-      data: subjectsData,
-      error: subjectsError,
-    } = await supabase
-      .from("subjects")
-      .select(
-        "id, name, coefficient"
-      )
-      .eq(
-        "school_id",
-        currentSchoolId
-      )
-      .order("name")
-
-    if (subjectsError) {
-      console.error(
-        "Erreur matières :",
-        subjectsError
-      )
-
-      setInitialLoadError(
-        "Impossible de charger la liste des matières."
-      )
-    } else {
-      setSubjects(
-        (subjectsData as Subject[]) ?? []
-      )
-    }
-
     setLoading(false)
   }
 
@@ -371,7 +339,7 @@ export default function ReportCardPage() {
           id,
           first_name,
           last_name,
-          matricule,
+          student_number,
           parent_name
         )
       `)
@@ -421,6 +389,50 @@ export default function ReportCardPage() {
       students.map(
         (student) =>
           student.id
+      )
+
+    const {
+      data: classSubjectsData,
+      error: classSubjectsError,
+    } = await supabase
+      .from("class_subjects")
+      .select(`
+        subject_id,
+        coefficient,
+        subjects (
+          name
+        )
+      `)
+      .eq(
+        "school_id",
+        schoolId
+      )
+      .eq(
+        "class_id",
+        selectedClassId
+      )
+
+    if (classSubjectsError) {
+      console.error(
+        "Erreur matières de la classe :",
+        classSubjectsError
+      )
+
+      setReportLoadError(
+        "Impossible de charger les matières affectées à cette classe."
+      )
+      setReportCards([])
+      setLoadingReport(false)
+      return
+    }
+
+    const classSubjects: ClassSubjectInfo[] =
+      (classSubjectsData ?? []).map(
+        (item: any) => ({
+          subjectId: item.subject_id,
+          subjectName: item.subjects?.name ?? "—",
+          coefficient: Number(item.coefficient) || 1,
+        })
       )
 
     const {
@@ -485,14 +497,14 @@ export default function ReportCardPage() {
 
           const subjectResults:
             SubjectResult[] =
-            subjects.map(
+            classSubjects.map(
               (subject) => {
                 const subjectGrades =
                   studentGrades.filter(
                     (grade: any) =>
                       grade.assessments
                         ?.subject_id ===
-                      subject.id
+                      subject.subjectId
                   )
 
                 if (
@@ -501,15 +513,13 @@ export default function ReportCardPage() {
                 ) {
                   return {
                     subjectId:
-                      subject.id,
+                      subject.subjectId,
                     subjectName:
-                      subject.name,
+                      subject.subjectName,
                     average:
                       null,
                     coefficient:
-                      Number(
-                        subject.coefficient
-                      ) || 1,
+                      subject.coefficient,
                   }
                 }
 
@@ -574,14 +584,12 @@ export default function ReportCardPage() {
 
                 return {
                   subjectId:
-                    subject.id,
+                    subject.subjectId,
                   subjectName:
-                    subject.name,
+                    subject.subjectName,
                   average,
                   coefficient:
-                    Number(
-                      subject.coefficient
-                    ) || 1,
+                    subject.coefficient,
                 }
               }
             )
@@ -1227,9 +1235,9 @@ export default function ReportCardPage() {
       }
     </p>
 
-    {report.student.matricule && (
+    {report.student.student_number && (
       <p className="mt-1 text-xs text-muted-foreground">
-        Matricule : {report.student.matricule}
+        Matricule : {report.student.student_number}
       </p>
     )}
 

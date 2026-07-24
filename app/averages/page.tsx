@@ -60,12 +60,16 @@ export default function AveragesPage() {
   const [results, setResults] =
     useState<StudentResult[]>([])
 
+  const [loadError, setLoadError] =
+    useState<string | null>(null)
+
   useEffect(() => {
     loadInitialData()
   }, [])
 
   async function loadInitialData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -91,6 +95,9 @@ export default function AveragesPage() {
         profileError
       )
 
+      setLoadError(
+        "Impossible de charger votre profil. Réessayez ou reconnectez-vous."
+      )
       setLoading(false)
       return
     }
@@ -123,6 +130,7 @@ export default function AveragesPage() {
         classesError
       )
 
+      setLoadError("Impossible de charger la liste des classes.")
       setLoading(false)
       return
     }
@@ -154,6 +162,7 @@ export default function AveragesPage() {
     currentSchoolId: string
   ) {
     setLoadingResults(true)
+    setLoadError(null)
 
     /*
      * 1. Récupérer les élèves
@@ -190,6 +199,7 @@ export default function AveragesPage() {
         enrollmentError
       )
 
+      setLoadError("Impossible de charger les élèves de cette classe.")
       setResults([])
       setLoadingResults(false)
       return
@@ -216,8 +226,51 @@ export default function AveragesPage() {
       )
 
     /*
-     * 2. Récupérer les notes
-     * et les coefficients des matières.
+     * 2. Récupérer les coefficients des matières
+     * affectées à cette classe.
+     */
+
+    const {
+      data: classSubjectsData,
+      error: classSubjectsError,
+    } = await supabase
+      .from("class_subjects")
+      .select(`
+        subject_id,
+        coefficient
+      `)
+      .eq(
+        "school_id",
+        currentSchoolId
+      )
+      .eq(
+        "class_id",
+        classId
+      )
+
+    if (classSubjectsError) {
+      console.error(
+        "Erreur matières de la classe :",
+        classSubjectsError
+      )
+
+      setLoadError("Impossible de charger les matières affectées à cette classe.")
+      setResults([])
+      setLoadingResults(false)
+      return
+    }
+
+    const subjectCoefficients = new Map<string, number>(
+      (classSubjectsData ?? []).map(
+        (item: any) => [
+          item.subject_id,
+          Number(item.coefficient) || 1,
+        ]
+      )
+    )
+
+    /*
+     * 3. Récupérer les notes des élèves.
      */
 
     const {
@@ -234,8 +287,7 @@ export default function AveragesPage() {
           max_score,
           coefficient,
           subjects (
-            name,
-            coefficient
+            name
           )
         )
       `)
@@ -254,13 +306,14 @@ export default function AveragesPage() {
         gradesError
       )
 
+      setLoadError("Impossible de charger les notes des élèves.")
       setResults([])
       setLoadingResults(false)
       return
     }
 
     /*
-     * 3. Calculer les moyennes
+     * 4. Calculer les moyennes
      * de chaque élève.
      */
 
@@ -328,9 +381,9 @@ export default function AveragesPage() {
                 ) || 1
 
               const subjectCoefficient =
-                Number(
-                  subject.coefficient
-                ) || 1
+                subjectCoefficients.get(
+                  assessment.subject_id
+                ) ?? 1
 
               if (
                 Number.isNaN(score) ||
@@ -544,6 +597,12 @@ export default function AveragesPage() {
             Les moyennes sont calculées automatiquement à partir des notes enregistrées.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="rounded-xl border bg-background p-6">
           <label

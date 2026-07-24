@@ -8,7 +8,6 @@ type ClassItem = {
   id: string
   name: string
   level: string | null
-  academic_year: string | null
 }
 
 type Student = {
@@ -31,8 +30,10 @@ export default function StudentsPage() {
 
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const [schoolId, setSchoolId] = useState("")
+  const [activeAcademicYearId, setActiveAcademicYearId] = useState("")
   const [selectedClassId, setSelectedClassId] = useState("")
 
   const [firstName, setFirstName] = useState("")
@@ -50,6 +51,7 @@ export default function StudentsPage() {
 
   async function loadData() {
     setLoading(true)
+    setLoadError(null)
 
     const {
       data: { user },
@@ -64,7 +66,7 @@ export default function StudentsPage() {
       .from("profiles")
       .select("school_id")
       .eq("id", user.id)
-      .single()
+      .maybeSingle()
 
     if (profileError || !profile?.school_id) {
       router.push("/setup-school")
@@ -73,14 +75,35 @@ export default function StudentsPage() {
 
     setSchoolId(profile.school_id)
 
+    const { data: academicYearData, error: academicYearError } =
+      await supabase
+        .from("academic_years")
+        .select("id")
+        .eq("school_id", profile.school_id)
+        .eq("is_active", true)
+        .maybeSingle()
+
+    if (academicYearError) {
+      console.error(
+        "Erreur lors du chargement de l'année scolaire active :",
+        academicYearError
+      )
+      setLoadError(
+        "Impossible de vérifier l'année scolaire active."
+      )
+    }
+
+    setActiveAcademicYearId(academicYearData?.id ?? "")
+
     const { data: classesData, error: classesError } = await supabase
       .from("classes")
-      .select("id, name, level, academic_year")
+      .select("id, name, level")
       .eq("school_id", profile.school_id)
       .order("name", { ascending: true })
 
     if (classesError) {
       console.error("Erreur lors du chargement des classes :", classesError)
+      setLoadError("Impossible de charger la liste des classes.")
     }
 
     setClasses(classesData ?? [])
@@ -98,6 +121,7 @@ export default function StudentsPage() {
         "Erreur lors du chargement des élèves :",
         studentsError
       )
+      setLoadError("Impossible de charger la liste des élèves.")
     }
 
     setStudents(studentsData ?? [])
@@ -114,6 +138,13 @@ export default function StudentsPage() {
 
     if (!selectedClassId) {
       alert("Veuillez sélectionner une classe.")
+      return
+    }
+
+    if (!activeAcademicYearId) {
+      alert(
+        "Aucune année scolaire active n'est configurée pour votre établissement. Configurez-la avant d'ajouter un élève."
+      )
       return
     }
 
@@ -150,19 +181,13 @@ export default function StudentsPage() {
       return
     }
 
-    const selectedClass = classes.find(
-      (classItem) => classItem.id === selectedClassId
-    )
-
     const { error: enrollmentError } = await supabase
-      .from("enrollments")
+      .from("student_class_enrollments")
       .insert({
         student_id: student.id,
         class_id: selectedClassId,
         school_id: schoolId,
-        academic_year:
-          selectedClass?.academic_year || "2026-2027",
-        status: "active",
+        academic_year_id: activeAcademicYearId,
       })
 
     if (enrollmentError) {
@@ -228,6 +253,12 @@ export default function StudentsPage() {
             Ajoutez et gérez les élèves de votre établissement.
           </p>
         </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
           <div className="rounded-xl border bg-background p-6">
