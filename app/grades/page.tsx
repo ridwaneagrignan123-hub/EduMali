@@ -139,15 +139,24 @@ export default function GradesPage() {
 
     setLoadingStudents(true)
 
-    const { data: enrollments, error: enrollmentError } =
-      await supabase
+    const [enrollmentsResult, gradesResult] = await Promise.all([
+      supabase
         .from("student_class_enrollments")
         .select(`
           student_id,
           students ( id, first_name, last_name )
         `)
         .eq("school_id", schoolId)
-        .eq("class_id", assessment.class_id)
+        .eq("class_id", assessment.class_id),
+
+      supabase
+        .from("grades")
+        .select("id, student_id, score")
+        .eq("school_id", schoolId)
+        .eq("assessment_id", assessmentId),
+    ])
+
+    const { data: enrollments, error: enrollmentError } = enrollmentsResult
 
     if (enrollmentError) {
       console.error("Erreur inscriptions :", enrollmentError)
@@ -169,12 +178,7 @@ export default function GradesPage() {
 
     setStudents(loadedStudents)
 
-    const { data: existingGrades, error: gradesError } =
-      await supabase
-        .from("grades")
-        .select("id, student_id, score")
-        .eq("school_id", schoolId)
-        .eq("assessment_id", assessmentId)
+    const { data: existingGrades, error: gradesError } = gradesResult
 
     if (gradesError) {
       console.error("Erreur notes existantes :", gradesError)

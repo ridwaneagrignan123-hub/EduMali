@@ -81,8 +81,8 @@ export default function AcademicPage() {
 
     setSchoolId(profile.school_id)
 
-    const { data: yearsData, error: yearsError } =
-      await supabase
+    const [yearsResult, periodsResult] = await Promise.all([
+      supabase
         .from("academic_years")
         .select(
           "id, name, start_date, end_date, is_active"
@@ -90,7 +90,21 @@ export default function AcademicPage() {
         .eq("school_id", profile.school_id)
         .order("start_date", {
           ascending: false,
-        })
+        }),
+
+      supabase
+        .from("academic_periods")
+        .select(
+          "id, academic_year_id, name, period_type, start_date, end_date, is_active"
+        )
+        .eq("school_id", profile.school_id)
+        .order("start_date", {
+          ascending: true,
+        }),
+    ])
+
+    const { data: yearsData, error: yearsError } = yearsResult
+    const { data: periodsData, error: periodsError } = periodsResult
 
     const loadErrors: string[] = []
 
@@ -101,17 +115,6 @@ export default function AcademicPage() {
       )
       loadErrors.push("les années scolaires")
     }
-
-    const { data: periodsData, error: periodsError } =
-      await supabase
-        .from("academic_periods")
-        .select(
-          "id, academic_year_id, name, period_type, start_date, end_date, is_active"
-        )
-        .eq("school_id", profile.school_id)
-        .order("start_date", {
-          ascending: true,
-        })
 
     if (periodsError) {
       console.error(
@@ -435,7 +438,7 @@ export default function AcademicPage() {
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex min-h-16 items-center justify-between gap-4 px-6 py-4">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
               EduMali
@@ -779,7 +782,11 @@ export default function AcademicPage() {
               Périodes de l'année sélectionnée
             </h3>
 
-            {selectedYearId === "" ? (
+            {loading ? (
+              <p className="mt-6 text-muted-foreground">
+                Chargement...
+              </p>
+            ) : selectedYearId === "" ? (
               <p className="mt-6 text-muted-foreground">
                 Sélectionnez une année scolaire.
               </p>

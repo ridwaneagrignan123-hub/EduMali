@@ -65,6 +65,11 @@ export default function FeesPage() {
   const [assessments, setAssessments] = useState<FeeAssessment[]>([])
   const [payments, setPayments] = useState<FeePayment[]>([])
 
+  const [sendingSmsId, setSendingSmsId] = useState<string | null>(null)
+  const [smsStatus, setSmsStatus] = useState<
+    Record<string, { type: "success" | "error"; text: string }>
+  >({})
+
   const [assessmentStudentId, setAssessmentStudentId] = useState("")
   const [assessmentAmount, setAssessmentAmount] = useState("")
 
@@ -222,6 +227,51 @@ export default function FeesPage() {
     return payments
       .filter((payment) => payment.fee_assessment_id === assessmentId)
       .reduce((total, payment) => total + Number(payment.amount_paid), 0)
+  }
+
+  async function sendFeeReminder(assessment: FeeAssessment, balance: number) {
+    setSendingSmsId(assessment.id)
+    setSmsStatus((current) => {
+      const next = { ...current }
+      delete next[assessment.id]
+      return next
+    })
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      router.push("/login")
+      return
+    }
+
+    const response = await fetch("/api/sms/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        studentId: assessment.student_id,
+        eventType: "fee_overdue",
+        relatedId: assessment.id,
+        params: {
+          balance,
+        },
+      }),
+    })
+
+    const result = await response.json()
+
+    setSmsStatus((current) => ({
+      ...current,
+      [assessment.id]: response.ok
+        ? { type: "success", text: "Rappel envoyé par SMS." }
+        : { type: "error", text: result.error || "Échec de l'envoi du SMS." },
+    }))
+
+    setSendingSmsId(null)
   }
 
   async function createOrUpdateAssessment(event: FormEvent<HTMLFormElement>) {
@@ -677,6 +727,7 @@ export default function FeesPage() {
                             <th className="px-4 py-3">Payé</th>
                             <th className="px-4 py-3">Solde</th>
                             <th className="px-4 py-3">Statut</th>
+                            <th className="px-4 py-3">Rappel</th>
                           </tr>
                         </thead>
 
@@ -732,6 +783,39 @@ export default function FeesPage() {
                                     {statusLabel}
                                   </span>
                                 </td>
+
+                                <td className="px-4 py-4">
+                                  {balance <= 0 ? (
+                                    <span className="text-xs text-muted-foreground">—</span>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          sendFeeReminder(assessment, balance)
+                                        }
+                                        disabled={sendingSmsId === assessment.id}
+                                        className="rounded-md border px-3 py-2 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {sendingSmsId === assessment.id
+                                          ? "Envoi..."
+                                          : "Envoyer un rappel"}
+                                      </button>
+
+                                      {smsStatus[assessment.id] && (
+                                        <p
+                                          className={
+                                            smsStatus[assessment.id].type === "success"
+                                              ? "text-xs text-green-700"
+                                              : "text-xs text-destructive"
+                                          }
+                                        >
+                                          {smsStatus[assessment.id].text}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
                               </tr>
                             )
                           })}
@@ -746,7 +830,11 @@ export default function FeesPage() {
                     Historique des paiements
                   </h3>
 
-                  {payments.length === 0 ? (
+                  {loadingFees ? (
+                    <p className="mt-6 text-muted-foreground">
+                      Chargement des paiements...
+                    </p>
+                  ) : payments.length === 0 ? (
                     <p className="mt-6 text-muted-foreground">
                       Aucun paiement enregistré pour cette année scolaire.
                     </p>

@@ -97,6 +97,11 @@ export default function ReportCardPage() {
   const [printTarget, setPrintTarget] =
     useState<string | null>(null)
 
+  const [sendingSmsId, setSendingSmsId] = useState<string | null>(null)
+  const [smsStatus, setSmsStatus] = useState<
+    Record<string, { type: "success" | "error"; text: string }>
+  >({})
+
   useEffect(() => {
     loadInitialData()
   }, [])
@@ -169,19 +174,44 @@ export default function ReportCardPage() {
 
     setSchoolId(currentSchoolId)
 
-    const {
-      data: schoolData,
-      error: schoolError,
-    } = await supabase
-      .from("schools")
-      .select(
-        "name, address, phone, logo_url"
-      )
-      .eq(
-        "id",
-        currentSchoolId
-      )
-      .maybeSingle()
+    const [
+      schoolResult,
+      academicYearResult,
+      classesResult,
+      periodsResult,
+    ] = await Promise.all([
+      supabase
+        .from("schools")
+        .select("name, address, phone, logo_url")
+        .eq("id", currentSchoolId)
+        .maybeSingle(),
+
+      supabase
+        .from("academic_years")
+        .select("id, name, start_date, end_date, is_active")
+        .eq("school_id", currentSchoolId)
+        .eq("is_active", true)
+        .maybeSingle(),
+
+      supabase
+        .from("classes")
+        .select("id, name")
+        .eq("school_id", currentSchoolId)
+        .order("name"),
+
+      supabase
+        .from("academic_periods")
+        .select("id, name, start_date, end_date, is_active")
+        .eq("school_id", currentSchoolId)
+        .order("start_date", { ascending: false }),
+    ])
+
+    const { data: schoolData, error: schoolError } = schoolResult
+    const { data: academicYearData, error: academicYearError } = academicYearResult
+    const { data: classesData, error: classesError } = classesResult
+    const { data: periodsData, error: periodsError } = periodsResult
+
+    const initialLoadErrors: string[] = []
 
     if (schoolError) {
       console.error(
@@ -189,32 +219,12 @@ export default function ReportCardPage() {
         schoolError
       )
 
-      setInitialLoadError(
-        "Impossible de charger les informations de l'établissement."
-      )
+      initialLoadErrors.push("les informations de l'établissement")
     } else {
       setSchool(
         schoolData as School
       )
     }
-
-    const {
-      data: academicYearData,
-      error: academicYearError,
-    } = await supabase
-      .from("academic_years")
-      .select(
-        "id, name, start_date, end_date, is_active"
-      )
-      .eq(
-        "school_id",
-        currentSchoolId
-      )
-      .eq(
-        "is_active",
-        true
-      )
-      .maybeSingle()
 
     if (academicYearError) {
       console.error(
@@ -227,53 +237,18 @@ export default function ReportCardPage() {
       )
     }
 
-    const {
-      data: classesData,
-      error: classesError,
-    } = await supabase
-      .from("classes")
-      .select(
-        "id, name"
-      )
-      .eq(
-        "school_id",
-        currentSchoolId
-      )
-      .order("name")
-
     if (classesError) {
       console.error(
         "Erreur classes :",
         classesError
       )
 
-      setInitialLoadError(
-        "Impossible de charger la liste des classes."
-      )
+      initialLoadErrors.push("la liste des classes")
     } else {
       setClasses(
         (classesData as ClassItem[]) ?? []
       )
     }
-
-    const {
-      data: periodsData,
-      error: periodsError,
-    } = await supabase
-      .from("academic_periods")
-      .select(
-        "id, name, start_date, end_date, is_active"
-      )
-      .eq(
-        "school_id",
-        currentSchoolId
-      )
-      .order(
-        "start_date",
-        {
-          ascending: false,
-        }
-      )
 
     if (periodsError) {
       console.error(
@@ -281,9 +256,7 @@ export default function ReportCardPage() {
         periodsError
       )
 
-      setInitialLoadError(
-        "Impossible de charger les périodes scolaires."
-      )
+      initialLoadErrors.push("les périodes scolaires")
     } else {
       const loadedPeriods =
         (periodsData as AcademicPeriod[]) ?? []
@@ -309,6 +282,12 @@ export default function ReportCardPage() {
           loadedPeriods[0].id
         )
       }
+    }
+
+    if (initialLoadErrors.length > 0) {
+      setInitialLoadError(
+        `Impossible de charger ${initialLoadErrors.join(", ")}. Réessayez.`
+      )
     }
 
     setLoading(false)
@@ -904,6 +883,51 @@ export default function ReportCardPage() {
     setPrintTarget("all")
   }
 
+  async function sendReportCardSms(studentId: string) {
+    setSendingSmsId(studentId)
+    setSmsStatus((current) => {
+      const next = { ...current }
+      delete next[studentId]
+      return next
+    })
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      router.push("/login")
+      return
+    }
+
+    const response = await fetch("/api/sms/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        studentId,
+        eventType: "report_card",
+        relatedId: selectedPeriodId,
+        params: {
+          periodName: getSelectedPeriodName(),
+        },
+      }),
+    })
+
+    const result = await response.json()
+
+    setSmsStatus((current) => ({
+      ...current,
+      [studentId]: response.ok
+        ? { type: "success", text: "Bulletin notifié par SMS." }
+        : { type: "error", text: result.error || "Échec de l'envoi du SMS." },
+    }))
+
+    setSendingSmsId(null)
+  }
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
@@ -1117,7 +1141,15 @@ export default function ReportCardPage() {
 
         <div className="space-y-8">
 
-          {reportCards.length ===
+          {loadingReport ? (
+
+            <div className="rounded-xl border border-dashed bg-background p-10 text-center print-hidden">
+              <p className="text-muted-foreground">
+                Chargement des bulletins...
+              </p>
+            </div>
+
+          ) : reportCards.length ===
           0 ? (
 
             <div className="rounded-xl border border-dashed bg-background p-10 text-center print-hidden">
@@ -1521,18 +1553,48 @@ export default function ReportCardPage() {
 
                   </div>
 
-                  <div className="border-t p-6 text-right print-hidden">
+                  <div className="border-t p-6 print-hidden">
 
-                    <button
-                      onClick={() =>
-                        printReportCard(
-                          report.student.id
-                        )
-                      }
-                      className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground hover:opacity-90"
-                    >
-                      🖨️ Imprimer le bulletin
-                    </button>
+                    <div className="flex flex-wrap items-center justify-end gap-3">
+
+                      <button
+                        onClick={() =>
+                          sendReportCardSms(
+                            report.student.id
+                          )
+                        }
+                        disabled={sendingSmsId === report.student.id}
+                        className="rounded-md border px-6 py-3 font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {sendingSmsId === report.student.id
+                          ? "Envoi..."
+                          : "📩 Envoyer par SMS"}
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          printReportCard(
+                            report.student.id
+                          )
+                        }
+                        className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground hover:opacity-90"
+                      >
+                        🖨️ Imprimer le bulletin
+                      </button>
+
+                    </div>
+
+                    {smsStatus[report.student.id] && (
+                      <p
+                        className={
+                          smsStatus[report.student.id].type === "success"
+                            ? "mt-2 text-right text-sm text-green-700"
+                            : "mt-2 text-right text-sm text-destructive"
+                        }
+                      >
+                        {smsStatus[report.student.id].text}
+                      </p>
+                    )}
 
                   </div>
 

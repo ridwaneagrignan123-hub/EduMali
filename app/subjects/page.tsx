@@ -19,6 +19,8 @@ export default function SubjectsPage() {
   const [creating, setCreating] = useState(false)
   const [schoolId, setSchoolId] = useState("")
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
 
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
@@ -84,12 +86,14 @@ export default function SubjectsPage() {
     event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault()
+    setFormError(null)
 
     if (!name.trim()) {
-      alert("Le nom de la matière est obligatoire.")
+      setNameError("Le nom de la matière est obligatoire.")
       return
     }
 
+    setNameError(null)
     setCreating(true)
 
     const { error } = await supabase
@@ -107,7 +111,7 @@ export default function SubjectsPage() {
         error
       )
 
-      alert(error.message)
+      setFormError(error.message)
       setCreating(false)
       return
     }
@@ -151,7 +155,7 @@ export default function SubjectsPage() {
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex min-h-16 items-center justify-between gap-4 px-6 py-4">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
               EduMali
@@ -208,13 +212,19 @@ export default function SubjectsPage() {
                   type="text"
                   placeholder="Ex : Mathématiques"
                   value={name}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setName(event.target.value)
-                  }
+                    setNameError(null)
+                  }}
                   className="w-full rounded-md border bg-background px-3 py-2"
-                  required
                   autoComplete="off"
                 />
+
+                {nameError && (
+                  <p className="text-sm text-destructive">
+                    {nameError}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -250,6 +260,12 @@ export default function SubjectsPage() {
                   className="min-h-24 w-full rounded-md border bg-background px-3 py-2"
                 />
               </div>
+
+              {formError && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                  {formError}
+                </div>
+              )}
 
               <button
                 type="submit"

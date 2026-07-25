@@ -64,6 +64,16 @@ export default function AssessmentsPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    classId?: string
+    subjectId?: string
+    academicPeriodId?: string
+    title?: string
+    maxScore?: string
+    coefficient?: string
+    assessmentDate?: string
+  }>({})
 
   const [classId, setClassId] = useState("")
   const [subjectId, setSubjectId] = useState("")
@@ -266,56 +276,52 @@ export default function AssessmentsPage() {
     event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault()
+    setFormError(null)
+
+    const errors: typeof fieldErrors = {}
 
     if (!classId) {
-      alert("Veuillez sélectionner une classe.")
-      return
+      errors.classId = "Veuillez sélectionner une classe."
     }
 
     if (!subjectId) {
-      alert("Veuillez sélectionner une matière.")
-      return
+      errors.subjectId = "Veuillez sélectionner une matière."
     }
 
     if (!academicPeriodId) {
-      alert("Veuillez sélectionner une période.")
-      return
+      errors.academicPeriodId = "Veuillez sélectionner une période."
     }
 
     if (!title.trim()) {
-      alert(
-        "Le titre de l'évaluation est obligatoire."
-      )
-      return
+      errors.title = "Le titre de l'évaluation est obligatoire."
     }
 
     const maxScoreNumber = Number(maxScore)
     const coefficientNumber = Number(coefficient)
 
     if (
+      !maxScore.trim() ||
       Number.isNaN(maxScoreNumber) ||
       maxScoreNumber <= 0
     ) {
-      alert(
-        "La note maximale doit être supérieure à 0."
-      )
-      return
+      errors.maxScore = "La note maximale doit être supérieure à 0."
     }
 
     if (
+      !coefficient.trim() ||
       Number.isNaN(coefficientNumber) ||
       coefficientNumber <= 0
     ) {
-      alert(
-        "Le coefficient doit être supérieur à 0."
-      )
-      return
+      errors.coefficient = "Le coefficient doit être supérieur à 0."
     }
 
     if (!assessmentDate) {
-      alert(
-        "Veuillez sélectionner une date."
-      )
+      errors.assessmentDate = "Veuillez sélectionner une date."
+    }
+
+    setFieldErrors(errors)
+
+    if (Object.keys(errors).length > 0) {
       return
     }
 
@@ -341,7 +347,7 @@ export default function AssessmentsPage() {
         error
       )
 
-      alert(error.message)
+      setFormError(error.message)
       setCreating(false)
       return
     }
@@ -391,7 +397,7 @@ export default function AssessmentsPage() {
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex min-h-16 items-center justify-between gap-4 px-6 py-4">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
               EduMali
@@ -448,13 +454,16 @@ export default function AssessmentsPage() {
                 <select
                   id="class"
                   value={classId}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setClassId(
                       event.target.value
                     )
-                  }
+                    setFieldErrors((current) => ({
+                      ...current,
+                      classId: undefined,
+                    }))
+                  }}
                   className="w-full rounded-md border bg-background px-3 py-2"
-                  required
                 >
                   <option value="">
                     Sélectionner une classe
@@ -472,6 +481,12 @@ export default function AssessmentsPage() {
                     </option>
                   ))}
                 </select>
+
+                {fieldErrors.classId && (
+                  <p className="text-sm text-destructive">
+                    {fieldErrors.classId}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -482,13 +497,16 @@ export default function AssessmentsPage() {
                 <select
                   id="subject"
                   value={subjectId}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setSubjectId(
                       event.target.value
                     )
-                  }
+                    setFieldErrors((current) => ({
+                      ...current,
+                      subjectId: undefined,
+                    }))
+                  }}
                   className="w-full rounded-md border bg-background px-3 py-2"
-                  required
                 >
                   <option value="">
                     Sélectionner une matière
@@ -508,6 +526,12 @@ export default function AssessmentsPage() {
                     )
                   )}
                 </select>
+
+                {fieldErrors.subjectId && (
+                  <p className="text-sm text-destructive">
+                    {fieldErrors.subjectId}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -518,13 +542,16 @@ export default function AssessmentsPage() {
                 <select
                   id="period"
                   value={academicPeriodId}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setAcademicPeriodId(
                       event.target.value
                     )
-                  }
+                    setFieldErrors((current) => ({
+                      ...current,
+                      academicPeriodId: undefined,
+                    }))
+                  }}
                   className="w-full rounded-md border bg-background px-3 py-2"
-                  required
                 >
                   <option value="">
                     Sélectionner une période
@@ -539,6 +566,12 @@ export default function AssessmentsPage() {
                     </option>
                   ))}
                 </select>
+
+                {fieldErrors.academicPeriodId && (
+                  <p className="text-sm text-destructive">
+                    {fieldErrors.academicPeriodId}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -551,14 +584,23 @@ export default function AssessmentsPage() {
                   type="text"
                   placeholder="Ex : Devoir surveillé 1"
                   value={title}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setTitle(
                       event.target.value
                     )
-                  }
+                    setFieldErrors((current) => ({
+                      ...current,
+                      title: undefined,
+                    }))
+                  }}
                   className="w-full rounded-md border bg-background px-3 py-2"
-                  required
                 />
+
+                {fieldErrors.title && (
+                  <p className="text-sm text-destructive">
+                    {fieldErrors.title}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -598,7 +640,7 @@ export default function AssessmentsPage() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label htmlFor="max-score">
                     Note maximale
@@ -610,14 +652,23 @@ export default function AssessmentsPage() {
                     min="0.1"
                     step="0.1"
                     value={maxScore}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setMaxScore(
                         event.target.value
                       )
-                    }
+                      setFieldErrors((current) => ({
+                        ...current,
+                        maxScore: undefined,
+                      }))
+                    }}
                     className="w-full rounded-md border bg-background px-3 py-2"
-                    required
                   />
+
+                  {fieldErrors.maxScore && (
+                    <p className="text-sm text-destructive">
+                      {fieldErrors.maxScore}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -631,14 +682,23 @@ export default function AssessmentsPage() {
                     min="0.1"
                     step="0.1"
                     value={coefficient}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setCoefficient(
                         event.target.value
                       )
-                    }
+                      setFieldErrors((current) => ({
+                        ...current,
+                        coefficient: undefined,
+                      }))
+                    }}
                     className="w-full rounded-md border bg-background px-3 py-2"
-                    required
                   />
+
+                  {fieldErrors.coefficient && (
+                    <p className="text-sm text-destructive">
+                      {fieldErrors.coefficient}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -651,15 +711,30 @@ export default function AssessmentsPage() {
                   id="date"
                   type="date"
                   value={assessmentDate}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setAssessmentDate(
                       event.target.value
                     )
-                  }
+                    setFieldErrors((current) => ({
+                      ...current,
+                      assessmentDate: undefined,
+                    }))
+                  }}
                   className="w-full rounded-md border bg-background px-3 py-2"
-                  required
                 />
+
+                {fieldErrors.assessmentDate && (
+                  <p className="text-sm text-destructive">
+                    {fieldErrors.assessmentDate}
+                  </p>
+                )}
               </div>
+
+              {formError && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                  {formError}
+                </div>
+              )}
 
               <button
                 type="submit"

@@ -165,33 +165,53 @@ export default function AveragesPage() {
     setLoadError(null)
 
     /*
-     * 1. Récupérer les élèves
-     * inscrits dans la classe.
+     * 1. Récupérer les élèves inscrits dans la classe et
+     * 2. les coefficients des matières affectées à cette classe,
+     * en parallèle : les deux requêtes sont indépendantes.
      */
+
+    const [enrollmentsResult, classSubjectsResult] = await Promise.all([
+      supabase
+        .from(
+          "student_class_enrollments"
+        )
+        .select(`
+          student_id,
+          students (
+            id,
+            first_name,
+            last_name
+          )
+        `)
+        .eq(
+          "school_id",
+          currentSchoolId
+        )
+        .eq(
+          "class_id",
+          classId
+        ),
+
+      supabase
+        .from("class_subjects")
+        .select(`
+          subject_id,
+          coefficient
+        `)
+        .eq(
+          "school_id",
+          currentSchoolId
+        )
+        .eq(
+          "class_id",
+          classId
+        ),
+    ])
 
     const {
       data: enrollments,
       error: enrollmentError,
-    } = await supabase
-      .from(
-        "student_class_enrollments"
-      )
-      .select(`
-        student_id,
-        students (
-          id,
-          first_name,
-          last_name
-        )
-      `)
-      .eq(
-        "school_id",
-        currentSchoolId
-      )
-      .eq(
-        "class_id",
-        classId
-      )
+    } = enrollmentsResult
 
     if (enrollmentError) {
       console.error(
@@ -225,28 +245,10 @@ export default function AveragesPage() {
           student.id
       )
 
-    /*
-     * 2. Récupérer les coefficients des matières
-     * affectées à cette classe.
-     */
-
     const {
       data: classSubjectsData,
       error: classSubjectsError,
-    } = await supabase
-      .from("class_subjects")
-      .select(`
-        subject_id,
-        coefficient
-      `)
-      .eq(
-        "school_id",
-        currentSchoolId
-      )
-      .eq(
-        "class_id",
-        classId
-      )
+    } = classSubjectsResult
 
     if (classSubjectsError) {
       console.error(

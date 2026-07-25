@@ -31,10 +31,20 @@ export default function StudentsPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{
+    firstName?: string
+    lastName?: string
+    selectedClassId?: string
+  }>({})
 
   const [schoolId, setSchoolId] = useState("")
   const [activeAcademicYearId, setActiveAcademicYearId] = useState("")
   const [selectedClassId, setSelectedClassId] = useState("")
+
+  const PAGE_SIZE = 30
+  const [page, setPage] = useState(0)
+  const [totalStudents, setTotalStudents] = useState(0)
 
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -75,74 +85,130 @@ export default function StudentsPage() {
 
     setSchoolId(profile.school_id)
 
-    const { data: academicYearData, error: academicYearError } =
-      await supabase
-        .from("academic_years")
-        .select("id")
-        .eq("school_id", profile.school_id)
-        .eq("is_active", true)
-        .maybeSingle()
+    const loadErrors: string[] = []
 
-    if (academicYearError) {
+    const [academicYearResult, classesResult, studentsResult] =
+      await Promise.all([
+        supabase
+          .from("academic_years")
+          .select("id")
+          .eq("school_id", profile.school_id)
+          .eq("is_active", true)
+          .maybeSingle(),
+
+        supabase
+          .from("classes")
+          .select("id, name, level")
+          .eq("school_id", profile.school_id)
+          .order("name", { ascending: true }),
+
+        supabase
+          .from("students")
+          .select(
+            "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone",
+            { count: "exact" }
+          )
+          .eq("school_id", profile.school_id)
+          .order("last_name", { ascending: true })
+          .range(0, PAGE_SIZE - 1),
+      ])
+
+    if (academicYearResult.error) {
       console.error(
         "Erreur lors du chargement de l'année scolaire active :",
-        academicYearError
+        academicYearResult.error
       )
-      setLoadError(
-        "Impossible de vérifier l'année scolaire active."
-      )
+      loadErrors.push("l'année scolaire active")
     }
 
-    setActiveAcademicYearId(academicYearData?.id ?? "")
+    setActiveAcademicYearId(academicYearResult.data?.id ?? "")
 
-    const { data: classesData, error: classesError } = await supabase
-      .from("classes")
-      .select("id, name, level")
-      .eq("school_id", profile.school_id)
-      .order("name", { ascending: true })
-
-    if (classesError) {
-      console.error("Erreur lors du chargement des classes :", classesError)
-      setLoadError("Impossible de charger la liste des classes.")
+    if (classesResult.error) {
+      console.error(
+        "Erreur lors du chargement des classes :",
+        classesResult.error
+      )
+      loadErrors.push("les classes")
     }
 
-    setClasses(classesData ?? [])
+    setClasses(classesResult.data ?? [])
 
-    const { data: studentsData, error: studentsError } = await supabase
-      .from("students")
-      .select(
-        "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone"
-      )
-      .eq("school_id", profile.school_id)
-      .order("last_name", { ascending: true })
-
-    if (studentsError) {
+    if (studentsResult.error) {
       console.error(
         "Erreur lors du chargement des élèves :",
-        studentsError
+        studentsResult.error
       )
-      setLoadError("Impossible de charger la liste des élèves.")
+      loadErrors.push("les élèves")
     }
 
-    setStudents(studentsData ?? [])
+    setStudents(studentsResult.data ?? [])
+    setTotalStudents(studentsResult.count ?? 0)
+    setPage(0)
+
+    if (loadErrors.length > 0) {
+      setLoadError(
+        `Impossible de charger ${loadErrors.join(", ")}. Réessayez.`
+      )
+    }
+
+    setLoading(false)
+  }
+
+  async function loadStudentsPage(pageIndex: number) {
+    setLoading(true)
+
+    const from = pageIndex * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+
+    const { data, error, count } = await supabase
+      .from("students")
+      .select(
+        "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone",
+        { count: "exact" }
+      )
+      .eq("school_id", schoolId)
+      .order("last_name", { ascending: true })
+      .range(from, to)
+
+    if (error) {
+      console.error("Erreur lors du chargement des élèves :", error)
+      setLoadError("Impossible de charger la liste des élèves.")
+      setLoading(false)
+      return
+    }
+
+    setStudents(data ?? [])
+    setTotalStudents(count ?? 0)
+    setPage(pageIndex)
     setLoading(false)
   }
 
   async function createStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    setFormError(null)
 
-    if (!firstName.trim() || !lastName.trim()) {
-      alert("Le prénom et le nom sont obligatoires.")
-      return
+    const errors: typeof fieldErrors = {}
+
+    if (!firstName.trim()) {
+      errors.firstName = "Le prénom est obligatoire."
+    }
+
+    if (!lastName.trim()) {
+      errors.lastName = "Le nom est obligatoire."
     }
 
     if (!selectedClassId) {
-      alert("Veuillez sélectionner une classe.")
+      errors.selectedClassId = "Veuillez sélectionner une classe."
+    }
+
+    setFieldErrors(errors)
+
+    if (Object.keys(errors).length > 0) {
       return
     }
 
     if (!activeAcademicYearId) {
-      alert(
+      setFormError(
         "Aucune année scolaire active n'est configurée pour votre établissement. Configurez-la avant d'ajouter un élève."
       )
       return
@@ -172,7 +238,7 @@ export default function StudentsPage() {
         studentError
       )
 
-      alert(
+      setFormError(
         studentError?.message ||
           "Impossible de créer l'élève."
       )
@@ -196,7 +262,7 @@ export default function StudentsPage() {
         enrollmentError
       )
 
-      alert(
+      setFormError(
         "L'élève a été créé, mais son inscription dans la classe a échoué : " +
           enrollmentError.message
       )
@@ -215,7 +281,7 @@ export default function StudentsPage() {
     setParentPhone("")
     setSelectedClassId("")
 
-    await loadData()
+    await loadStudentsPage(0)
 
     setCreating(false)
   }
@@ -223,7 +289,7 @@ export default function StudentsPage() {
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex h-16 items-center justify-between px-6">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
               EduMali
@@ -280,12 +346,21 @@ export default function StudentsPage() {
                     id="firstName"
                     type="text"
                     value={firstName}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setFirstName(event.target.value)
-                    }
+                      setFieldErrors((current) => ({
+                        ...current,
+                        firstName: undefined,
+                      }))
+                    }}
                     className="w-full rounded-md border bg-background px-3 py-2"
-                    required
                   />
+
+                  {fieldErrors.firstName && (
+                    <p className="text-sm text-destructive">
+                      {fieldErrors.firstName}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -297,12 +372,21 @@ export default function StudentsPage() {
                     id="lastName"
                     type="text"
                     value={lastName}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setLastName(event.target.value)
-                    }
+                      setFieldErrors((current) => ({
+                        ...current,
+                        lastName: undefined,
+                      }))
+                    }}
                     className="w-full rounded-md border bg-background px-3 py-2"
-                    required
                   />
+
+                  {fieldErrors.lastName && (
+                    <p className="text-sm text-destructive">
+                      {fieldErrors.lastName}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -314,11 +398,14 @@ export default function StudentsPage() {
                 <select
                   id="class"
                   value={selectedClassId}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setSelectedClassId(event.target.value)
-                  }
+                    setFieldErrors((current) => ({
+                      ...current,
+                      selectedClassId: undefined,
+                    }))
+                  }}
                   className="w-full rounded-md border bg-background px-3 py-2"
-                  required
                 >
                   <option value="">
                     Sélectionner une classe
@@ -337,9 +424,23 @@ export default function StudentsPage() {
                   ))}
                 </select>
 
-                {classes.length === 0 && (
+                {fieldErrors.selectedClassId && (
                   <p className="text-sm text-destructive">
-                    Vous devez d'abord créer une classe.
+                    {fieldErrors.selectedClassId}
+                  </p>
+                )}
+
+                {!loading && classes.length === 0 && (
+                  <p className="text-sm text-destructive">
+                    Vous devez d'abord{" "}
+                    <button
+                      type="button"
+                      onClick={() => router.push("/classes")}
+                      className="font-medium underline"
+                    >
+                      créer une classe
+                    </button>
+                    .
                   </p>
                 )}
               </div>
@@ -451,6 +552,12 @@ export default function StudentsPage() {
                 />
               </div>
 
+              {formError && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                  {formError}
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={creating || classes.length === 0}
@@ -471,7 +578,7 @@ export default function StudentsPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {students.length} élève(s)
+                  {totalStudents} élève(s)
                 </p>
               </div>
             </div>
@@ -554,6 +661,36 @@ export default function StudentsPage() {
                     ))}
                   </tbody>
                 </table>
+
+                {totalStudents > PAGE_SIZE && (
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      Page {page + 1} sur {Math.ceil(totalStudents / PAGE_SIZE)}
+                    </p>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadStudentsPage(page - 1)}
+                        disabled={page === 0 || loading}
+                        className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Précédent
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => loadStudentsPage(page + 1)}
+                        disabled={
+                          (page + 1) * PAGE_SIZE >= totalStudents || loading
+                        }
+                        className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Suivant
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
