@@ -1,12 +1,19 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 
 type ClassItem = {
   id: string
   name: string
+}
+
+type SchoolHoliday = {
+  id: string
+  name: string
+  start_date: string
+  end_date: string
 }
 
 type Student = {
@@ -79,10 +86,7 @@ export default function AttendancePage() {
   const [attendance, setAttendance] = useState<Record<string, AttendanceEntry>>({})
   const [hasLoadedList, setHasLoadedList] = useState(false)
 
-  const [sendingSmsId, setSendingSmsId] = useState<string | null>(null)
-  const [smsStatus, setSmsStatus] = useState<
-    Record<string, { type: "success" | "error"; text: string }>
-  >({})
+  const [holidays, setHolidays] = useState<SchoolHoliday[]>([])
 
   useEffect(() => {
     loadInitialData()
@@ -136,6 +140,19 @@ export default function AttendancePage() {
       setClasses((classesData as ClassItem[]) ?? [])
     }
 
+    // Sert uniquement à signaler les dates de vacances ou de jour férié.
+    const { data: holidaysData, error: holidaysError } = await supabase
+      .from("school_holidays")
+      .select("id, name, start_date, end_date")
+      .eq("school_id", profile.school_id)
+      .order("start_date", { ascending: true })
+
+    if (holidaysError) {
+      console.error("Erreur calendrier scolaire :", holidaysError)
+    } else {
+      setHolidays((holidaysData as SchoolHoliday[]) ?? [])
+    }
+
     setLoading(false)
   }
 
@@ -150,25 +167,14 @@ export default function AttendancePage() {
     setLoadingStudents(true)
     setHasLoadedList(true)
 
-    const [enrollmentsResult, attendanceResult] = await Promise.all([
-      supabase
-        .from("student_class_enrollments")
-        .select(`
-          student_id,
-          students ( id, first_name, last_name )
-        `)
-        .eq("school_id", schoolId)
-        .eq("class_id", selectedClassId),
-
-      supabase
-        .from("attendance")
-        .select("id, student_id, status")
-        .eq("school_id", schoolId)
-        .eq("class_id", selectedClassId)
-        .eq("attendance_date", selectedDate),
-    ])
-
-    const { data: enrollments, error: enrollmentError } = enrollmentsResult
+    const { data: enrollments, error: enrollmentError } = await supabase
+      .from("student_class_enrollments")
+      .select(`
+        student_id,
+        students ( id, first_name, last_name )
+      `)
+      .eq("school_id", schoolId)
+      .eq("class_id", selectedClassId)
 
     if (enrollmentError) {
       console.error("Erreur inscriptions :", enrollmentError)
@@ -186,7 +192,12 @@ export default function AttendancePage() {
 
     setStudents(loadedStudents)
 
-    const { data: existingAttendance, error: attendanceError } = attendanceResult
+    const { data: existingAttendance, error: attendanceError } = await supabase
+      .from("attendance")
+      .select("id, student_id, status")
+      .eq("school_id", schoolId)
+      .eq("class_id", selectedClassId)
+      .eq("attendance_date", selectedDate)
 
     if (attendanceError) {
       console.error("Erreur présences existantes :", attendanceError)
@@ -220,58 +231,6 @@ export default function AttendancePage() {
         status,
       },
     }))
-  }
-
-  async function notifyParent(studentId: string) {
-    const entry = attendance[studentId]
-
-    if (!entry?.attendanceId) {
-      return
-    }
-
-    setSendingSmsId(studentId)
-    setSmsStatus((current) => {
-      const next = { ...current }
-      delete next[studentId]
-      return next
-    })
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    if (!session?.access_token) {
-      router.push("/login")
-      return
-    }
-
-    const response = await fetch("/api/sms/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        studentId,
-        eventType: "absence",
-        relatedId: entry.attendanceId,
-        params: {
-          status: entry.status,
-          attendanceDate: selectedDate,
-        },
-      }),
-    })
-
-    const result = await response.json()
-
-    setSmsStatus((current) => ({
-      ...current,
-      [studentId]: response.ok
-        ? { type: "success", text: "Parent notifié par SMS." }
-        : { type: "error", text: result.error || "Échec de l'envoi du SMS." },
-    }))
-
-    setSendingSmsId(null)
   }
 
   async function saveAttendance() {
@@ -320,6 +279,22 @@ export default function AttendancePage() {
 
   const selectedClass = classes.find((item) => item.id === selectedClassId)
 
+  /*
+   * Périodes du calendrier scolaire couvrant la date sélectionnée.
+   *
+   * Les dates sont au format ISO (AAAA-MM-JJ) côté base comme côté champ :
+   * la comparaison de chaînes suffit et évite tout décalage de fuseau.
+   */
+  const matchingHolidays = useMemo(
+    () =>
+      holidays.filter(
+        (holiday) =>
+          selectedDate >= holiday.start_date &&
+          selectedDate <= holiday.end_date
+      ),
+    [holidays, selectedDate]
+  )
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
@@ -333,7 +308,7 @@ export default function AttendancePage() {
       <header className="border-b bg-background">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <h1 className="text-xl font-bold">EduMali</h1>
+            <h1 className="text-xl font-bold">Ridwane</h1>
             <p className="text-sm text-muted-foreground">
               Gestion des présences
             </p>
@@ -410,6 +385,29 @@ export default function AttendancePage() {
             />
           </div>
 
+          {matchingHolidays.length > 0 && (
+            <div
+              className="rounded-lg border p-4 text-sm md:col-span-2"
+              style={{
+                background: "oklch(0.78 0.14 85 / 0.12)",
+                borderColor: "oklch(0.6 0.14 85 / 0.4)",
+              }}
+            >
+              <p className="font-medium">
+                Cette date tombe pendant{" "}
+                {matchingHolidays
+                  .map((holiday) => `« ${holiday.name} »`)
+                  .join(", ")}
+                .
+              </p>
+
+              <p className="mt-1 text-muted-foreground">
+                Vous pouvez tout de même saisir les présences si un cours a été
+                assuré.
+              </p>
+            </div>
+          )}
+
           <div className="md:col-span-2">
             <button
               onClick={loadStudentsAndAttendance}
@@ -437,6 +435,20 @@ export default function AttendancePage() {
                     year: "numeric",
                   })}
                 </p>
+
+                {matchingHolidays.length > 0 && (
+                  <p
+                    className="mt-2 inline-block rounded-full border px-3 py-1 text-xs font-semibold"
+                    style={{
+                      color: "oklch(0.6 0.14 85)",
+                      borderColor: "oklch(0.6 0.14 85)",
+                    }}
+                  >
+                    {matchingHolidays
+                      .map((holiday) => holiday.name)
+                      .join(", ")}
+                  </p>
+                )}
               </div>
 
               <button
@@ -473,7 +485,6 @@ export default function AttendancePage() {
                     <tr>
                       <th className="px-4 py-3">Élève</th>
                       <th className="px-4 py-3">Statut</th>
-                      <th className="px-4 py-3">Notification</th>
                     </tr>
                   </thead>
 
@@ -500,7 +511,7 @@ export default function AttendancePage() {
                                     onClick={() =>
                                       updateStatus(student.id, option.value)
                                     }
-                                    className="rounded-full border px-3 py-2 text-xs font-semibold transition"
+                                    className="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
                                     style={
                                       isSelected
                                         ? {
@@ -516,41 +527,6 @@ export default function AttendancePage() {
                                 )
                               })}
                             </div>
-                          </td>
-
-                          <td className="px-4 py-4">
-                            {currentStatus === "present" ? (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            ) : !attendance[student.id]?.attendanceId ? (
-                              <span className="text-xs text-muted-foreground">
-                                Enregistrez d'abord les présences
-                              </span>
-                            ) : (
-                              <div className="space-y-1">
-                                <button
-                                  type="button"
-                                  onClick={() => notifyParent(student.id)}
-                                  disabled={sendingSmsId === student.id}
-                                  className="rounded-md border px-3 py-2 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  {sendingSmsId === student.id
-                                    ? "Envoi..."
-                                    : "Notifier le parent"}
-                                </button>
-
-                                {smsStatus[student.id] && (
-                                  <p
-                                    className={
-                                      smsStatus[student.id].type === "success"
-                                        ? "text-xs text-green-700"
-                                        : "text-xs text-destructive"
-                                    }
-                                  >
-                                    {smsStatus[student.id].text}
-                                  </p>
-                                )}
-                              </div>
-                            )}
                           </td>
                         </tr>
                       )

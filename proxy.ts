@@ -42,7 +42,12 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
-  const publicPaths = ["/", "/login"]
+  /*
+   * /update-password reçoit les liens d'accès envoyés par email : la session
+   * y est établie côté client à partir du jeton présent dans l'URL, donc la
+   * page doit pouvoir se charger sans cookie de session préalable.
+   */
+  const publicPaths = ["/", "/login", "/update-password"]
   const isPublicPath = publicPaths.includes(pathname)
 
   if (!user && !isPublicPath) {

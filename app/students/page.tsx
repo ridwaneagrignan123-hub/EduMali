@@ -1,13 +1,23 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { matchesSearch } from "@/src/lib/search"
 
 type ClassItem = {
   id: string
   name: string
   level: string | null
+}
+
+type Enrollment = {
+  student_id: string
+  academic_year_id: string
+  classes: {
+    id: string
+    name: string
+  } | null
 }
 
 type Student = {
@@ -22,29 +32,24 @@ type Student = {
   parent_phone: string | null
 }
 
+// Libellé du groupe pour les élèves sans inscription en classe.
+const UNASSIGNED_CLASS_LABEL = "Sans classe"
+
 export default function StudentsPage() {
   const router = useRouter()
 
   const [students, setStudents] = useState<Student[]>([])
   const [classes, setClasses] = useState<ClassItem[]>([])
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
 
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<{
-    firstName?: string
-    lastName?: string
-    selectedClassId?: string
-  }>({})
 
   const [schoolId, setSchoolId] = useState("")
   const [activeAcademicYearId, setActiveAcademicYearId] = useState("")
   const [selectedClassId, setSelectedClassId] = useState("")
-
-  const PAGE_SIZE = 30
-  const [page, setPage] = useState(0)
-  const [totalStudents, setTotalStudents] = useState(0)
 
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -85,130 +90,95 @@ export default function StudentsPage() {
 
     setSchoolId(profile.school_id)
 
-    const loadErrors: string[] = []
+    const { data: academicYearData, error: academicYearError } =
+      await supabase
+        .from("academic_years")
+        .select("id")
+        .eq("school_id", profile.school_id)
+        .eq("is_active", true)
+        .maybeSingle()
 
-    const [academicYearResult, classesResult, studentsResult] =
-      await Promise.all([
-        supabase
-          .from("academic_years")
-          .select("id")
-          .eq("school_id", profile.school_id)
-          .eq("is_active", true)
-          .maybeSingle(),
-
-        supabase
-          .from("classes")
-          .select("id, name, level")
-          .eq("school_id", profile.school_id)
-          .order("name", { ascending: true }),
-
-        supabase
-          .from("students")
-          .select(
-            "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone",
-            { count: "exact" }
-          )
-          .eq("school_id", profile.school_id)
-          .order("last_name", { ascending: true })
-          .range(0, PAGE_SIZE - 1),
-      ])
-
-    if (academicYearResult.error) {
+    if (academicYearError) {
       console.error(
         "Erreur lors du chargement de l'année scolaire active :",
-        academicYearResult.error
+        academicYearError
       )
-      loadErrors.push("l'année scolaire active")
-    }
-
-    setActiveAcademicYearId(academicYearResult.data?.id ?? "")
-
-    if (classesResult.error) {
-      console.error(
-        "Erreur lors du chargement des classes :",
-        classesResult.error
-      )
-      loadErrors.push("les classes")
-    }
-
-    setClasses(classesResult.data ?? [])
-
-    if (studentsResult.error) {
-      console.error(
-        "Erreur lors du chargement des élèves :",
-        studentsResult.error
-      )
-      loadErrors.push("les élèves")
-    }
-
-    setStudents(studentsResult.data ?? [])
-    setTotalStudents(studentsResult.count ?? 0)
-    setPage(0)
-
-    if (loadErrors.length > 0) {
       setLoadError(
-        `Impossible de charger ${loadErrors.join(", ")}. Réessayez.`
+        "Impossible de vérifier l'année scolaire active."
       )
     }
 
-    setLoading(false)
-  }
+    setActiveAcademicYearId(academicYearData?.id ?? "")
 
-  async function loadStudentsPage(pageIndex: number) {
-    setLoading(true)
+    const { data: classesData, error: classesError } = await supabase
+      .from("classes")
+      .select("id, name, level")
+      .eq("school_id", profile.school_id)
+      .order("name", { ascending: true })
 
-    const from = pageIndex * PAGE_SIZE
-    const to = from + PAGE_SIZE - 1
+    if (classesError) {
+      console.error("Erreur lors du chargement des classes :", classesError)
+      setLoadError("Impossible de charger la liste des classes.")
+    }
 
-    const { data, error, count } = await supabase
+    setClasses(classesData ?? [])
+
+    const { data: studentsData, error: studentsError } = await supabase
       .from("students")
       .select(
-        "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone",
-        { count: "exact" }
+        "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone"
       )
-      .eq("school_id", schoolId)
+      .eq("school_id", profile.school_id)
       .order("last_name", { ascending: true })
-      .range(from, to)
 
-    if (error) {
-      console.error("Erreur lors du chargement des élèves :", error)
+    if (studentsError) {
+      console.error(
+        "Erreur lors du chargement des élèves :",
+        studentsError
+      )
       setLoadError("Impossible de charger la liste des élèves.")
-      setLoading(false)
-      return
     }
 
-    setStudents(data ?? [])
-    setTotalStudents(count ?? 0)
-    setPage(pageIndex)
+    setStudents(studentsData ?? [])
+
+    // Sert uniquement à regrouper la liste des élèves par classe.
+    const { data: enrollmentsData, error: enrollmentsError } = await supabase
+      .from("student_class_enrollments")
+      .select(`
+        student_id,
+        academic_year_id,
+        classes ( id, name )
+      `)
+      .eq("school_id", profile.school_id)
+
+    if (enrollmentsError) {
+      console.error(
+        "Erreur lors du chargement des inscriptions :",
+        enrollmentsError
+      )
+      setLoadError("Impossible de charger les classes des élèves.")
+    }
+
+    setEnrollments((enrollmentsData as unknown as Enrollment[]) ?? [])
+
     setLoading(false)
   }
 
   async function createStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setFormError(null)
 
-    const errors: typeof fieldErrors = {}
-
-    if (!firstName.trim()) {
-      errors.firstName = "Le prénom est obligatoire."
-    }
-
-    if (!lastName.trim()) {
-      errors.lastName = "Le nom est obligatoire."
+    if (!firstName.trim() || !lastName.trim()) {
+      alert("Le prénom et le nom sont obligatoires.")
+      return
     }
 
     if (!selectedClassId) {
-      errors.selectedClassId = "Veuillez sélectionner une classe."
-    }
-
-    setFieldErrors(errors)
-
-    if (Object.keys(errors).length > 0) {
+      alert("Veuillez sélectionner une classe.")
       return
     }
 
     if (!activeAcademicYearId) {
-      setFormError(
+      alert(
         "Aucune année scolaire active n'est configurée pour votre établissement. Configurez-la avant d'ajouter un élève."
       )
       return
@@ -238,7 +208,7 @@ export default function StudentsPage() {
         studentError
       )
 
-      setFormError(
+      alert(
         studentError?.message ||
           "Impossible de créer l'élève."
       )
@@ -262,7 +232,7 @@ export default function StudentsPage() {
         enrollmentError
       )
 
-      setFormError(
+      alert(
         "L'élève a été créé, mais son inscription dans la classe a échoué : " +
           enrollmentError.message
       )
@@ -281,18 +251,94 @@ export default function StudentsPage() {
     setParentPhone("")
     setSelectedClassId("")
 
-    await loadStudentsPage(0)
+    await loadData()
 
     setCreating(false)
   }
 
+  /*
+   * Classe de chaque élève pour l'année scolaire active.
+   * Si aucune année active n'est configurée, on retombe sur
+   * l'ensemble des inscriptions pour ne pas masquer les classes.
+   */
+  const classNameByStudentId = useMemo(() => {
+    const map = new Map<string, string>()
+
+    enrollments
+      .filter(
+        (enrollment) =>
+          !activeAcademicYearId ||
+          enrollment.academic_year_id === activeAcademicYearId
+      )
+      .forEach((enrollment) => {
+        if (enrollment.classes?.name) {
+          map.set(enrollment.student_id, enrollment.classes.name)
+        }
+      })
+
+    return map
+  }, [enrollments, activeAcademicYearId])
+
+  /*
+   * Élèves regroupés par classe et filtrés par la recherche.
+   * Le filtrage est fait côté client sur les données déjà chargées.
+   */
+  const studentGroups = useMemo(() => {
+    const groups = new Map<string, Student[]>()
+
+    students
+      .filter((student) =>
+        matchesSearch(
+          searchTerm,
+          student.first_name,
+          student.last_name,
+          student.student_number
+        )
+      )
+      .forEach((student) => {
+        const className =
+          classNameByStudentId.get(student.id) ?? UNASSIGNED_CLASS_LABEL
+
+        const group = groups.get(className)
+
+        if (group) {
+          group.push(student)
+        } else {
+          groups.set(className, [student])
+        }
+      })
+
+    return Array.from(groups.entries())
+      .map(([className, groupStudents]) => ({
+        className,
+        students: [...groupStudents].sort((a, b) =>
+          `${a.last_name} ${a.first_name}`.localeCompare(
+            `${b.last_name} ${b.first_name}`,
+            "fr"
+          )
+        ),
+      }))
+      .sort((a, b) => {
+        // « Sans classe » reste toujours en dernier.
+        if (a.className === UNASSIGNED_CLASS_LABEL) return 1
+        if (b.className === UNASSIGNED_CLASS_LABEL) return -1
+
+        return a.className.localeCompare(b.className, "fr")
+      })
+  }, [students, classNameByStudentId, searchTerm])
+
+  const matchedStudentCount = studentGroups.reduce(
+    (total, group) => total + group.students.length,
+    0
+  )
+
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div className="flex h-16 items-center justify-between px-6">
           <div>
             <h1 className="text-xl font-bold">
-              EduMali
+              Ridwane
             </h1>
 
             <p className="text-sm text-muted-foreground">
@@ -346,21 +392,12 @@ export default function StudentsPage() {
                     id="firstName"
                     type="text"
                     value={firstName}
-                    onChange={(event) => {
+                    onChange={(event) =>
                       setFirstName(event.target.value)
-                      setFieldErrors((current) => ({
-                        ...current,
-                        firstName: undefined,
-                      }))
-                    }}
+                    }
                     className="w-full rounded-md border bg-background px-3 py-2"
+                    required
                   />
-
-                  {fieldErrors.firstName && (
-                    <p className="text-sm text-destructive">
-                      {fieldErrors.firstName}
-                    </p>
-                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -372,21 +409,12 @@ export default function StudentsPage() {
                     id="lastName"
                     type="text"
                     value={lastName}
-                    onChange={(event) => {
+                    onChange={(event) =>
                       setLastName(event.target.value)
-                      setFieldErrors((current) => ({
-                        ...current,
-                        lastName: undefined,
-                      }))
-                    }}
+                    }
                     className="w-full rounded-md border bg-background px-3 py-2"
+                    required
                   />
-
-                  {fieldErrors.lastName && (
-                    <p className="text-sm text-destructive">
-                      {fieldErrors.lastName}
-                    </p>
-                  )}
                 </div>
               </div>
 
@@ -398,14 +426,11 @@ export default function StudentsPage() {
                 <select
                   id="class"
                   value={selectedClassId}
-                  onChange={(event) => {
+                  onChange={(event) =>
                     setSelectedClassId(event.target.value)
-                    setFieldErrors((current) => ({
-                      ...current,
-                      selectedClassId: undefined,
-                    }))
-                  }}
+                  }
                   className="w-full rounded-md border bg-background px-3 py-2"
+                  required
                 >
                   <option value="">
                     Sélectionner une classe
@@ -424,23 +449,9 @@ export default function StudentsPage() {
                   ))}
                 </select>
 
-                {fieldErrors.selectedClassId && (
+                {classes.length === 0 && (
                   <p className="text-sm text-destructive">
-                    {fieldErrors.selectedClassId}
-                  </p>
-                )}
-
-                {!loading && classes.length === 0 && (
-                  <p className="text-sm text-destructive">
-                    Vous devez d'abord{" "}
-                    <button
-                      type="button"
-                      onClick={() => router.push("/classes")}
-                      className="font-medium underline"
-                    >
-                      créer une classe
-                    </button>
-                    .
+                    Vous devez d'abord créer une classe.
                   </p>
                 )}
               </div>
@@ -552,12 +563,6 @@ export default function StudentsPage() {
                 />
               </div>
 
-              {formError && (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-                  {formError}
-                </div>
-              )}
-
               <button
                 type="submit"
                 disabled={creating || classes.length === 0}
@@ -571,15 +576,34 @@ export default function StudentsPage() {
           </div>
 
           <div className="rounded-xl border bg-background p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h3 className="text-xl font-semibold">
                   Liste des élèves
                 </h3>
 
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {totalStudents} élève(s)
+                  {searchTerm.trim()
+                    ? `${matchedStudentCount} élève(s) sur ${students.length}`
+                    : `${students.length} élève(s)`}
                 </p>
+              </div>
+
+              <div className="w-full sm:w-72">
+                <label htmlFor="student-search" className="sr-only">
+                  Rechercher un élève
+                </label>
+
+                <input
+                  id="student-search"
+                  type="search"
+                  value={searchTerm}
+                  onChange={(event) =>
+                    setSearchTerm(event.target.value)
+                  }
+                  placeholder="Rechercher un élève..."
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                />
               </div>
             </div>
 
@@ -591,106 +615,96 @@ export default function StudentsPage() {
               <p className="mt-6 text-muted-foreground">
                 Aucun élève enregistré pour le moment.
               </p>
+            ) : studentGroups.length === 0 ? (
+              <p className="mt-6 text-muted-foreground">
+                Aucun élève ne correspond à « {searchTerm.trim()} ».
+              </p>
             ) : (
-              <div className="mt-6 overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b">
-                    <tr>
-                      <th className="px-4 py-3">
-                        Élève
-                      </th>
+              <div className="mt-6 space-y-8">
+                {studentGroups.map((group) => (
+                  <div key={group.className}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
+                      <h4 className="font-heading text-lg font-bold">
+                        {group.className}
+                      </h4>
 
-                      <th className="px-4 py-3">
-                        Sexe
-                      </th>
+                      <p className="text-sm text-muted-foreground">
+                        {group.students.length} élève(s)
+                      </p>
+                    </div>
 
-                      <th className="px-4 py-3">
-                        Date de naissance
-                      </th>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="border-b">
+                          <tr>
+                            <th className="px-4 py-3">
+                              Élève
+                            </th>
 
-                      <th className="px-4 py-3">
-                        Parent/Tuteur
-                      </th>
+                            <th className="px-4 py-3">
+                              Sexe
+                            </th>
 
-                      <th className="px-4 py-3">
-                        Téléphone
-                      </th>
-                    </tr>
-                  </thead>
+                            <th className="px-4 py-3">
+                              Date de naissance
+                            </th>
 
-                  <tbody>
-                    {students.map((student) => (
-                      <tr
-                        key={student.id}
-                        className="border-b last:border-0"
-                      >
-                        <td className="px-4 py-4">
-                          <p className="font-medium">
-                            {student.first_name}{" "}
-                            {student.last_name}
-                          </p>
+                            <th className="px-4 py-3">
+                              Parent/Tuteur
+                            </th>
 
-                          {student.student_number && (
-                            <p className="text-xs text-muted-foreground">
-                              N°{" "}
-                              {student.student_number}
-                            </p>
-                          )}
-                        </td>
+                            <th className="px-4 py-3">
+                              Téléphone
+                            </th>
+                          </tr>
+                        </thead>
 
-                        <td className="px-4 py-4">
-                          {student.gender === "M"
-                            ? "Masculin"
-                            : student.gender === "F"
-                              ? "Féminin"
-                              : "—"}
-                        </td>
+                        <tbody>
+                          {group.students.map((student) => (
+                            <tr
+                              key={student.id}
+                              className="border-b last:border-0"
+                            >
+                              <td className="px-4 py-4">
+                                <p className="font-medium">
+                                  {student.first_name}{" "}
+                                  {student.last_name}
+                                </p>
 
-                        <td className="px-4 py-4">
-                          {student.date_of_birth || "—"}
-                        </td>
+                                {student.student_number && (
+                                  <p className="text-xs text-muted-foreground">
+                                    N°{" "}
+                                    {student.student_number}
+                                  </p>
+                                )}
+                              </td>
 
-                        <td className="px-4 py-4">
-                          {student.parent_name || "—"}
-                        </td>
+                              <td className="px-4 py-4">
+                                {student.gender === "M"
+                                  ? "Masculin"
+                                  : student.gender === "F"
+                                    ? "Féminin"
+                                    : "—"}
+                              </td>
 
-                        <td className="px-4 py-4">
-                          {student.parent_phone || "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                              <td className="px-4 py-4">
+                                {student.date_of_birth || "—"}
+                              </td>
 
-                {totalStudents > PAGE_SIZE && (
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">
-                      Page {page + 1} sur {Math.ceil(totalStudents / PAGE_SIZE)}
-                    </p>
+                              <td className="px-4 py-4">
+                                {student.parent_name || "—"}
+                              </td>
 
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => loadStudentsPage(page - 1)}
-                        disabled={page === 0 || loading}
-                        className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Précédent
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => loadStudentsPage(page + 1)}
-                        disabled={
-                          (page + 1) * PAGE_SIZE >= totalStudents || loading
-                        }
-                        className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Suivant
-                      </button>
+                              <td className="px-4 py-4">
+                                {student.parent_phone || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                )}
+                ))}
               </div>
             )}
           </div>
