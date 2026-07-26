@@ -139,24 +139,15 @@ export default function GradesPage() {
 
     setLoadingStudents(true)
 
-    const [enrollmentsResult, gradesResult] = await Promise.all([
-      supabase
+    const { data: enrollments, error: enrollmentError } =
+      await supabase
         .from("student_class_enrollments")
         .select(`
           student_id,
           students ( id, first_name, last_name )
         `)
         .eq("school_id", schoolId)
-        .eq("class_id", assessment.class_id),
-
-      supabase
-        .from("grades")
-        .select("id, student_id, score")
-        .eq("school_id", schoolId)
-        .eq("assessment_id", assessmentId),
-    ])
-
-    const { data: enrollments, error: enrollmentError } = enrollmentsResult
+        .eq("class_id", assessment.class_id)
 
     if (enrollmentError) {
       console.error("Erreur inscriptions :", enrollmentError)
@@ -178,7 +169,12 @@ export default function GradesPage() {
 
     setStudents(loadedStudents)
 
-    const { data: existingGrades, error: gradesError } = gradesResult
+    const { data: existingGrades, error: gradesError } =
+      await supabase
+        .from("grades")
+        .select("id, student_id, score")
+        .eq("school_id", schoolId)
+        .eq("assessment_id", assessmentId)
 
     if (gradesError) {
       console.error("Erreur notes existantes :", gradesError)
@@ -308,7 +304,7 @@ export default function GradesPage() {
       <header className="border-b bg-background">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <h1 className="text-xl font-bold">EduMali</h1>
+            <h1 className="text-xl font-bold">Ridwane</h1>
             <p className="text-sm text-muted-foreground">
               Saisie des notes
             </p>

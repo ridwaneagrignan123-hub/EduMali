@@ -23,13 +23,6 @@ export default function TeachersPage() {
   const [creating, setCreating] = useState(false)
   const [schoolId, setSchoolId] = useState("")
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  const [fieldErrors, setFieldErrors] = useState<{
-    firstName?: string
-    lastName?: string
-    email?: string
-  }>({})
 
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -100,29 +93,16 @@ export default function TeachersPage() {
   event: FormEvent<HTMLFormElement>
 ) {
   event.preventDefault()
-  setFormError(null)
-  setSuccessMessage(null)
 
-  const errors: typeof fieldErrors = {}
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (
+    !firstName.trim() ||
+    !lastName.trim() ||
+    !email.trim()
+  ) {
+    alert(
+      "Le prénom, le nom et l'email sont obligatoires."
+    )
 
-  if (!firstName.trim()) {
-    errors.firstName = "Le prénom est obligatoire."
-  }
-
-  if (!lastName.trim()) {
-    errors.lastName = "Le nom est obligatoire."
-  }
-
-  if (!email.trim()) {
-    errors.email = "L'email est obligatoire."
-  } else if (!emailPattern.test(email.trim())) {
-    errors.email = "Adresse email invalide."
-  }
-
-  setFieldErrors(errors)
-
-  if (Object.keys(errors).length > 0) {
     return
   }
 
@@ -139,7 +119,7 @@ export default function TeachersPage() {
     if (
       !session?.access_token
     ) {
-      setFormError(
+      alert(
         "Votre session a expiré. Veuillez vous reconnecter."
       )
 
@@ -191,7 +171,7 @@ export default function TeachersPage() {
     if (
       !response.ok
     ) {
-      setFormError(
+      alert(
         result.error ||
           "Impossible d'envoyer l'invitation."
       )
@@ -199,7 +179,7 @@ export default function TeachersPage() {
       return
     }
 
-    setSuccessMessage(
+    alert(
       "Invitation envoyée avec succès à l'enseignant."
     )
 
@@ -217,7 +197,7 @@ export default function TeachersPage() {
       error
     )
 
-    setFormError(
+    alert(
       "Une erreur est survenue lors de l'envoi de l'invitation."
     )
   } finally {
@@ -228,10 +208,10 @@ export default function TeachersPage() {
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div className="flex min-h-16 items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
-              EduMali
+              Ridwane
             </h1>
 
             <p className="text-sm text-muted-foreground">
@@ -284,21 +264,12 @@ export default function TeachersPage() {
                   id="firstName"
                   type="text"
                   value={firstName}
-                  onChange={(event) => {
+                  onChange={(event) =>
                     setFirstName(event.target.value)
-                    setFieldErrors((current) => ({
-                      ...current,
-                      firstName: undefined,
-                    }))
-                  }}
+                  }
                   className="w-full rounded-md border bg-background px-3 py-2"
+                  required
                 />
-
-                {fieldErrors.firstName && (
-                  <p className="text-sm text-destructive">
-                    {fieldErrors.firstName}
-                  </p>
-                )}
               </div>
 
               <div className="space-y-2">
@@ -310,48 +281,29 @@ export default function TeachersPage() {
                   id="lastName"
                   type="text"
                   value={lastName}
-                  onChange={(event) => {
+                  onChange={(event) =>
                     setLastName(event.target.value)
-                    setFieldErrors((current) => ({
-                      ...current,
-                      lastName: undefined,
-                    }))
-                  }}
+                  }
                   className="w-full rounded-md border bg-background px-3 py-2"
+                  required
                 />
-
-                {fieldErrors.lastName && (
-                  <p className="text-sm text-destructive">
-                    {fieldErrors.lastName}
-                  </p>
-                )}
               </div>
 
               <div className="space-y-2">
                 <label htmlFor="email">
-                  Email *
+                  Email
                 </label>
 
                 <input
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(event) => {
+                  onChange={(event) =>
                     setEmail(event.target.value)
-                    setFieldErrors((current) => ({
-                      ...current,
-                      email: undefined,
-                    }))
-                  }}
+                  }
                   className="w-full rounded-md border bg-background px-3 py-2"
                   autoComplete="email"
                 />
-
-                {fieldErrors.email && (
-                  <p className="text-sm text-destructive">
-                    {fieldErrors.email}
-                  </p>
-                )}
               </div>
 
               <div className="space-y-2">
@@ -403,18 +355,6 @@ export default function TeachersPage() {
                   className="w-full rounded-md border bg-background px-3 py-2"
                 />
               </div>
-
-              {formError && (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-                  {formError}
-                </div>
-              )}
-
-              {successMessage && (
-                <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-                  {successMessage}
-                </div>
-              )}
 
               <button
                 type="submit"

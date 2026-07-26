@@ -17,8 +17,6 @@ export default function ClassesPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [nameError, setNameError] = useState<string | null>(null)
 
   const [name, setName] = useState("")
   const [level, setLevel] = useState("")
@@ -70,14 +68,12 @@ export default function ClassesPage() {
 
   async function createClass(event: React.FormEvent) {
     event.preventDefault()
-    setFormError(null)
 
     if (!name.trim()) {
-      setNameError("Le nom de la classe est obligatoire.")
+      alert("Veuillez saisir le nom de la classe.")
       return
     }
 
-    setNameError(null)
     setCreating(true)
 
     const {
@@ -96,7 +92,7 @@ export default function ClassesPage() {
       .maybeSingle()
 
     if (profileError || !profile?.school_id) {
-      setFormError("Aucune école associée à votre compte.")
+      alert("Aucune école associée à votre compte.")
       setCreating(false)
       return
     }
@@ -109,7 +105,7 @@ export default function ClassesPage() {
 
     if (error) {
       console.error("Erreur lors de la création de la classe :", error)
-      setFormError(error.message)
+      alert(error.message)
       setCreating(false)
       return
     }
@@ -125,9 +121,9 @@ export default function ClassesPage() {
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div className="flex h-16 items-center justify-between px-6">
           <div>
-            <h1 className="text-xl font-bold">EduMali</h1>
+            <h1 className="text-xl font-bold">Ridwane</h1>
             <p className="text-sm text-muted-foreground">
               Gestion des classes
             </p>
@@ -179,18 +175,12 @@ export default function ClassesPage() {
                   type="text"
                   placeholder="Exemple : CM2 A"
                   value={name}
-                  onChange={(event) => {
+                  onChange={(event) =>
                     setName(event.target.value)
-                    setNameError(null)
-                  }}
+                  }
                   className="w-full rounded-md border bg-background px-3 py-2"
+                  required
                 />
-
-                {nameError && (
-                  <p className="text-sm text-destructive">
-                    {nameError}
-                  </p>
-                )}
               </div>
 
               <div className="space-y-2">
@@ -209,12 +199,6 @@ export default function ClassesPage() {
                   className="w-full rounded-md border bg-background px-3 py-2"
                 />
               </div>
-
-              {formError && (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-                  {formError}
-                </div>
-              )}
 
               <button
                 type="submit"

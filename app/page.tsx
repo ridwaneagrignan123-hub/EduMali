@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { Logo } from "@/components/logo"
 
 const features = [
   {
@@ -94,69 +95,7 @@ export default function Home() {
           borderBottom: "1px solid oklch(20% 0.02 60 / 0.06)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 15 }}>
-          <div
-            style={{
-              position: "relative",
-              display: "flex",
-              alignItems: "flex-end",
-              gap: 5,
-              height: 38,
-            }}
-          >
-            <div
-              style={{
-                width: 9,
-                height: "66%",
-                background: "oklch(24% 0.02 60)",
-                borderRadius: "9px 9px 3px 3px",
-              }}
-            />
-            <div
-              style={{
-                width: 9,
-                height: "100%",
-                background: "oklch(58% 0.15 45)",
-                borderRadius: "9px 9px 3px 3px",
-                position: "relative",
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: -6,
-                  width: 8,
-                  height: 8,
-                  marginLeft: -4,
-                  borderRadius: "50%",
-                  background: "oklch(78% 0.14 85)",
-                  animation: "kalanso-glow 2.4s ease-in-out 1s infinite",
-                }}
-              />
-            </div>
-            <div
-              style={{
-                width: 9,
-                height: "80%",
-                background: "oklch(56% 0.13 150)",
-                borderRadius: "9px 9px 3px 3px",
-              }}
-            />
-          </div>
-
-          <span
-            style={{
-              fontFamily: "var(--font-plus-jakarta), sans-serif",
-              fontWeight: 800,
-              fontSize: 24,
-              color: "oklch(20% 0.02 60)",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            EduMali
-          </span>
-        </div>
+        <Logo size="md" />
 
         <div style={{ display: "flex", alignItems: "center", gap: 40 }}>
           <a
@@ -267,9 +206,9 @@ export default function Home() {
               margin: "0 0 24px",
             }}
           >
-            La gestion scolaire,{" "}
-            <span style={{ color: "oklch(58% 0.15 45)" }}>simplifiée</span>{" "}
-            et connectée.
+            <span style={{ color: "oklch(58% 0.15 45)" }}>Ridwane</span>
+            <br />
+            L&apos;école, simplement.
           </h1>
 
           <p
@@ -281,9 +220,8 @@ export default function Home() {
               margin: "0 0 36px",
             }}
           >
-            EduMali réunit inscriptions, notes, bulletins, classes et
-            matières dans une seule plateforme pensée pour les
-            établissements maliens.
+            Inscriptions, notes, bulletins, classes et matières dans une
+            seule plateforme pensée pour les établissements maliens.
           </p>
 
           <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
@@ -642,57 +580,10 @@ export default function Home() {
           alignItems: "center",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-          <div
-            style={{
-              position: "relative",
-              display: "flex",
-              alignItems: "flex-end",
-              gap: 3,
-              height: 28,
-            }}
-          >
-            <div
-              style={{
-                width: 7,
-                height: "66%",
-                background: "oklch(24% 0.02 60)",
-                borderRadius: "7px 7px 3px 3px",
-              }}
-            />
-            <div
-              style={{
-                width: 7,
-                height: "100%",
-                background: "oklch(58% 0.15 45)",
-                borderRadius: "7px 7px 3px 3px",
-              }}
-            />
-            <div
-              style={{
-                width: 7,
-                height: "80%",
-                background: "oklch(56% 0.13 150)",
-                borderRadius: "7px 7px 3px 3px",
-              }}
-            />
-          </div>
-
-          <span
-            style={{
-              fontFamily: "var(--font-plus-jakarta), sans-serif",
-              fontWeight: 800,
-              fontSize: 17,
-              color: "oklch(20% 0.02 60)",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            EduMali
-          </span>
-        </div>
+        <Logo size="sm" />
 
         <span style={{ fontSize: 13, color: "oklch(45% 0.02 60)" }}>
-          © {new Date().getFullYear()} EduMali — Fait au Mali, pour les
+          © {new Date().getFullYear()} Ridwane — Fait au Mali, pour les
           écoles maliennes.
         </span>
       </footer>

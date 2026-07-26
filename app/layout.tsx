@@ -19,9 +19,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EduMali — Gestion scolaire",
+  title: "Ridwane — L'école, simplement.",
   description:
-    "EduMali, la plateforme de gestion scolaire pour les établissements au Mali : élèves, notes, bulletins et plus encore.",
+    "Ridwane, la plateforme de gestion scolaire pour les établissements au Mali : élèves, notes, bulletins et plus encore.",
 };
 
 export default function RootLayout({

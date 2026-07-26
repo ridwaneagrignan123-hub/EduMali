@@ -292,10 +292,10 @@ export default function ClassSubjectsPage() {
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
-        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
+        <div className="flex min-h-16 items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
-              EduMali
+              Ridwane
             </h1>
 
             <p className="text-sm text-muted-foreground">
@@ -462,31 +462,15 @@ export default function ClassSubjectsPage() {
               </button>
             </form>
 
-            {!loading && classes.length === 0 && (
+            {classes.length === 0 && (
               <p className="mt-4 text-sm text-amber-600">
-                Vous devez d'abord{" "}
-                <button
-                  type="button"
-                  onClick={() => router.push("/classes")}
-                  className="font-medium underline"
-                >
-                  créer une classe
-                </button>
-                .
+                Vous devez d'abord créer une classe.
               </p>
             )}
 
-            {!loading && subjects.length === 0 && (
+            {subjects.length === 0 && (
               <p className="mt-2 text-sm text-amber-600">
-                Vous devez d'abord{" "}
-                <button
-                  type="button"
-                  onClick={() => router.push("/subjects")}
-                  className="font-medium underline"
-                >
-                  créer une matière
-                </button>
-                .
+                Vous devez d'abord créer une matière.
               </p>
             )}
           </div>

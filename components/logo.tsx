@@ -1,66 +1,58 @@
 type LogoProps = {
   size?: "sm" | "md" | "lg"
   dark?: boolean
+  withTagline?: boolean
 }
 
 const textSizeClasses = {
   sm: "text-base",
   md: "text-xl",
-  lg: "text-3xl",
+  lg: "text-4xl",
 }
 
-const barHeights = {
-  sm: 22,
-  md: 30,
-  lg: 40,
+const medallionSizes = {
+  sm: 30,
+  md: 38,
+  lg: 56,
 }
 
-export function Logo({ size = "md", dark = false }: LogoProps) {
-  const height = barHeights[size]
+export function Logo({ size = "md", dark = false, withTagline = false }: LogoProps) {
+  const medallion = medallionSizes[size]
 
   return (
     <span className="inline-flex items-center gap-2.5 select-none">
       <span
-        className="relative inline-flex items-end gap-[3px]"
-        style={{ height }}
+        className="flex shrink-0 items-center justify-center rounded-full font-heading font-extrabold"
+        style={{
+          width: medallion,
+          height: medallion,
+          fontSize: medallion * 0.5,
+          background:
+            "linear-gradient(135deg, oklch(0.58 0.15 45), oklch(0.56 0.13 150))",
+          color: "white",
+        }}
       >
-        <span
-          className="rounded-t-[7px] rounded-b-[2px]"
-          style={{
-            width: height * 0.24,
-            height: "66%",
-            background: "oklch(0.24 0.02 60)",
-          }}
-        />
-        <span
-          className="relative rounded-t-[7px] rounded-b-[2px]"
-          style={{
-            width: height * 0.24,
-            height: "100%",
-            background: "oklch(0.58 0.15 45)",
-          }}
-        >
-          <span
-            className="absolute left-1/2 -top-1.5 -ml-1 h-2 w-2 rounded-full"
-            style={{ background: "oklch(0.78 0.14 85)" }}
-          />
-        </span>
-        <span
-          className="rounded-t-[7px] rounded-b-[2px]"
-          style={{
-            width: height * 0.24,
-            height: "80%",
-            background: "oklch(0.56 0.13 150)",
-          }}
-        />
+        R
       </span>
 
-      <span
-        className={`font-heading font-extrabold tracking-tight ${textSizeClasses[size]} ${
-          dark ? "text-white" : "text-foreground"
-        }`}
-      >
-        EduMali
+      <span className="flex flex-col leading-none">
+        <span
+          className={`font-heading font-extrabold tracking-tight ${textSizeClasses[size]} ${
+            dark ? "text-white" : "text-foreground"
+          }`}
+        >
+          Ridwane
+        </span>
+
+        {withTagline && (
+          <span
+            className={`mt-1 text-xs font-medium ${
+              dark ? "text-white/70" : "text-muted-foreground"
+            }`}
+          >
+            L&apos;école, simplement.
+          </span>
+        )}
       </span>
     </span>
   )
