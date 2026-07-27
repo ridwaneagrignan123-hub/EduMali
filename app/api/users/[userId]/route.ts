@@ -16,7 +16,21 @@ import {
 const BAN_DURATION = "876000h"
 const UNBAN_DURATION = "none"
 
-const ALLOWED_ROLES = ["admin", "teacher"]
+/*
+ * Doit rester aligné sur la contrainte profiles_role_check en base :
+ * une valeur absente d'ici passerait le contrôle applicatif mais serait
+ * rejetée par Postgres.
+ */
+const ALLOWED_ROLES = [
+  "admin",
+  "teacher",
+  "promoteur",
+  "directeur_general",
+  "directeur_direction",
+  "comptable",
+]
+
+const DIRECTION_SCOPED_ROLE = "directeur_direction"
 
 export async function PATCH(
   request: Request,
@@ -38,7 +52,7 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { role, isActive } = body
+    const { role, isActive, directionId } = body
 
     if (role === undefined && isActive === undefined) {
       return NextResponse.json(
@@ -49,7 +63,9 @@ export async function PATCH(
 
     if (role !== undefined && !ALLOWED_ROLES.includes(role)) {
       return NextResponse.json(
-        { error: "Rôle invalide. Valeurs acceptées : admin, teacher." },
+        {
+          error: `Rôle invalide. Valeurs acceptées : ${ALLOWED_ROLES.join(", ")}.`,
+        },
         { status: 400 }
       )
     }
@@ -59,6 +75,54 @@ export async function PATCH(
         { error: "L'état actif doit être un booléen." },
         { status: 400 }
       )
+    }
+
+    /*
+     * Un directeur de direction sans direction ne verrait aucune donnée :
+     * on exige donc la direction dans la même opération que le rôle.
+     * Et on vérifie qu'elle appartient bien à l'école de l'appelant, sinon
+     * un admin pourrait rattacher un compte à la direction d'une autre école.
+     */
+    let nextDirectionId: string | null | undefined = undefined
+
+    if (role === DIRECTION_SCOPED_ROLE) {
+      if (!directionId) {
+        return NextResponse.json(
+          {
+            error:
+              "Choisissez la direction de ce directeur : sans elle, il n'aurait accès à aucune donnée.",
+          },
+          { status: 400 }
+        )
+      }
+
+      const { data: direction, error: directionError } = await supabaseAdmin
+        .from("directions")
+        .select("id")
+        .eq("id", directionId)
+        .eq("school_id", guard.context.schoolId)
+        .maybeSingle()
+
+      if (directionError) {
+        console.error("Erreur lecture de la direction :", directionError)
+
+        return NextResponse.json(
+          { error: "Impossible de vérifier la direction choisie." },
+          { status: 500 }
+        )
+      }
+
+      if (!direction) {
+        return NextResponse.json(
+          { error: "Cette direction n'appartient pas à votre établissement." },
+          { status: 400 }
+        )
+      }
+
+      nextDirectionId = directionId
+    } else if (role !== undefined) {
+      // Tout autre rôle : on efface une direction résiduelle.
+      nextDirectionId = null
     }
 
     /*
@@ -86,7 +150,11 @@ export async function PATCH(
       }
     }
 
-    const updates: { role?: string; is_active?: boolean } = {}
+    const updates: {
+      role?: string
+      is_active?: boolean
+      direction_id?: string | null
+    } = {}
 
     if (role !== undefined) {
       updates.role = role
@@ -94,6 +162,10 @@ export async function PATCH(
 
     if (isActive !== undefined) {
       updates.is_active = isActive
+    }
+
+    if (nextDirectionId !== undefined) {
+      updates.direction_id = nextDirectionId
     }
 
     const { error: updateError } = await supabaseAdmin

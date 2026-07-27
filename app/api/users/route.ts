@@ -75,7 +75,9 @@ export async function GET(request: Request) {
 
     const { data: profiles, error: profilesError } = await supabaseAdmin
       .from("profiles")
-      .select("id, first_name, last_name, role, phone, is_active, created_at")
+      .select(
+        "id, first_name, last_name, role, phone, is_active, created_at, direction_id"
+      )
       .eq("school_id", context.schoolId)
       .order("last_name", { ascending: true })
 
@@ -108,6 +110,7 @@ export async function GET(request: Request) {
         firstName: row.first_name,
         lastName: row.last_name,
         role: row.role,
+        directionId: row.direction_id,
         phone: row.phone,
         isActive: row.is_active,
         createdAt: row.created_at,

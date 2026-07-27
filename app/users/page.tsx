@@ -10,6 +10,7 @@ type UserAccount = {
   firstName: string | null
   lastName: string | null
   role: string | null
+  directionId: string | null
   phone: string | null
   isActive: boolean
   createdAt: string
@@ -20,10 +21,22 @@ type UserAccount = {
   isSelf: boolean
 }
 
+type Direction = {
+  id: string
+  name: string
+}
+
 const roleLabels: Record<string, string> = {
   admin: "Administrateur",
   teacher: "Enseignant",
+  promoteur: "Promoteur",
+  directeur_general: "Directeur général",
+  directeur_direction: "Directeur de direction",
+  comptable: "Comptable",
 }
+
+// Seul rôle dont le périmètre est limité à une direction.
+const DIRECTION_SCOPED_ROLE = "directeur_direction"
 
 function getFullName(user: UserAccount) {
   const fullName = `${user.lastName ?? ""} ${user.firstName ?? ""}`.trim()
@@ -35,8 +48,22 @@ export default function UsersPage() {
   const router = useRouter()
 
   const [users, setUsers] = useState<UserAccount[]>([])
+  const [directions, setDirections] = useState<Direction[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  /*
+   * Passer un compte en directeur de direction demande deux informations
+   * à la fois : on met le changement en attente le temps de choisir la
+   * direction, au lieu de l'appliquer dès la sélection du rôle.
+   */
+  const [pendingRoleByUserId, setPendingRoleByUserId] = useState<
+    Record<string, string>
+  >({})
+
+  const [pendingDirectionByUserId, setPendingDirectionByUserId] = useState<
+    Record<string, string>
+  >({})
 
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -91,12 +118,25 @@ export default function UsersPage() {
     }
 
     setUsers((result.users as UserAccount[]) ?? [])
+
+    // Lisible par tout membre de l'école : pas besoin de passer par l'API.
+    const { data: directionsData, error: directionsError } = await supabase
+      .from("directions")
+      .select("id, name")
+      .order("name")
+
+    if (directionsError) {
+      console.error("Erreur directions :", directionsError)
+    } else {
+      setDirections((directionsData as Direction[]) ?? [])
+    }
+
     setLoading(false)
   }
 
   async function updateUser(
     userId: string,
-    updates: { role?: string; isActive?: boolean },
+    updates: { role?: string; isActive?: boolean; directionId?: string },
     successMessage: string
   ) {
     setActionError(null)
@@ -129,6 +169,18 @@ export default function UsersPage() {
     setActionMessage(successMessage)
     setPendingUserId(null)
 
+    setPendingRoleByUserId((current) => {
+      const next = { ...current }
+      delete next[userId]
+      return next
+    })
+
+    setPendingDirectionByUserId((current) => {
+      const next = { ...current }
+      delete next[userId]
+      return next
+    })
+
     await loadUsers()
   }
 
@@ -154,22 +206,49 @@ export default function UsersPage() {
     )
   }
 
-  async function changeRole(user: UserAccount, role: string) {
-    if (role === user.role) {
+  function selectRole(user: UserAccount, role: string) {
+    setPendingRoleByUserId((current) => ({ ...current, [user.id]: role }))
+
+    /*
+     * Directeur de direction : on attend le choix de la direction.
+     * Tout autre rôle s'applique immédiatement, comme avant.
+     */
+    if (role !== DIRECTION_SCOPED_ROLE) {
+      applyRole(user, role, null)
+    }
+  }
+
+  async function applyRole(
+    user: UserAccount,
+    role: string,
+    directionId: string | null
+  ) {
+    if (role === user.role && directionId === user.directionId) {
       return
     }
 
+    const directionName = directions.find(
+      (item) => item.id === directionId
+    )?.name
+
     const confirmed = window.confirm(
-      `Changer le rôle de ${getFullName(user)} en « ${roleLabels[role] ?? role} » ?`
+      directionId
+        ? `Faire de ${getFullName(user)} le directeur de « ${directionName ?? "cette direction"} » ? Il ne verra plus que les classes de cette direction.`
+        : `Changer le rôle de ${getFullName(user)} en « ${roleLabels[role] ?? role} » ?`
     )
 
     if (!confirmed) {
+      setPendingRoleByUserId((current) => {
+        const next = { ...current }
+        delete next[user.id]
+        return next
+      })
       return
     }
 
     await updateUser(
       user.id,
-      { role },
+      directionId ? { role, directionId } : { role },
       `Le rôle de ${getFullName(user)} a été mis à jour.`
     )
   }
@@ -330,6 +409,21 @@ export default function UsersPage() {
                 {filteredUsers.map((user) => {
                   const isPending = pendingUserId === user.id
 
+                  const selectedRole =
+                    pendingRoleByUserId[user.id] ?? user.role ?? ""
+
+                  const needsDirection =
+                    selectedRole === DIRECTION_SCOPED_ROLE
+
+                  const chosenDirectionId =
+                    pendingDirectionByUserId[user.id] ??
+                    user.directionId ??
+                    ""
+
+                  const currentDirectionName = directions.find(
+                    (item) => item.id === user.directionId
+                  )?.name
+
                   return (
                     <div
                       key={user.id}
@@ -391,6 +485,14 @@ export default function UsersPage() {
                                 ).toLocaleDateString("fr-FR")}`
                               : "Ne s'est jamais connecté"}
                           </p>
+
+                          {user.role === DIRECTION_SCOPED_ROLE && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {currentDirectionName
+                                ? `Périmètre : ${currentDirectionName}`
+                                : "Aucune direction affectée — ce compte ne voit aucune donnée."}
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3">
@@ -404,9 +506,9 @@ export default function UsersPage() {
 
                             <select
                               id={`role-${user.id}`}
-                              value={user.role ?? ""}
+                              value={selectedRole}
                               onChange={(event) =>
-                                changeRole(user, event.target.value)
+                                selectRole(user, event.target.value)
                               }
                               disabled={user.isSelf || isPending}
                               className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
@@ -415,10 +517,78 @@ export default function UsersPage() {
                                 <option value="">Non défini</option>
                               )}
 
-                              <option value="admin">Administrateur</option>
-                              <option value="teacher">Enseignant</option>
+                              {Object.entries(roleLabels).map(
+                                ([value, label]) => (
+                                  <option key={value} value={value}>
+                                    {label}
+                                  </option>
+                                )
+                              )}
                             </select>
                           </div>
+
+                          {needsDirection && !user.isSelf && (
+                            <div className="space-y-1">
+                              <label
+                                htmlFor={`direction-${user.id}`}
+                                className="block text-xs text-muted-foreground"
+                              >
+                                Direction
+                              </label>
+
+                              <div className="flex items-center gap-2">
+                                <select
+                                  id={`direction-${user.id}`}
+                                  value={chosenDirectionId}
+                                  onChange={(event) =>
+                                    setPendingDirectionByUserId((current) => ({
+                                      ...current,
+                                      [user.id]: event.target.value,
+                                    }))
+                                  }
+                                  disabled={isPending}
+                                  className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  <option value="">Choisir...</option>
+
+                                  {directions.map((direction) => (
+                                    <option
+                                      key={direction.id}
+                                      value={direction.id}
+                                    >
+                                      {direction.name}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <button
+                                  onClick={() =>
+                                    applyRole(
+                                      user,
+                                      DIRECTION_SCOPED_ROLE,
+                                      chosenDirectionId
+                                    )
+                                  }
+                                  disabled={isPending || !chosenDirectionId}
+                                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Valider
+                                </button>
+                              </div>
+
+                              {directions.length === 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  Aucune direction n'existe encore.{" "}
+                                  <button
+                                    onClick={() => router.push("/directions")}
+                                    className="font-medium text-primary underline"
+                                  >
+                                    En créer une
+                                  </button>
+                                </p>
+                              )}
+                            </div>
+                          )}
 
                           <button
                             onClick={() => resendInvitation(user)}

@@ -10,6 +10,7 @@ type Profile = {
   first_name: string | null
   last_name: string | null
   role: string | null
+  direction_id: string | null
 }
 
 type School = {
@@ -22,22 +23,50 @@ type NavItem = {
   roles: string[]
 }
 
+/*
+ * Rôles de l'application (contrainte profiles_role_check en base) :
+ * admin, teacher, promoteur, directeur_general, directeur_direction, comptable.
+ *
+ * "admin" est le rôle historique : il conserve un accès complet tant que les
+ * comptes n'ont pas été migrés. Chaque entrée liste explicitement les rôles
+ * autorisés — il n'y a volontairement aucun repli implicite.
+ */
+
+// Direction de l'établissement : vue globale sur toute l'école.
+const DIRECTION_GENERALE = ["admin", "promoteur", "directeur_general"]
+
+// Les mêmes, plus le directeur d'une direction (vue limitée à son périmètre).
+const ENCADREMENT = [...DIRECTION_GENERALE, "directeur_direction"]
+
+// Encadrement + enseignants : le quotidien pédagogique.
+const PEDAGOGIE = [...ENCADREMENT, "teacher"]
+
 const navItems: NavItem[] = [
-  { label: "Tableau de bord", path: "/dashboard", roles: ["admin", "teacher"] },
-  { label: "Élèves", path: "/students", roles: ["admin", "teacher"] },
-  { label: "Enseignants", path: "/teachers", roles: ["admin"] },
-  { label: "Classes", path: "/classes", roles: ["admin", "teacher"] },
-  { label: "Matières", path: "/subjects", roles: ["admin"] },
-  { label: "Classes / Matières", path: "/class_subjects", roles: ["admin"] },
-  { label: "Année scolaire", path: "/academic", roles: ["admin"] },
-  { label: "Emploi du temps", path: "/timetable", roles: ["admin", "teacher"] },
-  { label: "Évaluations", path: "/assessments", roles: ["admin", "teacher"] },
-  { label: "Notes", path: "/grades", roles: ["admin", "teacher"] },
-  { label: "Moyennes", path: "/averages", roles: ["admin", "teacher"] },
-  { label: "Bulletins", path: "/report-card", roles: ["admin", "teacher"] },
-  { label: "Présences", path: "/attendance", roles: ["admin", "teacher"] },
-  { label: "Frais scolaires", path: "/fees", roles: ["admin"] },
-  { label: "Paramètres", path: "/settings", roles: ["admin"] },
+  {
+    label: "Tableau de bord",
+    path: "/dashboard",
+    roles: [...PEDAGOGIE, "comptable"],
+  },
+  { label: "Élèves", path: "/students", roles: [...PEDAGOGIE, "comptable"] },
+  { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
+  { label: "Classes", path: "/classes", roles: PEDAGOGIE },
+  { label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
+  { label: "Matières", path: "/subjects", roles: DIRECTION_GENERALE },
+  { label: "Classes / Matières", path: "/class_subjects", roles: ENCADREMENT },
+  { label: "Année scolaire", path: "/academic", roles: DIRECTION_GENERALE },
+  { label: "Emploi du temps", path: "/timetable", roles: PEDAGOGIE },
+  { label: "Évaluations", path: "/assessments", roles: PEDAGOGIE },
+  { label: "Notes", path: "/grades", roles: PEDAGOGIE },
+  { label: "Moyennes", path: "/averages", roles: PEDAGOGIE },
+  { label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
+  { label: "Présences", path: "/attendance", roles: PEDAGOGIE },
+  {
+    label: "Frais scolaires",
+    path: "/fees",
+    roles: [...DIRECTION_GENERALE, "comptable"],
+  },
+  { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
+  { label: "Paramètres", path: "/settings", roles: DIRECTION_GENERALE },
 ]
 
 export default function DashboardPage() {
@@ -68,6 +97,10 @@ export default function DashboardPage() {
   const [attendanceCount, setAttendanceCount] =
     useState<number | null>(0)
 
+  // Renseigné uniquement pour un directeur de direction.
+  const [directionName, setDirectionName] =
+    useState<string | null>(null)
+
   useEffect(() => {
     checkUserAndLoadDashboard()
   }, [])
@@ -93,7 +126,7 @@ export default function DashboardPage() {
     } = await supabase
       .from("profiles")
       .select(
-        "school_id, first_name, last_name, role"
+        "school_id, first_name, last_name, role, direction_id"
       )
       .eq("id", user.id)
       .maybeSingle()
@@ -132,6 +165,34 @@ export default function DashboardPage() {
       new Date()
         .toISOString()
         .split("T")[0]
+
+    /*
+     * Un directeur de direction ne voit que son périmètre.
+     *
+     * Le RLS filtre déjà classes, inscriptions, notes, évaluations et
+     * affectations. Mais students, teachers et attendance restent au
+     * périmètre de l'école : leurs compteurs sont donc restreints ici,
+     * en repassant par les classes de la direction.
+     */
+    if (
+      profileData.role === "directeur_direction"
+    ) {
+      await loadDirectionCounts(
+        schoolId,
+        profileData.direction_id,
+        today,
+        dashboardErrors
+      )
+
+      if (dashboardErrors.length > 0) {
+        setLoadError(
+          `Certaines données n'ont pas pu être chargées (${dashboardErrors.join(", ")}). Rechargez la page.`
+        )
+      }
+
+      setLoading(false)
+      return
+    }
 
     const [
       schoolResult,
@@ -218,6 +279,127 @@ export default function DashboardPage() {
     setLoading(false)
   }
 
+  /*
+   * Compteurs restreints au périmètre d'un directeur de direction.
+   *
+   * On part des classes visibles : le RLS ne renvoie déjà que celles de
+   * sa direction. Élèves et enseignants en sont déduits via les
+   * inscriptions et les affectations de matières.
+   */
+  async function loadDirectionCounts(
+    currentSchoolId: string,
+    directionId: string | null,
+    today: string,
+    dashboardErrors: string[]
+  ) {
+    const { data: schoolData, error: schoolError } = await supabase
+      .from("schools")
+      .select("name")
+      .eq("id", currentSchoolId)
+      .maybeSingle()
+
+    if (schoolError) {
+      console.error("Erreur école :", schoolError)
+      dashboardErrors.push("les informations de l'établissement")
+    }
+
+    setSchool(schoolData)
+
+    if (directionId) {
+      const { data: directionData } = await supabase
+        .from("directions")
+        .select("name")
+        .eq("id", directionId)
+        .maybeSingle()
+
+      setDirectionName(directionData?.name ?? null)
+    }
+
+    const { data: classesData, error: classesError } = await supabase
+      .from("classes")
+      .select("id")
+      .eq("school_id", currentSchoolId)
+
+    if (classesError) {
+      console.error("Erreur classes :", classesError)
+      dashboardErrors.push("le nombre de classes")
+
+      setClassCount(null)
+      setStudentCount(null)
+      setTeacherCount(null)
+      setAttendanceCount(null)
+      return
+    }
+
+    const classIds = (classesData ?? []).map((item) => item.id)
+
+    setClassCount(classIds.length)
+
+    if (classIds.length === 0) {
+      setStudentCount(0)
+      setTeacherCount(0)
+      setAttendanceCount(0)
+      return
+    }
+
+    const [enrollmentsResult, classSubjectsResult, attendanceResult] =
+      await Promise.all([
+        supabase
+          .from("student_class_enrollments")
+          .select("student_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        supabase
+          .from("class_subjects")
+          .select("teacher_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        supabase
+          .from("attendance")
+          .select("*", { count: "exact", head: true })
+          .eq("school_id", currentSchoolId)
+          .eq("attendance_date", today)
+          .in("class_id", classIds),
+      ])
+
+    if (enrollmentsResult.error) {
+      console.error("Erreur élèves :", enrollmentsResult.error)
+      dashboardErrors.push("le nombre d'élèves")
+      setStudentCount(null)
+    } else {
+      // Un élève inscrit dans plusieurs classes ne doit être compté qu'une fois.
+      const uniqueStudents = new Set(
+        (enrollmentsResult.data ?? []).map((item) => item.student_id)
+      )
+
+      setStudentCount(uniqueStudents.size)
+    }
+
+    if (classSubjectsResult.error) {
+      console.error("Erreur enseignants :", classSubjectsResult.error)
+      dashboardErrors.push("le nombre d'enseignants")
+      setTeacherCount(null)
+    } else {
+      const uniqueTeachers = new Set(
+        (classSubjectsResult.data ?? [])
+          .map((item) => item.teacher_id)
+          .filter(Boolean)
+      )
+
+      setTeacherCount(uniqueTeachers.size)
+    }
+
+    if (attendanceResult.error) {
+      console.error("Erreur présences :", attendanceResult.error)
+      dashboardErrors.push("le nombre de présences")
+      setAttendanceCount(null)
+    } else {
+      setAttendanceCount(attendanceResult.count ?? 0)
+    }
+  }
+
   function getUserName() {
     if (
       profile?.first_name ||
@@ -239,7 +421,8 @@ export default function DashboardPage() {
   function renderNavItems(onNavigate: () => void) {
     return navItems
       .filter((item) =>
-        item.roles.includes(profile?.role || "admin")
+        // Pas de repli implicite : un rôle inconnu ou absent n'ouvre rien.
+        item.roles.includes(profile?.role ?? "")
       )
       .map((item) => {
         const isActive = item.path === "/dashboard"
@@ -397,6 +580,20 @@ export default function DashboardPage() {
               <p className="mt-2 text-muted-foreground">
                 Bienvenue sur votre espace de gestion scolaire.
               </p>
+
+              {profile?.role === "directeur_direction" && (
+                <p
+                  className="mt-3 inline-block rounded-full border px-3 py-1 text-xs font-semibold"
+                  style={{
+                    color: "oklch(0.58 0.15 45)",
+                    borderColor: "oklch(0.58 0.15 45)",
+                  }}
+                >
+                  {directionName
+                    ? `Périmètre : ${directionName}`
+                    : "Aucune direction ne vous est affectée"}
+                </p>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
