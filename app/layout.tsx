@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Manrope, Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { PwaRegister } from "@/components/pwa-register";
 
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -22,6 +23,16 @@ export const metadata: Metadata = {
   title: "Ridwane — L'école, simplement.",
   description:
     "Ridwane, la plateforme de gestion scolaire pour les établissements au Mali : élèves, notes, bulletins et plus encore.",
+  // Permet l'ajout à l'écran d'accueil sur iOS, qui ignore le manifeste.
+  appleWebApp: {
+    capable: true,
+    title: "Ridwane",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#c0571e",
 };
 
 export default function RootLayout({
@@ -34,7 +45,10 @@ export default function RootLayout({
       lang="fr"
       className={`${manrope.variable} ${plusJakarta.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <PwaRegister />
+      </body>
     </html>
   );
 }
