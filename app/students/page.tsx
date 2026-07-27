@@ -3,7 +3,14 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
-import { matchesSearch } from "@/src/lib/search"
+import { matchesSearch, normalizeSearchText } from "@/src/lib/search"
+import { parseSpreadsheetDate } from "@/src/lib/excel"
+import {
+  ImportOutcome,
+  ImportRow,
+  ImportWizard,
+  RawRow,
+} from "@/components/import/import-wizard"
 
 type ClassItem = {
   id: string
@@ -35,6 +42,79 @@ type Student = {
 // Libellé du groupe pour les élèves sans inscription en classe.
 const UNASSIGNED_CLASS_LABEL = "Sans classe"
 
+/*
+ * Champs acceptés à l'import. L'ordre des colonnes du fichier n'a aucune
+ * importance : c'est l'utilisateur qui fait la correspondance.
+ */
+const STUDENT_IMPORT_FIELDS = [
+  {
+    key: "last_name",
+    label: "Nom",
+    required: true,
+    aliases: ["nom eleve", "nom de l'eleve", "nom élève"],
+  },
+  {
+    key: "first_name",
+    label: "Prénom",
+    required: true,
+    aliases: ["prenom", "prenom eleve"],
+  },
+  {
+    key: "class_name",
+    label: "Classe",
+    required: true,
+    hint: "Doit correspondre au nom exact d'une classe existante.",
+    aliases: ["nom de la classe", "niveau"],
+  },
+  {
+    key: "student_number",
+    label: "Numéro d'inscription",
+    aliases: ["matricule", "numero", "n°"],
+  },
+  {
+    key: "gender",
+    label: "Sexe",
+    hint: "M / F, masculin / féminin, garçon / fille.",
+    aliases: ["genre"],
+  },
+  {
+    key: "date_of_birth",
+    label: "Date de naissance",
+    hint: "Format AAAA-MM-JJ ou JJ/MM/AAAA.",
+    aliases: ["naissance", "ne le", "date naissance"],
+  },
+  { key: "parent_name", label: "Parent / tuteur", aliases: ["parent", "tuteur"] },
+  {
+    key: "parent_phone",
+    label: "Téléphone du parent",
+    aliases: ["telephone", "tel", "contact"],
+  },
+  { key: "address", label: "Adresse", aliases: ["adresse eleve"] },
+]
+
+/*
+ * Normalise le sexe. Renvoie undefined si la valeur n'est pas reconnue :
+ * on préfère signaler la ligne plutôt qu'enregistrer null en silence.
+ */
+function parseGender(value: string) {
+  const normalized = normalizeSearchText(value)
+
+  if (!normalized) {
+    return null
+  }
+
+  if (["m", "masculin", "garcon", "homme", "h"].includes(normalized)) {
+    return "M"
+  }
+
+  if (["f", "feminin", "fille", "femme"].includes(normalized)) {
+    return "F"
+  }
+
+  return undefined
+}
+
+
 export default function StudentsPage() {
   const router = useRouter()
 
@@ -42,6 +122,7 @@ export default function StudentsPage() {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [searchTerm, setSearchTerm] = useState("")
+  const [showImport, setShowImport] = useState(false)
 
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -257,6 +338,198 @@ export default function StudentsPage() {
   }
 
   /*
+   * Validation d'un fichier d'élèves.
+   *
+   * Deux niveaux : une erreur bloque la ligne (champ obligatoire manquant,
+   * classe introuvable, format invalide) ; un avertissement l'exclut mais
+   * l'utilisateur peut la réintégrer explicitement (doublon probable).
+   */
+  function validateStudentRows(rawRows: RawRow[]): ImportRow[] {
+    // Signature normalisée -> première ligne où elle apparaît dans le fichier.
+    const seenInFile = new Map<string, number>()
+
+    return rawRows.map((raw) => {
+      const errors: string[] = []
+      const warnings: string[] = []
+
+      const lastName = raw.values.last_name?.trim() ?? ""
+      const firstName = raw.values.first_name?.trim() ?? ""
+      const className = raw.values.class_name?.trim() ?? ""
+
+      if (!lastName) {
+        errors.push("Le nom est obligatoire.")
+      }
+
+      if (!firstName) {
+        errors.push("Le prénom est obligatoire.")
+      }
+
+      // La classe est cherchée par nom exact (accents et casse ignorés).
+      let classId: string | null = null
+
+      if (!className) {
+        errors.push("La classe est obligatoire.")
+      } else {
+        const matches = classes.filter(
+          (item) =>
+            normalizeSearchText(item.name) === normalizeSearchText(className)
+        )
+
+        if (matches.length === 0) {
+          errors.push(
+            `Classe « ${className} » introuvable dans votre établissement.`
+          )
+        } else if (matches.length > 1) {
+          errors.push(
+            `Plusieurs classes portent le nom « ${className} » : impossible de choisir.`
+          )
+        } else {
+          classId = matches[0].id
+        }
+      }
+
+      const gender = parseGender(raw.values.gender ?? "")
+
+      if (gender === undefined) {
+        errors.push(
+          `Sexe « ${raw.values.gender} » non reconnu. Utilisez M ou F.`
+        )
+      }
+
+      const dateOfBirth = parseSpreadsheetDate(raw.values.date_of_birth ?? "")
+
+      if (dateOfBirth === undefined) {
+        errors.push(
+          `Date de naissance « ${raw.values.date_of_birth} » non reconnue (AAAA-MM-JJ ou JJ/MM/AAAA).`
+        )
+      }
+
+      const signature = normalizeSearchText(
+        `${lastName} ${firstName} ${className}`
+      )
+
+      if (lastName && firstName) {
+        const firstSeen = seenInFile.get(signature)
+
+        if (firstSeen !== undefined) {
+          warnings.push(
+            `Ligne identique à la ligne ${firstSeen} du fichier.`
+          )
+        } else {
+          seenInFile.set(signature, raw.lineNumber)
+        }
+
+        const alreadyInSchool = students.some(
+          (student) =>
+            normalizeSearchText(`${student.last_name} ${student.first_name}`) ===
+            normalizeSearchText(`${lastName} ${firstName}`)
+        )
+
+        if (alreadyInSchool) {
+          warnings.push(
+            "Un élève de même nom et prénom est déjà enregistré dans l'établissement."
+          )
+        }
+      }
+
+      if (!activeAcademicYearId) {
+        errors.push(
+          "Aucune année scolaire active : impossible d'inscrire l'élève."
+        )
+      }
+
+      return {
+        lineNumber: raw.lineNumber,
+        values: raw.values,
+        errors,
+        warnings,
+        ignored: false,
+        confirmed: false,
+        payload: {
+          classId,
+          student: {
+            school_id: schoolId,
+            first_name: firstName,
+            last_name: lastName,
+            date_of_birth: dateOfBirth || null,
+            gender: gender || null,
+            student_number: raw.values.student_number?.trim() || null,
+            address: raw.values.address?.trim() || null,
+            parent_name: raw.values.parent_name?.trim() || null,
+            parent_phone: raw.values.parent_phone?.trim() || null,
+          },
+        },
+      }
+    })
+  }
+
+  /*
+   * Import séquentiel : une ligne à la fois, pour pouvoir désigner
+   * précisément celle qui échoue.
+   *
+   * L'élève et son inscription sont deux insertions distinctes. Si la
+   * seconde échoue, l'élève existe sans classe : on le signale au lieu de
+   * le supprimer, pour ne pas détruire une donnée déjà enregistrée.
+   */
+  async function importStudentRows(
+    rows: ImportRow[],
+    onProgress: (done: number) => void
+  ): Promise<ImportOutcome> {
+    let imported = 0
+    const failures: ImportOutcome["failures"] = []
+
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]
+
+      const payload = row.payload as {
+        classId: string | null
+        student: Record<string, unknown>
+      }
+
+      const { data: student, error: studentError } = await supabase
+        .from("students")
+        .insert(payload.student)
+        .select("id")
+        .single()
+
+      if (studentError || !student) {
+        failures.push({
+          lineNumber: row.lineNumber,
+          message:
+            studentError?.message ?? "L'élève n'a pas pu être enregistré.",
+        })
+
+        onProgress(index + 1)
+        continue
+      }
+
+      const { error: enrollmentError } = await supabase
+        .from("student_class_enrollments")
+        .insert({
+          student_id: student.id,
+          class_id: payload.classId,
+          school_id: schoolId,
+          academic_year_id: activeAcademicYearId,
+        })
+
+      if (enrollmentError) {
+        failures.push({
+          lineNumber: row.lineNumber,
+          message: `Élève créé, mais son inscription en classe a échoué (${enrollmentError.message}). Rattachez-le manuellement.`,
+        })
+
+        onProgress(index + 1)
+        continue
+      }
+
+      imported++
+      onProgress(index + 1)
+    }
+
+    return { imported, failures }
+  }
+
+  /*
    * Classe de chaque élève pour l'année scolaire active.
    * Si aucune année active n'est configurée, on retombe sur
    * l'ensemble des inscriptions pour ne pas masquer les classes.
@@ -365,6 +638,33 @@ export default function StudentsPage() {
             Ajoutez et gérez les élèves de votre établissement.
           </p>
         </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setShowImport((current) => !current)}
+            className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+          >
+            {showImport ? "Masquer l'import Excel" : "Importer depuis Excel"}
+          </button>
+
+          {!loading && !activeAcademicYearId && (
+            <p className="text-sm" style={{ color: "oklch(0.6 0.14 85)" }}>
+              Aucune année scolaire active : l'import est indisponible.
+            </p>
+          )}
+        </div>
+
+        {showImport && (
+          <ImportWizard
+            title="Importer des élèves"
+            description="Chaque ligne crée un élève et l'inscrit dans sa classe pour l'année scolaire active."
+            fields={STUDENT_IMPORT_FIELDS}
+            validateRows={validateStudentRows}
+            importRows={importStudentRows}
+            onClose={() => setShowImport(false)}
+            onImported={loadData}
+          />
+        )}
 
         {loadError && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
