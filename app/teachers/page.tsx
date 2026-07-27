@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
+import { EditDialog } from "@/components/edit-dialog"
 import {
   ImportOutcome,
   ImportRow,
@@ -60,6 +61,28 @@ type Teacher = {
   status: string
 }
 
+/*
+ * Champs modifiables après l'enregistrement. L'email en est exclu : il sert
+ * d'identifiant de connexion et vit dans le compte Auth, pas dans la fiche.
+ */
+type TeacherEditForm = {
+  firstName: string
+  lastName: string
+  phone: string
+  specialty: string
+  hireDate: string
+}
+
+function toEditForm(teacher: Teacher): TeacherEditForm {
+  return {
+    firstName: teacher.first_name,
+    lastName: teacher.last_name,
+    phone: teacher.phone ?? "",
+    specialty: teacher.specialty ?? "",
+    hireDate: teacher.hire_date ?? "",
+  }
+}
+
 export default function TeachersPage() {
   const router = useRouter()
 
@@ -76,6 +99,12 @@ export default function TeachersPage() {
   const [phone, setPhone] = useState("")
   const [specialty, setSpecialty] = useState("")
   const [hireDate, setHireDate] = useState("")
+
+  // Enseignant en cours de modification, null quand la boîte est fermée.
+  const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
+  const [editForm, setEditForm] = useState<TeacherEditForm | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -250,6 +279,90 @@ export default function TeachersPage() {
     setCreating(false)
   }
 }
+
+  function startEditTeacher(teacher: Teacher) {
+    setEditError(null)
+    setEditingTeacher(teacher)
+    setEditForm(toEditForm(teacher))
+  }
+
+  function closeEditTeacher() {
+    setEditingTeacher(null)
+    setEditForm(null)
+    setEditError(null)
+  }
+
+  /*
+   * L'enregistrement passe par une route serveur : la fiche enseignant et le
+   * profil du compte associé portent les mêmes nom, prénom et téléphone, et
+   * seule la clé service role peut mettre à jour le profil d'un autre compte.
+   */
+  async function saveTeacherEdit() {
+    if (!editingTeacher || !editForm) {
+      return
+    }
+
+    if (!editForm.firstName.trim() || !editForm.lastName.trim()) {
+      setEditError("Le prénom et le nom sont obligatoires.")
+      return
+    }
+
+    setSavingEdit(true)
+    setEditError(null)
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        setEditError("Votre session a expiré. Veuillez vous reconnecter.")
+        setSavingEdit(false)
+        return
+      }
+
+      const response = await fetch(`/api/teachers/${editingTeacher.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          firstName: editForm.firstName.trim(),
+          lastName: editForm.lastName.trim(),
+          phone: editForm.phone.trim(),
+          specialty: editForm.specialty.trim(),
+          hireDate: editForm.hireDate || null,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setEditError(result.error ?? "L'enregistrement a échoué.")
+        setSavingEdit(false)
+        return
+      }
+
+      const updated = result.teacher as Teacher
+
+      setTeachers((current) =>
+        current.map((teacher) =>
+          teacher.id === updated.id ? updated : teacher
+        )
+      )
+
+      closeEditTeacher()
+    } catch (error) {
+      console.error("Erreur modification enseignant :", error)
+
+      setEditError(
+        "Le serveur n'a pas répondu. Vérifiez la fiche avant de réessayer."
+      )
+    } finally {
+      setSavingEdit(false)
+    }
+  }
 
   function validateTeacherRows(rawRows: RawRow[]): ImportRow[] {
     // Email normalisé -> première ligne du fichier où il apparaît.
@@ -643,6 +756,10 @@ export default function TeachersPage() {
                       <th className="px-4 py-3">
                         Statut
                       </th>
+
+                      <th className="px-4 py-3 text-right">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
 
@@ -676,6 +793,15 @@ export default function TeachersPage() {
                               : "Inactif"}
                           </span>
                         </td>
+
+                        <td className="px-4 py-4 text-right">
+                          <button
+                            onClick={() => startEditTeacher(teacher)}
+                            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                          >
+                            Modifier
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -685,6 +811,110 @@ export default function TeachersPage() {
           </div>
         </div>
       </section>
+
+      {editingTeacher && editForm && (
+        <EditDialog
+          title="Modifier l'enseignant"
+          description={`${editingTeacher.first_name} ${editingTeacher.last_name}`}
+          error={editError}
+          saving={savingEdit}
+          onSubmit={saveTeacherEdit}
+          onClose={closeEditTeacher}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="edit-firstName">Prénom *</label>
+
+              <input
+                id="edit-firstName"
+                type="text"
+                value={editForm.firstName}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, firstName: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="edit-lastName">Nom *</label>
+
+              <input
+                id="edit-lastName"
+                type="text"
+                value={editForm.lastName}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, lastName: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-email">Email</label>
+
+            <input
+              id="edit-email"
+              type="email"
+              value={editingTeacher.email ?? ""}
+              readOnly
+              disabled
+              className="w-full rounded-md border bg-muted px-3 py-2 text-muted-foreground"
+            />
+
+            <p className="text-xs text-muted-foreground">
+              L'email est l'identifiant de connexion du compte : il ne se
+              change pas depuis cette fiche.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-phone">Téléphone</label>
+
+            <input
+              id="edit-phone"
+              type="tel"
+              value={editForm.phone}
+              onChange={(event) =>
+                setEditForm({ ...editForm, phone: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-specialty">Spécialité</label>
+
+            <input
+              id="edit-specialty"
+              type="text"
+              placeholder="Ex : Mathématiques"
+              value={editForm.specialty}
+              onChange={(event) =>
+                setEditForm({ ...editForm, specialty: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-hireDate">Date d'embauche</label>
+
+            <input
+              id="edit-hireDate"
+              type="date"
+              value={editForm.hireDate}
+              onChange={(event) =>
+                setEditForm({ ...editForm, hireDate: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+        </EditDialog>
+      )}
     </main>
   )
 }

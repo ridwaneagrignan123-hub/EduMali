@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
+import { EditDialog } from "@/components/edit-dialog"
 
 type UserAccount = {
   id: string
@@ -37,6 +38,25 @@ const roleLabels: Record<string, string> = {
 
 // Seul rôle dont le périmètre est limité à une direction.
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
+
+/*
+ * Informations personnelles modifiables. L'email n'en fait pas partie :
+ * il identifie le compte côté Auth et le changer imposerait de reconfirmer
+ * l'adresse.
+ */
+type IdentityForm = {
+  firstName: string
+  lastName: string
+  phone: string
+}
+
+function toIdentityForm(user: UserAccount): IdentityForm {
+  return {
+    firstName: user.firstName ?? "",
+    lastName: user.lastName ?? "",
+    phone: user.phone ?? "",
+  }
+}
 
 function getFullName(user: UserAccount) {
   const fullName = `${user.lastName ?? ""} ${user.firstName ?? ""}`.trim()
@@ -72,6 +92,12 @@ export default function UsersPage() {
 
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
+
+  // Compte en cours de modification, null quand la boîte est fermée.
+  const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
+  const [editForm, setEditForm] = useState<IdentityForm | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   useEffect(() => {
     loadUsers()
@@ -251,6 +277,96 @@ export default function UsersPage() {
       directionId ? { role, directionId } : { role },
       `Le rôle de ${getFullName(user)} a été mis à jour.`
     )
+  }
+
+  function startEditUser(user: UserAccount) {
+    setEditError(null)
+    setEditingUser(user)
+    setEditForm(toIdentityForm(user))
+  }
+
+  function closeEditUser() {
+    setEditingUser(null)
+    setEditForm(null)
+    setEditError(null)
+  }
+
+  /*
+   * Enregistre l'identité d'un compte.
+   *
+   * Deux chemins, parce que la route serveur refuse volontairement d'agir sur
+   * le compte de l'appelant : pour les autres, elle applique la modification
+   * en service role ; pour soi-même, la policy « Users can update their own
+   * profile » suffit et évite d'affaiblir cette protection.
+   */
+  async function saveUserIdentity() {
+    if (!editingUser || !editForm) {
+      return
+    }
+
+    if (!editForm.firstName.trim() || !editForm.lastName.trim()) {
+      setEditError("Le prénom et le nom sont obligatoires.")
+      return
+    }
+
+    setSavingEdit(true)
+    setEditError(null)
+
+    if (editingUser.isSelf) {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          first_name: editForm.firstName.trim(),
+          last_name: editForm.lastName.trim(),
+          phone: editForm.phone.trim() || null,
+        })
+        .eq("id", editingUser.id)
+
+      if (error) {
+        console.error("Erreur mise à jour de son propre profil :", error)
+
+        setEditError(
+          error.message || "Impossible d'enregistrer vos informations."
+        )
+
+        setSavingEdit(false)
+        return
+      }
+    } else {
+      const accessToken = await getAccessToken()
+
+      if (!accessToken) {
+        return
+      }
+
+      const response = await fetch(`/api/users/${editingUser.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          firstName: editForm.firstName.trim(),
+          lastName: editForm.lastName.trim(),
+          phone: editForm.phone.trim(),
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setEditError(result.error ?? "L'enregistrement a échoué.")
+        setSavingEdit(false)
+        return
+      }
+    }
+
+    setActionError(null)
+    setActionMessage("Les informations du compte ont été mises à jour.")
+    setSavingEdit(false)
+    closeEditUser()
+
+    await loadUsers()
   }
 
   async function resendInvitation(user: UserAccount) {
@@ -476,6 +592,7 @@ export default function UsersPage() {
 
                           <p className="mt-1 truncate text-sm text-muted-foreground">
                             {user.email ?? "Email inconnu"}
+                            {user.phone ? ` — ${user.phone}` : ""}
                           </p>
 
                           <p className="mt-1 text-xs text-muted-foreground">
@@ -591,6 +708,14 @@ export default function UsersPage() {
                           )}
 
                           <button
+                            onClick={() => startEditUser(user)}
+                            disabled={isPending}
+                            className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Modifier
+                          </button>
+
+                          <button
                             onClick={() => resendInvitation(user)}
                             disabled={
                               user.isSelf || isPending || !user.isActive
@@ -634,6 +759,86 @@ export default function UsersPage() {
           </div>
         )}
       </section>
+
+      {editingUser && editForm && (
+        <EditDialog
+          title="Modifier le compte"
+          description={getFullName(editingUser)}
+          error={editError}
+          saving={savingEdit}
+          onSubmit={saveUserIdentity}
+          onClose={closeEditUser}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="edit-firstName">Prénom *</label>
+
+              <input
+                id="edit-firstName"
+                type="text"
+                value={editForm.firstName}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, firstName: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="edit-lastName">Nom *</label>
+
+              <input
+                id="edit-lastName"
+                type="text"
+                value={editForm.lastName}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, lastName: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-email">Email</label>
+
+            <input
+              id="edit-email"
+              type="email"
+              value={editingUser.email ?? ""}
+              readOnly
+              disabled
+              className="w-full rounded-md border bg-muted px-3 py-2 text-muted-foreground"
+            />
+
+            <p className="text-xs text-muted-foreground">
+              L'email est l'identifiant de connexion : il ne se change pas
+              depuis cette page.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-phone">Téléphone</label>
+
+            <input
+              id="edit-phone"
+              type="tel"
+              value={editForm.phone}
+              onChange={(event) =>
+                setEditForm({ ...editForm, phone: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Le rôle et l'accès se modifient depuis la fiche du compte, pas
+            depuis cette boîte.
+          </p>
+        </EditDialog>
+      )}
     </main>
   )
 }

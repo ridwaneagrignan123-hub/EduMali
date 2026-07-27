@@ -6,10 +6,14 @@ import {
 } from "@/src/lib/apiAuth"
 
 /*
- * Modifie le rôle et/ou l'état actif d'un compte de l'école.
+ * Modifie les informations personnelles, le rôle et/ou l'état actif d'un
+ * compte de l'école.
  *
  * Désactiver ne se limite pas à profiles.is_active : le compte est aussi
  * banni côté Auth, sinon l'utilisateur resterait capable de se connecter.
+ *
+ * L'email n'est pas modifiable ici : c'est l'identifiant de connexion, il
+ * appartient à auth.users et le changer demanderait de reconfirmer l'adresse.
  */
 
 // Bannissement de très longue durée = désactivation, levée par "none".
@@ -52,11 +56,48 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { role, isActive, directionId } = body
+    const { role, isActive, directionId, firstName, lastName, phone } = body
 
-    if (role === undefined && isActive === undefined) {
+    if (
+      role === undefined &&
+      isActive === undefined &&
+      firstName === undefined &&
+      lastName === undefined &&
+      phone === undefined
+    ) {
       return NextResponse.json(
         { error: "Aucune modification demandée." },
+        { status: 400 }
+      )
+    }
+
+    /*
+     * Prénom et nom se modifient ensemble : accepter l'un sans l'autre
+     * ouvrirait la porte à un compte à moitié renommé.
+     */
+    const identityAsked = firstName !== undefined || lastName !== undefined
+
+    if (identityAsked) {
+      if (
+        typeof firstName !== "string" ||
+        !firstName.trim() ||
+        typeof lastName !== "string" ||
+        !lastName.trim()
+      ) {
+        return NextResponse.json(
+          { error: "Le prénom et le nom sont obligatoires." },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (
+      phone !== undefined &&
+      phone !== null &&
+      typeof phone !== "string"
+    ) {
+      return NextResponse.json(
+        { error: "Le téléphone doit être un texte." },
         { status: 400 }
       )
     }
@@ -154,7 +195,19 @@ export async function PATCH(
       role?: string
       is_active?: boolean
       direction_id?: string | null
+      first_name?: string
+      last_name?: string
+      phone?: string | null
     } = {}
+
+    if (identityAsked) {
+      updates.first_name = String(firstName).trim()
+      updates.last_name = String(lastName).trim()
+    }
+
+    if (phone !== undefined) {
+      updates.phone = phone === null ? null : String(phone).trim() || null
+    }
 
     if (role !== undefined) {
       updates.role = role
@@ -184,6 +237,43 @@ export async function PATCH(
         },
         { status: 500 }
       )
+    }
+
+    /*
+     * Un compte d'enseignant a une fiche dans `teachers` qui répète nom,
+     * prénom et téléphone. Sans cette mise à jour, la page des enseignants
+     * continuerait d'afficher l'ancienne identité. Aucune ligne à mettre à
+     * jour pour les autres rôles : la requête ne touche alors rien.
+     */
+    if (identityAsked || phone !== undefined) {
+      const { error: teacherSyncError } = await supabaseAdmin
+        .from("teachers")
+        .update({
+          ...(identityAsked
+            ? {
+                first_name: updates.first_name,
+                last_name: updates.last_name,
+              }
+            : {}),
+          ...(phone !== undefined ? { phone: updates.phone } : {}),
+        })
+        .eq("profile_id", userId)
+        .eq("school_id", guard.context.schoolId)
+
+      if (teacherSyncError) {
+        console.error(
+          "Erreur synchronisation de la fiche enseignant :",
+          teacherSyncError
+        )
+
+        return NextResponse.json(
+          {
+            error:
+              "Le compte a été mis à jour, mais la fiche enseignant porte encore l'ancienne identité. Réessayez.",
+          },
+          { status: 500 }
+        )
+      }
     }
 
     return NextResponse.json({ success: true }, { status: 200 })

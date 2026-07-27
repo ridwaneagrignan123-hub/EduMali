@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch, normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
+import { EditDialog } from "@/components/edit-dialog"
 import {
   ImportOutcome,
   ImportRow,
@@ -41,6 +42,35 @@ type Student = {
 
 // Libellé du groupe pour les élèves sans inscription en classe.
 const UNASSIGNED_CLASS_LABEL = "Sans classe"
+
+/*
+ * Informations personnelles modifiables après l'enregistrement.
+ * La classe n'en fait pas partie : elle relève de l'inscription
+ * (student_class_enrollments), pas de la fiche de l'élève.
+ */
+type StudentEditForm = {
+  firstName: string
+  lastName: string
+  dateOfBirth: string
+  gender: string
+  studentNumber: string
+  address: string
+  parentName: string
+  parentPhone: string
+}
+
+function toEditForm(student: Student): StudentEditForm {
+  return {
+    firstName: student.first_name,
+    lastName: student.last_name,
+    dateOfBirth: student.date_of_birth ?? "",
+    gender: student.gender ?? "",
+    studentNumber: student.student_number ?? "",
+    address: student.address ?? "",
+    parentName: student.parent_name ?? "",
+    parentPhone: student.parent_phone ?? "",
+  }
+}
 
 /*
  * Champs acceptés à l'import. L'ordre des colonnes du fichier n'a aucune
@@ -140,6 +170,12 @@ export default function StudentsPage() {
   const [address, setAddress] = useState("")
   const [parentName, setParentName] = useState("")
   const [parentPhone, setParentPhone] = useState("")
+
+  // Élève en cours de modification, null quand la boîte est fermée.
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null)
+  const [editForm, setEditForm] = useState<StudentEditForm | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -335,6 +371,79 @@ export default function StudentsPage() {
     await loadData()
 
     setCreating(false)
+  }
+
+  function startEditStudent(student: Student) {
+    setEditError(null)
+    setEditingStudent(student)
+    setEditForm(toEditForm(student))
+  }
+
+  function closeEditStudent() {
+    setEditingStudent(null)
+    setEditForm(null)
+    setEditError(null)
+  }
+
+  /*
+   * Enregistre les informations personnelles modifiées.
+   *
+   * La ligne renvoyée par la base remplace celle du tableau : on affiche
+   * ainsi ce qui a réellement été enregistré, pas ce qui a été saisi.
+   */
+  async function saveStudentEdit() {
+    if (!editingStudent || !editForm) {
+      return
+    }
+
+    if (!editForm.firstName.trim() || !editForm.lastName.trim()) {
+      setEditError("Le prénom et le nom sont obligatoires.")
+      return
+    }
+
+    setSavingEdit(true)
+    setEditError(null)
+
+    const { data: updated, error } = await supabase
+      .from("students")
+      .update({
+        first_name: editForm.firstName.trim(),
+        last_name: editForm.lastName.trim(),
+        date_of_birth: editForm.dateOfBirth || null,
+        gender: editForm.gender || null,
+        student_number: editForm.studentNumber.trim() || null,
+        address: editForm.address.trim() || null,
+        parent_name: editForm.parentName.trim() || null,
+        parent_phone: editForm.parentPhone.trim() || null,
+      })
+      .eq("id", editingStudent.id)
+      // Filtre de sûreté : la modification ne peut pas sortir de l'école.
+      .eq("school_id", schoolId)
+      .select(
+        "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone"
+      )
+      .single()
+
+    if (error || !updated) {
+      console.error("Erreur lors de la modification de l'élève :", error)
+
+      setEditError(
+        error?.message ||
+          "Impossible d'enregistrer les modifications. Vérifiez vos droits."
+      )
+
+      setSavingEdit(false)
+      return
+    }
+
+    setStudents((current) =>
+      current.map((student) =>
+        student.id === updated.id ? (updated as Student) : student
+      )
+    )
+
+    setSavingEdit(false)
+    closeEditStudent()
   }
 
   /*
@@ -956,6 +1065,10 @@ export default function StudentsPage() {
                             <th className="px-4 py-3">
                               Téléphone
                             </th>
+
+                            <th className="px-4 py-3 text-right">
+                              Actions
+                            </th>
                           </tr>
                         </thead>
 
@@ -998,6 +1111,15 @@ export default function StudentsPage() {
                               <td className="px-4 py-4">
                                 {student.parent_phone || "—"}
                               </td>
+
+                              <td className="px-4 py-4 text-right">
+                                <button
+                                  onClick={() => startEditStudent(student)}
+                                  className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                                >
+                                  Modifier
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1010,6 +1132,143 @@ export default function StudentsPage() {
           </div>
         </div>
       </section>
+
+      {editingStudent && editForm && (
+        <EditDialog
+          title="Modifier l'élève"
+          description={`${editingStudent.first_name} ${editingStudent.last_name}`}
+          error={editError}
+          saving={savingEdit}
+          onSubmit={saveStudentEdit}
+          onClose={closeEditStudent}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="edit-firstName">Prénom *</label>
+
+              <input
+                id="edit-firstName"
+                type="text"
+                value={editForm.firstName}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, firstName: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="edit-lastName">Nom *</label>
+
+              <input
+                id="edit-lastName"
+                type="text"
+                value={editForm.lastName}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, lastName: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="edit-dateOfBirth">Date de naissance</label>
+
+              <input
+                id="edit-dateOfBirth"
+                type="date"
+                value={editForm.dateOfBirth}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, dateOfBirth: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="edit-gender">Sexe</label>
+
+              <select
+                id="edit-gender"
+                value={editForm.gender}
+                onChange={(event) =>
+                  setEditForm({ ...editForm, gender: event.target.value })
+                }
+                className="w-full rounded-md border bg-background px-3 py-2"
+              >
+                <option value="">Non renseigné</option>
+                <option value="M">Masculin</option>
+                <option value="F">Féminin</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-studentNumber">Numéro d'inscription</label>
+
+            <input
+              id="edit-studentNumber"
+              type="text"
+              value={editForm.studentNumber}
+              onChange={(event) =>
+                setEditForm({ ...editForm, studentNumber: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-address">Adresse</label>
+
+            <input
+              id="edit-address"
+              type="text"
+              value={editForm.address}
+              onChange={(event) =>
+                setEditForm({ ...editForm, address: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-parentName">Nom du parent/tuteur</label>
+
+            <input
+              id="edit-parentName"
+              type="text"
+              value={editForm.parentName}
+              onChange={(event) =>
+                setEditForm({ ...editForm, parentName: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-parentPhone">
+              Téléphone du parent/tuteur
+            </label>
+
+            <input
+              id="edit-parentPhone"
+              type="tel"
+              value={editForm.parentPhone}
+              onChange={(event) =>
+                setEditForm({ ...editForm, parentPhone: event.target.value })
+              }
+              className="w-full rounded-md border bg-background px-3 py-2"
+            />
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            La classe de l'élève se change depuis son inscription, pas depuis
+            cette fiche.
+          </p>
+        </EditDialog>
+      )}
     </main>
   )
 }
