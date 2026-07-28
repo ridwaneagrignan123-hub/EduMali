@@ -73,6 +73,13 @@ Il est **public en lecture** — une carte imprimée doit afficher la photo sans
 jeton d'authentification, et l'URL contient deux UUID, donc elle n'est pas
 devinable. L'écriture, elle, est strictement cloisonnée.
 
+**Ne rajoutez pas de policy `SELECT` sur `storage.objects` pour ce bucket.**
+Les URL `/object/public/…` contournent le RLS : l'affichage n'en a pas besoin.
+Une policy `SELECT` n'ouvre que le *listage*, et celle qui existait permettait
+à un visiteur non connecté d'énumérer les photos de tous les élèves de toutes
+les écoles — des mineurs. Elle a été retirée après vérification que les photos
+restaient servies.
+
 Le chemin de chaque fichier est **`{school_id}/{student_id}.{ext}`**. Ce n'est
 pas une simple convention de rangement : c'est le mécanisme de sécurité.
 Les policies comparent `storage.foldername(name)[1]` au `school_id` de

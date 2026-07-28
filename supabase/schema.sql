@@ -330,8 +330,34 @@ create index timetable_slots_teacher_day_idx on public.timetable_slots using btr
 -- 3. Fonctions et déclencheurs
 -- =====================================================================
 
+/*
+ * Création automatique du profil à l'inscription.
+ *
+ * L'EXECUTE a été révoqué à PUBLIC : la fonction n'est pas une API et
+ * n'a rien à faire derrière /rest/v1/rpc/. Le déclencheur continue de
+ * fonctionner, Postgres ne vérifiant pas EXECUTE au moment où il se
+ * déclenche.
+ */
+create or replace function public.handle_new_user()
+returns trigger language plpgsql
+security definer set search_path = public
+as $function$
+begin
+  insert into public.profiles (id) values (new.id);
+  return new;
+end;
+$function$;
+
+revoke execute on function public.handle_new_user() from public;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $function$
+returns trigger language plpgsql
+set search_path = public
+as $function$
 begin
   new.updated_at = now();
   return new;
@@ -355,7 +381,9 @@ create trigger directions_set_updated_at
  * désactivations, après avoir vérifié que l'appelant est administrateur.
  */
 create or replace function public.prevent_profile_privilege_escalation()
-returns trigger language plpgsql as $function$
+returns trigger language plpgsql
+set search_path = public
+as $function$
 begin
   if coalesce(
        current_setting('request.jwt.claims', true)::json ->> 'role', ''
@@ -450,10 +478,20 @@ alter table public.sms_logs enable row level security;
 alter table public.timetable_slots enable row level security;
 
 -- ---------- schools ----------
-create policy "Authenticated users can read schools"
-  on public.schools for select to authenticated using (true);
-create policy "Authenticated users can create schools"
-  on public.schools for insert to authenticated with check (true);
+/*
+ * La lecture était autrefois ouverte à tout compte authentifié
+ * (using true), si bien qu'un utilisateur voyait le nom, l'adresse, le
+ * téléphone et l'email de TOUTES les écoles du service. Mesuré avant
+ * correction : un administrateur voyait 6 écoles au lieu d'une.
+ *
+ * Il n'y a volontairement PAS de policy INSERT : la création d'un
+ * établissement passe par /api/setup-school en service role, qui
+ * contourne le RLS et applique ses propres garde-fous. Une policy
+ * ouverte ici laisserait n'importe quel compte créer des écoles.
+ */
+create policy "Users can read their own school"
+  on public.schools for select to authenticated
+  using (id in (select school_id from public.profiles where id = auth.uid()));
 create policy "Admins can update their school"
   on public.schools for update
   using (id in (select school_id from public.profiles where id = auth.uid() and role = 'admin'))
@@ -678,10 +716,17 @@ insert into storage.buckets (id, name, public)
 values ('student-photos', 'student-photos', true)
 on conflict (id) do nothing;
 
-create policy "Lecture publique photos eleves"
-  on storage.objects for select
-  using (bucket_id = 'student-photos');
-
+/*
+ * Il n'y a volontairement AUCUNE policy SELECT sur storage.objects pour
+ * ce bucket.
+ *
+ * Un bucket public sert ses fichiers via /object/public/, qui contourne
+ * le RLS : l'affichage des photos n'a donc besoin d'aucune policy. Une
+ * policy SELECT n'ouvrirait que le LISTAGE — et celle qui existait
+ * auparavant permettait à un visiteur NON connecté d'énumérer les photos
+ * de tous les élèves de toutes les écoles. Vérifié après retrait :
+ * 0 fichier listable, et la photo répond toujours en 200.
+ */
 create policy "Upload photos eleves - meme ecole"
   on storage.objects for insert to authenticated
   with check (
