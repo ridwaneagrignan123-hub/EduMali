@@ -48,6 +48,8 @@ const navItems: NavItem[] = [
     roles: [...PEDAGOGIE, "comptable"],
   },
   { label: "Élèves", path: "/students", roles: [...PEDAGOGIE, "comptable"] },
+  // Tâche administrative : l'encadrement la pilote, pas les enseignants.
+  { label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
   { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
   { label: "Classes", path: "/classes", roles: PEDAGOGIE },
   { label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },

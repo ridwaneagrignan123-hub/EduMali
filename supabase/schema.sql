@@ -86,7 +86,14 @@ create table public.students (
   parent_name text,
   parent_phone text,
   -- Colonne héritée, non utilisée par l'application (voir README).
-  matricule text
+  matricule text,
+  /*
+   * URL publique de la photo d'identité, servie par le bucket
+   * « student-photos ». Le fichier est rangé sous {school_id}/{student_id}
+   * — ce découpage n'est pas cosmétique : les policies du bucket
+   * comparent le premier segment du chemin au school_id de l'appelant.
+   */
+  photo_url text
 );
 
 create table public.teachers (
@@ -334,6 +341,42 @@ $function$;
 create trigger directions_set_updated_at
   before update on public.directions
   for each row execute function public.set_updated_at();
+
+/*
+ * Garde-fou contre l'élévation de privilège.
+ *
+ * La policy « Users can update their own profile » laisse chacun modifier
+ * sa propre ligne — nom, prénom, téléphone. Sans ce déclencheur, elle
+ * laisserait aussi passer un UPDATE sur role : n'importe quel enseignant
+ * pourrait se promouvoir administrateur depuis la console du navigateur.
+ *
+ * Les routes serveur (service role) restent libres : ce sont elles qui
+ * gèrent légitimement les rôles, les rattachements d'école et les
+ * désactivations, après avoir vérifié que l'appelant est administrateur.
+ */
+create or replace function public.prevent_profile_privilege_escalation()
+returns trigger language plpgsql as $function$
+begin
+  if coalesce(
+       current_setting('request.jwt.claims', true)::json ->> 'role', ''
+     ) = 'service_role' then
+    return new;
+  end if;
+
+  if new.role is distinct from old.role
+     or new.school_id is distinct from old.school_id
+     or new.is_active is distinct from old.is_active then
+    raise exception
+      'Le rôle, l''établissement et le statut ne peuvent être modifiés que par un administrateur.';
+  end if;
+
+  return new;
+end;
+$function$;
+
+create trigger profiles_prevent_privilege_escalation
+  before update on public.profiles
+  for each row execute function public.prevent_profile_privilege_escalation();
 
 -- Cloisonnement par direction. SECURITY DEFINER est indispensable :
 -- sans lui, une policy sur classes qui interroge classes provoquerait
@@ -611,3 +654,57 @@ create policy "Users can delete grades from their school"
   using (school_id in (select school_id from public.profiles where id = auth.uid())
     and (not private.is_direction_scoped()
          or private.assessment_direction_id(assessment_id) = private.current_direction_id()));
+
+
+-- =====================================================================
+-- 5. Stockage de fichiers
+-- =====================================================================
+
+/*
+ * Photos d'identité des élèves, utilisées par les cartes scolaires.
+ *
+ * Le bucket est public en LECTURE : une carte imprimée doit pouvoir
+ * afficher la photo sans jeton, et l'URL contient deux UUID, donc elle
+ * n'est pas devinable. En ÉCRITURE le cloisonnement est strict.
+ *
+ * Le chemin est {school_id}/{student_id}.{ext}. Ce n'est pas une
+ * convention de rangement mais le mécanisme de sécurité lui-même : les
+ * policies comparent storage.foldername(name)[1] au school_id de
+ * l'appelant. Écrire ailleurs qu'à la racine de son école est refusé,
+ * ce qui interdit d'écraser la photo d'un élève d'un autre
+ * établissement.
+ */
+insert into storage.buckets (id, name, public)
+values ('student-photos', 'student-photos', true)
+on conflict (id) do nothing;
+
+create policy "Lecture publique photos eleves"
+  on storage.objects for select
+  using (bucket_id = 'student-photos');
+
+create policy "Upload photos eleves - meme ecole"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'student-photos'
+    and (storage.foldername(name))[1] = (
+      select school_id::text from public.profiles where id = auth.uid()
+    )
+  );
+
+create policy "Modifier photos eleves - meme ecole"
+  on storage.objects for update to authenticated
+  using (
+    bucket_id = 'student-photos'
+    and (storage.foldername(name))[1] = (
+      select school_id::text from public.profiles where id = auth.uid()
+    )
+  );
+
+create policy "Supprimer photos eleves - meme ecole"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'student-photos'
+    and (storage.foldername(name))[1] = (
+      select school_id::text from public.profiles where id = auth.uid()
+    )
+  );

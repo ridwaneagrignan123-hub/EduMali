@@ -64,6 +64,25 @@ redevient la source de vérité.
 Tant que cette étape n'est pas faite, toute modification de schéma doit être
 reportée à la main dans `schema.sql`, sous peine de le voir diverger.
 
+## Stockage de fichiers
+
+Un seul bucket à ce jour : **`student-photos`**, qui porte les photos
+d'identité affichées sur les cartes scolaires (`app/id-cards`).
+
+Il est **public en lecture** — une carte imprimée doit afficher la photo sans
+jeton d'authentification, et l'URL contient deux UUID, donc elle n'est pas
+devinable. L'écriture, elle, est strictement cloisonnée.
+
+Le chemin de chaque fichier est **`{school_id}/{student_id}.{ext}`**. Ce n'est
+pas une simple convention de rangement : c'est le mécanisme de sécurité.
+Les policies comparent `storage.foldername(name)[1]` au `school_id` de
+l'appelant, si bien qu'un utilisateur ne peut écrire que sous le dossier de
+son propre établissement. Changer ce chemin dans le code casserait
+silencieusement le cloisonnement — toute modification doit garder le
+`school_id` en premier segment.
+
+La colonne `students.photo_url` stocke l'URL publique résultante.
+
 ## Points connus
 
 - **`students.matricule`** est une colonne morte : aucune ligne renseignée,
