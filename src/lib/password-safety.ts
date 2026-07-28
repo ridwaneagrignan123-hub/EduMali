@@ -96,6 +96,41 @@ export async function checkPasswordExposure(
 }
 
 /*
+ * Rappel « plus tard » après un avertissement à la connexion.
+ *
+ * Sans ce délai, quelqu'un dont le mot de passe est compromis mais qui
+ * n'a pas le temps de le changer serait dérouté à chaque connexion, et
+ * finirait par cliquer sans lire. Le rappel revient au bout d'une
+ * semaine.
+ */
+const SNOOZE_KEY = "ridwane.motdepasse.rappel"
+const SNOOZE_DAYS = 7
+
+export function snoozePasswordWarning() {
+  try {
+    localStorage.setItem(SNOOZE_KEY, String(Date.now()))
+  } catch {
+    // Stockage indisponible : on avertira de nouveau, ce n'est pas grave.
+  }
+}
+
+export function isPasswordWarningSnoozed() {
+  try {
+    const raw = localStorage.getItem(SNOOZE_KEY)
+
+    if (!raw) {
+      return false
+    }
+
+    const age = Date.now() - Number(raw)
+
+    return age < SNOOZE_DAYS * 24 * 60 * 60 * 1000
+  } catch {
+    return false
+  }
+}
+
+/*
  * Contrôles locaux, sans réseau.
  *
  * Ils attrapent ce que la liste des fuites ne couvre pas : un mot de

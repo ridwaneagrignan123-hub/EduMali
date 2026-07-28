@@ -5,6 +5,24 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { supabase } from "@/src/lib/supabase"
+import {
+  checkPasswordExposure,
+  isPasswordWarningSnoozed,
+} from "@/src/lib/password-safety"
+
+/*
+ * Le contrôle anti-fuite posé sur /update-password ne protège que les
+ * mots de passe CHOISIS depuis. Ceux déjà en place n'ont jamais été
+ * vérifiés — d'où ce second contrôle, à la connexion.
+ *
+ * Il n'a lieu qu'ici : c'est le seul moment où l'application voit le mot
+ * de passe en clair. Elle ne le conserve pas, donc elle ne pourra plus
+ * le vérifier ensuite.
+ *
+ * Il n'empêche JAMAIS de se connecter. L'authentification a déjà réussi
+ * quand il s'exécute ; refuser l'accès enfermerait dehors quelqu'un dans
+ * son propre compte, pour un mot de passe qui reste le sien.
+ */
 
 export function LoginForm() {
   const [email, setEmail] = useState("")
@@ -34,6 +52,26 @@ export function LoginForm() {
       )
       setSubmitting(false)
       return
+    }
+
+    /*
+     * Connexion réussie. On profite du seul instant où le mot de passe
+     * est disponible pour le confronter aux fuites connues.
+     *
+     * Le rappel est mis en sourdine pendant une semaine si la personne
+     * a choisi « plus tard » : sans cela, elle serait déroutée à chaque
+     * connexion et finirait par cliquer sans lire.
+     */
+    if (!isPasswordWarningSnoozed()) {
+      const exposure = await checkPasswordExposure(password)
+
+      if (exposure.status === "compromis") {
+        router.push(
+          `/update-password?compromis=${exposure.occurrences}`
+        )
+        router.refresh()
+        return
+      }
     }
 
     router.push("/dashboard")
