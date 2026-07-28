@@ -1,271 +1,219 @@
-import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
+import { requireSchoolAdmin } from "@/src/lib/apiAuth"
+
+/*
+ * Création d'un compte enseignant.
+ *
+ * ---------------------------------------------------------------------
+ * POURQUOI CETTE ROUTE RENVOIE UN LIEN
+ *
+ * Elle se contentait d'appeler inviteUserByEmail() et d'annoncer
+ * « Invitation envoyée ». Or Supabase répond 200 dès qu'il a accepté la
+ * demande, pas quand le message est arrivé : sa messagerie intégrée
+ * (noreply@mail.app.supabase.io) ne dessert que les membres de
+ * l'organisation Supabase et plafonne à quelques envois par heure. Un
+ * enseignant ne recevait donc rien, pendant que l'écran affichait un
+ * succès.
+ *
+ * On renvoie désormais aussi un lien d'accès, obtenu sans passer par la
+ * messagerie. L'administrateur peut le transmettre de la main à la main,
+ * par WhatsApp ou par SMS — ce qui correspond de toute façon mieux à
+ * l'usage réel qu'un courriel.
+ * ---------------------------------------------------------------------
+ */
+
+/*
+ * Supabase n'accepte une destination que si elle figure dans les URL de
+ * redirection autorisées du projet. Sinon il la remplace silencieusement
+ * par l'URL du site, sans le signaler.
+ */
+function resolveSiteOrigin(request: Request) {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL
+
+  if (configured) {
+    return configured.replace(/\/$/, "")
+  }
+
+  const originHeader = request.headers.get("origin")
+
+  if (originHeader) {
+    return originHeader.replace(/\/$/, "")
+  }
+
+  return new URL(request.url).origin
+}
+
+/*
+ * Distingue un refus d'acheminement d'une vraie erreur de création. Dans
+ * le premier cas le compte doit quand même être créé : sans quoi une
+ * limite d'envoi — deux messages par heure — empêcherait d'inscrire le
+ * troisième enseignant de la journée.
+ */
+function isMailDeliveryFailure(error: { code?: string; status?: number }) {
+  const mailCodes = [
+    "over_email_send_rate_limit",
+    "email_address_invalid",
+    "unexpected_failure",
+  ]
+
+  return (
+    (error.code && mailCodes.includes(error.code)) ||
+    error.status === 429 ||
+    error.status === 500
+  )
+}
 
 export async function POST(request: Request) {
   try {
-    const authorization =
-      request.headers.get("Authorization")
+    const guard = await requireSchoolAdmin(request)
 
-    if (!authorization?.startsWith("Bearer ")) {
-      return NextResponse.json(
-        {
-          error: "Utilisateur non authentifié.",
-        },
-        { status: 401 }
-      )
+    if (!guard.ok) {
+      return guard.response
     }
 
-    const accessToken =
-      authorization.replace(
-        "Bearer ",
-        ""
-      )
+    const { schoolId } = guard.context
 
-    const supabaseAuth =
-      createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          global: {
-            headers: {
-              Authorization:
-                `Bearer ${accessToken}`,
-            },
-          },
-        }
-      )
+    const body = await request.json()
+    const { email, firstName, lastName, phone, specialty, hireDate } = body
 
-    const {
-      data: {
-        user,
-      },
-      error: userError,
-    } =
-      await supabaseAuth.auth.getUser()
-
-    if (
-      userError ||
-      !user
-    ) {
+    if (!email || !firstName || !lastName) {
       return NextResponse.json(
-        {
-          error:
-            "Session utilisateur invalide.",
-        },
-        { status: 401 }
-      )
-    }
-
-    const {
-      data: profile,
-      error: profileError,
-    } =
-      await supabaseAdmin
-        .from("profiles")
-        .select(
-          "school_id, role"
-        )
-        .eq(
-          "id",
-          user.id
-        )
-        .maybeSingle()
-
-    if (
-      profileError ||
-      !profile
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Profil administrateur introuvable.",
-        },
-        { status: 403 }
-      )
-    }
-
-    if (
-      profile.role !==
-      "admin"
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Seuls les administrateurs peuvent inviter des enseignants.",
-        },
-        { status: 403 }
-      )
-    }
-
-    if (
-      !profile.school_id
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Votre compte n'est associé à aucun établissement.",
-        },
+        { error: "Le prénom, le nom et l'email sont obligatoires." },
         { status: 400 }
       )
     }
 
-    const body =
-      await request.json()
+    const normalizedEmail = String(email).trim().toLowerCase()
+    const redirectTo = `${resolveSiteOrigin(request)}/update-password`
 
-    const {
-      email,
-      firstName,
-      lastName,
-      phone,
-      specialty,
-      hireDate,
-    } = body
-
-    if (
-      !email ||
-      !firstName ||
-      !lastName
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Le prénom, le nom et l'email sont obligatoires.",
-        },
-        { status: 400 }
-      )
+    const metadata = {
+      first_name: String(firstName).trim(),
+      last_name: String(lastName).trim(),
+      role: "teacher",
     }
 
-    const normalizedEmail =
-      String(email)
-        .trim()
-        .toLowerCase()
+    let teacherUserId: string
+    let accessLink: string | null = null
+    let emailAttempted = true
+    let deliveryNote: string | null = null
 
-    const {
-      data: invitedUser,
-      error: inviteError,
-    } =
-      await supabaseAdmin.auth.admin
-        .inviteUserByEmail(
-          normalizedEmail,
+    const { data: invited, error: inviteError } =
+      await supabaseAdmin.auth.admin.inviteUserByEmail(normalizedEmail, {
+        data: metadata,
+        redirectTo,
+      })
+
+    if (inviteError) {
+      if (!isMailDeliveryFailure(inviteError)) {
+        console.error("Erreur invitation :", inviteError)
+
+        return NextResponse.json(
+          { error: inviteError.message },
+          { status: 400 }
+        )
+      }
+
+      /*
+       * La messagerie a refusé, mais le compte doit exister quand même.
+       * generateLink crée l'utilisateur sans tenter le moindre envoi.
+       */
+      const { data: generated, error: generateError } =
+        await supabaseAdmin.auth.admin.generateLink({
+          type: "invite",
+          email: normalizedEmail,
+          options: { data: metadata, redirectTo },
+        })
+
+      if (generateError || !generated?.user) {
+        console.error("Erreur création du compte :", generateError)
+
+        return NextResponse.json(
           {
-            data: {
-              first_name:
-                firstName.trim(),
-              last_name:
-                lastName.trim(),
-              role: "teacher",
-            },
-          }
+            error:
+              "Le compte enseignant n'a pas pu être créé : " +
+              (generateError?.message ?? "raison inconnue"),
+          },
+          { status: 400 }
         )
+      }
 
-    if (
-      inviteError
-    ) {
-      console.error(
-        "Erreur invitation :",
-        inviteError
-      )
+      teacherUserId = generated.user.id
+      accessLink = generated.properties?.action_link ?? null
+      emailAttempted = false
+      deliveryNote = inviteError.message
+    } else {
+      if (!invited.user) {
+        return NextResponse.json(
+          { error: "Le compte enseignant n'a pas pu être créé." },
+          { status: 500 }
+        )
+      }
 
-      return NextResponse.json(
-        {
-          error:
-            inviteError.message,
-        },
-        { status: 400 }
-      )
+      teacherUserId = invited.user.id
+
+      /*
+       * Lien de secours, à transmettre si le courriel n'arrive pas.
+       * Le jeton de récupération est distinct de celui de l'invitation :
+       * en produire un ici n'invalide pas le lien contenu dans le mail.
+       */
+      const { data: generated, error: generateError } =
+        await supabaseAdmin.auth.admin.generateLink({
+          type: "recovery",
+          email: normalizedEmail,
+          options: { redirectTo },
+        })
+
+      if (generateError) {
+        // Sans gravité : le compte existe, le lien pourra être redemandé.
+        console.error("Erreur génération du lien d'accès :", generateError)
+      }
+
+      accessLink = generated?.properties?.action_link ?? null
     }
 
-    if (
-      !invitedUser.user
-    ) {
+    const { error: profileInsertError } = await supabaseAdmin
+      .from("profiles")
+      .upsert({
+        id: teacherUserId,
+        school_id: schoolId,
+        first_name: metadata.first_name,
+        last_name: metadata.last_name,
+        role: "teacher",
+        phone: phone?.trim() || null,
+      })
+
+    if (profileInsertError) {
+      console.error("Erreur création profil :", profileInsertError)
+
       return NextResponse.json(
         {
           error:
-            "Le compte enseignant n'a pas pu être créé.",
+            "Le compte a été créé, mais le profil enseignant n'a pas pu être créé.",
+          details: profileInsertError.message,
+          code: profileInsertError.code,
+          hint: profileInsertError.hint,
         },
         { status: 500 }
       )
     }
 
-    const teacherUserId =
-      invitedUser.user.id
+    const { error: teacherInsertError } = await supabaseAdmin
+      .from("teachers")
+      .insert({
+        school_id: schoolId,
+        profile_id: teacherUserId,
+        first_name: metadata.first_name,
+        last_name: metadata.last_name,
+        email: normalizedEmail,
+        phone: phone?.trim() || null,
+        specialty: specialty?.trim() || null,
+        hire_date: hireDate || null,
+        status: "active",
+      })
 
-    const {
-      error: profileInsertError,
-    } =
-      await supabaseAdmin
- .from("profiles")
-.upsert({     
-          id: teacherUserId,
-          school_id:
-            profile.school_id,
-          first_name:
-            firstName.trim(),
-          last_name:
-            lastName.trim(),
-          role: "teacher",
-          phone:
-            phone?.trim() ||
-            null,
-        })
-
-    if (
-      profileInsertError
-    ) {
-      console.error(
-        "Erreur création profil :",
-        profileInsertError
-      )
-
-  return NextResponse.json(
-  {
-    error:
-      "Le compte a été créé, mais le profil enseignant n'a pas pu être créé.",
-    details: profileInsertError.message,
-    code: profileInsertError.code,
-    hint: profileInsertError.hint,
-  },
-  { status: 500 }
-) 
-    }
-
-    const {
-      error: teacherInsertError,
-    } =
-      await supabaseAdmin
-        .from("teachers")
-        .insert({
-          school_id:
-            profile.school_id,
-          profile_id:
-            teacherUserId,
-          first_name:
-            firstName.trim(),
-          last_name:
-            lastName.trim(),
-          email:
-            normalizedEmail,
-          phone:
-            phone?.trim() ||
-            null,
-          specialty:
-            specialty?.trim() ||
-            null,
-          hire_date:
-            hireDate ||
-            null,
-          status:
-            "active",
-        })
-
-    if (
-      teacherInsertError
-    ) {
-      console.error(
-        "Erreur création enseignant :",
-        teacherInsertError
-      )
+    if (teacherInsertError) {
+      console.error("Erreur création enseignant :", teacherInsertError)
 
       return NextResponse.json(
         {
@@ -279,22 +227,18 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: true,
-        message:
-          "Invitation envoyée avec succès.",
+        email: normalizedEmail,
+        emailAttempted,
+        deliveryNote,
+        accessLink,
       },
       { status: 200 }
     )
   } catch (error) {
-    console.error(
-      "Erreur serveur :",
-      error
-    )
+    console.error("Erreur serveur :", error)
 
     return NextResponse.json(
-      {
-        error:
-          "Une erreur interne est survenue.",
-      },
+      { error: "Une erreur interne est survenue." },
       { status: 500 }
     )
   }

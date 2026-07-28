@@ -6,6 +6,7 @@ import { supabase } from "@/src/lib/supabase"
 import { normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
 import { EditDialog } from "@/components/edit-dialog"
+import { AccessLinkNotice } from "@/components/access-link-notice"
 import {
   ImportOutcome,
   ImportRow,
@@ -92,6 +93,13 @@ export default function TeachersPage() {
   const [schoolId, setSchoolId] = useState("")
   const [loadError, setLoadError] = useState<string | null>(null)
   const [showImport, setShowImport] = useState(false)
+
+  /* Lien d'accès du dernier enseignant créé, à transmettre à la main. */
+  const [accessNotice, setAccessNotice] = useState<{
+    email: string
+    emailAttempted: boolean
+    accessLink: string | null
+  } | null>(null)
 
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -254,9 +262,17 @@ export default function TeachersPage() {
       return
     }
 
-    alert(
-      "Invitation envoyée avec succès à l'enseignant."
-    )
+    /*
+     * Pas d'alert « Invitation envoyée » : la messagerie intégrée de
+     * Supabase ne dessert que les membres de l'organisation, si bien que
+     * l'enseignant ne recevait rien pendant que l'écran annonçait un
+     * succès. On montre le lien, qui lui fonctionne toujours.
+     */
+    setAccessNotice({
+      email: result.email ?? email.trim().toLowerCase(),
+      emailAttempted: result.emailAttempted !== false,
+      accessLink: result.accessLink ?? null,
+    })
 
     setFirstName("")
     setLastName("")
@@ -586,6 +602,17 @@ export default function TeachersPage() {
             onClose={() => setShowImport(false)}
             onImported={loadData}
           />
+        )}
+
+        {accessNotice && (
+          <div className="mb-8">
+            <AccessLinkNotice
+              email={accessNotice.email}
+              emailAttempted={accessNotice.emailAttempted}
+              accessLink={accessNotice.accessLink}
+              onClose={() => setAccessNotice(null)}
+            />
+          </div>
         )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">

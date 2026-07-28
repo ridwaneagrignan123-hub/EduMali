@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
 import { EditDialog } from "@/components/edit-dialog"
+import { AccessLinkNotice } from "@/components/access-link-notice"
 
 type UserAccount = {
   id: string
@@ -92,6 +93,13 @@ export default function UsersPage() {
 
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
+
+  /* Lien d'accès du dernier compte relancé, à transmettre à la main. */
+  const [accessNotice, setAccessNotice] = useState<{
+    email: string
+    emailAttempted: boolean
+    accessLink: string | null
+  } | null>(null)
 
   // Compte en cours de modification, null quand la boîte est fermée.
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
@@ -395,9 +403,17 @@ export default function UsersPage() {
       return
     }
 
-    setActionMessage(
-      `Un lien d'accès a été envoyé à ${result.email ?? "l'adresse du compte"}.`
-    )
+    /*
+     * On n'affirme plus que le message est parti : la messagerie intégrée
+     * de Supabase ne dessert que les membres de l'organisation. Le lien
+     * affiché, lui, fonctionne dans tous les cas.
+     */
+    setAccessNotice({
+      email: result.email ?? user.email,
+      emailAttempted: result.emailAttempted !== false,
+      accessLink: result.accessLink ?? null,
+    })
+
     setPendingUserId(null)
   }
 
@@ -505,6 +521,17 @@ export default function UsersPage() {
                 }}
               >
                 {actionMessage}
+              </div>
+            )}
+
+            {accessNotice && (
+              <div className="mt-6">
+                <AccessLinkNotice
+                  email={accessNotice.email}
+                  emailAttempted={accessNotice.emailAttempted}
+                  accessLink={accessNotice.accessLink}
+                  onClose={() => setAccessNotice(null)}
+                />
               </div>
             )}
 

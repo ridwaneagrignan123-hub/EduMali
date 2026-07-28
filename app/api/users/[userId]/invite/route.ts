@@ -73,16 +73,40 @@ export async function POST(
       )
     }
 
+    const redirectTo = `${resolveSiteOrigin(request)}/update-password`
+
     const { error: recoveryError } =
       await supabaseAdmin.auth.resetPasswordForEmail(authUser.user.email, {
-        redirectTo: `${resolveSiteOrigin(request)}/update-password`,
+        redirectTo,
       })
 
+    /*
+     * Un échec d'envoi n'est plus bloquant : le lien ci-dessous ne dépend
+     * pas de la messagerie. Voir app/api/teachers/invite/route.ts pour le
+     * détail — la messagerie intégrée de Supabase ne dessert que les
+     * membres de l'organisation et plafonne à quelques envois par heure.
+     */
     if (recoveryError) {
       console.error("Erreur envoi du lien d'accès :", recoveryError)
+    }
 
+    const { data: generated, error: generateError } =
+      await supabaseAdmin.auth.admin.generateLink({
+        type: "recovery",
+        email: authUser.user.email,
+        options: { redirectTo },
+      })
+
+    if (generateError) {
+      console.error("Erreur génération du lien d'accès :", generateError)
+    }
+
+    const accessLink = generated?.properties?.action_link ?? null
+
+    // Ni envoi ni lien : là, il n'y a plus rien à proposer.
+    if (recoveryError && !accessLink) {
       return NextResponse.json(
-        { error: "Impossible d'envoyer le lien d'accès. Réessayez." },
+        { error: "Impossible de produire un lien d'accès. Réessayez." },
         { status: 500 }
       )
     }
@@ -91,6 +115,8 @@ export async function POST(
       {
         success: true,
         email: authUser.user.email,
+        emailAttempted: !recoveryError,
+        accessLink,
       },
       { status: 200 }
     )
