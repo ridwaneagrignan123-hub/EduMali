@@ -25,16 +25,103 @@ type Student = {
   last_name: string
   student_number: string | null
   photo_url: string | null
+  date_of_birth: string | null
+  gender: string | null
+  address: string | null
+  parent_name: string | null
+  parent_phone: string | null
 }
 
 type School = {
   name: string | null
   logo_url: string | null
+  address: string | null
+  phone: string | null
 }
 
-// Format carte bancaire ISO/IEC 7810 ID-1.
-const CARD_WIDTH_MM = 85.6
-const CARD_HEIGHT_MM = 54
+type CardFormat = {
+  id: string
+  label: string
+  /** Millimètres. */
+  width: number
+  height: number
+  portrait: boolean
+  photoWidth: number
+  photoHeight: number
+  /*
+   * Multiplicateur de taille de texte. Les tailles de base sont réglées
+   * pour la carte bancaire ; les autres formats les suivent.
+   */
+  scale: number
+  /** Nombre de cartes par rangée à l'impression sur A4. */
+  columns: number
+}
+
+/*
+ * Trois formats, choisis pour tenir sur une A4 en marges de 10 mm, soit
+ * 190 mm utiles :
+ *   85,6 × 2 = 171 mm   |   54 × 3 = 162 mm   |   90 × 2 = 180 mm
+ */
+const FORMATS: CardFormat[] = [
+  {
+    id: "cb",
+    label: "Carte bancaire — 85,6 × 54 mm",
+    width: 85.6,
+    height: 54,
+    portrait: false,
+    photoWidth: 19,
+    photoHeight: 24,
+    scale: 1,
+    columns: 2,
+  },
+  {
+    id: "badge",
+    label: "Badge portrait — 54 × 85,6 mm",
+    width: 54,
+    height: 85.6,
+    portrait: true,
+    photoWidth: 26,
+    photoHeight: 32,
+    scale: 1,
+    columns: 3,
+  },
+  {
+    id: "grand",
+    label: "Grand format — 90 × 62 mm",
+    width: 90,
+    height: 62,
+    portrait: false,
+    photoWidth: 22,
+    photoHeight: 28,
+    scale: 1.18,
+    columns: 2,
+  },
+]
+
+// Format retenu par défaut : celui qui tient dans un portefeuille.
+const DEFAULT_FORMAT_ID = "cb"
+
+function formatBirthDate(value: string | null) {
+  if (!value) {
+    return "—"
+  }
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value
+}
+
+function formatGender(value: string | null) {
+  if (value === "M") {
+    return "Masculin"
+  }
+
+  if (value === "F") {
+    return "Féminin"
+  }
+
+  return "—"
+}
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png"]
 
@@ -136,7 +223,13 @@ export default function IdCardsPage() {
    */
   const [printTarget, setPrintTarget] = useState<string | null>(null)
 
+  const [formatId, setFormatId] = useState(DEFAULT_FORMAT_ID)
+  const [withBack, setWithBack] = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const format =
+    FORMATS.find((item) => item.id === formatId) ?? FORMATS[0]
 
   useEffect(() => {
     loadInitialData()
@@ -222,7 +315,7 @@ export default function IdCardsPage() {
     const [schoolResult, yearResult, classesResult] = await Promise.all([
       supabase
         .from("schools")
-        .select("name, logo_url")
+        .select("name, logo_url, address, phone")
         .eq("id", currentSchoolId)
         .maybeSingle(),
 
@@ -299,7 +392,10 @@ export default function IdCardsPage() {
       .select(
         `
         student_id,
-        students ( id, first_name, last_name, student_number, photo_url )
+        students (
+          id, first_name, last_name, student_number, photo_url,
+          date_of_birth, gender, address, parent_name, parent_phone
+        )
       `
       )
       .eq("school_id", schoolId)
@@ -453,191 +549,293 @@ export default function IdCardsPage() {
 
   const selectedClass = classes.find((item) => item.id === selectedClassId)
 
-  function renderCard(student: Student) {
+  /*
+   * Une carte, recto ou verso.
+   *
+   * Toutes les tailles sont en millimètres et proportionnelles au format
+   * choisi : c'est ce qui permet aux trois formats de partager une seule
+   * mise en page au lieu d'en maintenir trois.
+   */
+  function renderCard(student: Student, side: "front" | "back") {
     const excluded =
       printTarget !== null &&
       printTarget !== "all" &&
       printTarget !== student.id
 
+    const mm = (value: number) => `${(value * format.scale).toFixed(2)}mm`
+
+    const cardStyle: React.CSSProperties = {
+      width: `${format.width}mm`,
+      height: `${format.height}mm`,
+      border: "1px dashed oklch(0.45 0.02 60 / 0.6)",
+      borderRadius: "3mm",
+      padding: mm(2.6),
+      display: "flex",
+      flexDirection: "column",
+      gap: mm(1.6),
+      background: "white",
+      color: "oklch(0.20 0.02 60)",
+      overflow: "hidden",
+    }
+
+    const labelStyle: React.CSSProperties = {
+      fontSize: mm(1.9),
+      margin: 0,
+      color: "oklch(0.45 0.02 60)",
+      textTransform: "uppercase",
+      letterSpacing: "0.04em",
+      lineHeight: 1.25,
+    }
+
+    const valueStyle: React.CSSProperties = {
+      fontSize: mm(2.5),
+      fontWeight: 600,
+      margin: 0,
+      lineHeight: 1.25,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    }
+
+    function field(label: string, value: string) {
+      return (
+        <div style={{ minWidth: 0 }}>
+          <p style={labelStyle}>{label}</p>
+          <p style={valueStyle}>{value}</p>
+        </div>
+      )
+    }
+
+    const header = (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: mm(1.8),
+          borderBottom: `0.4mm solid oklch(0.585 0.16 38)`,
+          paddingBottom: mm(1.3),
+          flexShrink: 0,
+        }}
+      >
+        {school?.logo_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={school.logo_url}
+            alt=""
+            style={{
+              width: mm(6.5),
+              height: mm(6.5),
+              objectFit: "contain",
+              flexShrink: 0,
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: mm(6.5),
+              height: mm(6.5),
+              borderRadius: "1mm",
+              background: "oklch(0.585 0.16 38 / 0.12)",
+              flexShrink: 0,
+            }}
+          />
+        )}
+
+        <div style={{ minWidth: 0 }}>
+          <p
+            className="font-heading"
+            style={{
+              fontSize: mm(2.7),
+              fontWeight: 800,
+              margin: 0,
+              lineHeight: 1.15,
+              textTransform: "uppercase",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {school?.name || "Établissement scolaire"}
+          </p>
+
+          <p style={{ ...labelStyle, textTransform: "none" }}>
+            {side === "front" ? "Carte scolaire" : "Informations"} ·{" "}
+            {academicYearName || "—"}
+          </p>
+        </div>
+      </div>
+    )
+
+    if (side === "back") {
+      return (
+        <div
+          key={`${student.id}-back`}
+          className={`id-card ${excluded ? "print-exclude" : ""}`}
+          style={cardStyle}
+        >
+          {header}
+
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: mm(1.5),
+            }}
+          >
+            {field("Adresse", student.address || "—")}
+            {field("Parent / tuteur", student.parent_name || "—")}
+            {field("Téléphone du parent", student.parent_phone || "—")}
+
+            <div
+              style={{
+                marginTop: "auto",
+                borderTop: "0.3mm solid oklch(0.20 0.02 60 / 0.15)",
+                paddingTop: mm(1.3),
+              }}
+            >
+              <p style={{ ...labelStyle, textTransform: "none" }}>
+                En cas de perte, contacter l&apos;établissement
+                {school?.phone ? ` au ${school.phone}` : ""}.
+              </p>
+
+              {school?.address && (
+                <p style={{ ...labelStyle, textTransform: "none" }}>
+                  {school.address}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    const photo = student.photo_url ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={student.photo_url}
+        alt=""
+        style={{
+          width: mm(format.photoWidth),
+          height: mm(format.photoHeight),
+          objectFit: "cover",
+          borderRadius: "1.5mm",
+          border: "0.3mm solid oklch(0.20 0.02 60 / 0.15)",
+          flexShrink: 0,
+        }}
+      />
+    ) : (
+      <div
+        style={{
+          width: mm(format.photoWidth),
+          height: mm(format.photoHeight),
+          borderRadius: "1.5mm",
+          border: "0.3mm dashed oklch(0.20 0.02 60 / 0.25)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: mm(1.9),
+          color: "oklch(0.45 0.02 60)",
+          textAlign: "center",
+          flexShrink: 0,
+        }}
+      >
+        Sans photo
+      </div>
+    )
+
+    const identity = (
+      <div
+        style={{
+          minWidth: 0,
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: mm(1.2),
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <p style={labelStyle}>Nom et prénom</p>
+
+          <p
+            className="font-heading"
+            style={{
+              fontSize: mm(3.1),
+              fontWeight: 700,
+              margin: 0,
+              lineHeight: 1.15,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {student.last_name} {student.first_name}
+          </p>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: format.portrait ? "1fr" : "1fr 1fr",
+            gap: mm(1.2),
+          }}
+        >
+          {field("Classe", selectedClass?.name ?? "—")}
+          {field("Matricule", student.student_number || "—")}
+          {field("Né(e) le", formatBirthDate(student.date_of_birth))}
+          {field("Sexe", formatGender(student.gender))}
+        </div>
+      </div>
+    )
+
     return (
       <div
         key={student.id}
         className={`id-card ${excluded ? "print-exclude" : ""}`}
-        style={{
-          width: `${CARD_WIDTH_MM}mm`,
-          height: `${CARD_HEIGHT_MM}mm`,
-          border: "1px dashed oklch(0.45 0.02 60 / 0.6)",
-          borderRadius: "3mm",
-          padding: "3mm",
-          display: "flex",
-          flexDirection: "column",
-          gap: "2mm",
-          background: "white",
-          color: "oklch(0.20 0.02 60)",
-          overflow: "hidden",
-        }}
+        style={cardStyle}
       >
+        {header}
+
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: "2mm",
-            borderBottom: "0.4mm solid oklch(0.585 0.16 38)",
-            paddingBottom: "1.5mm",
+            flexDirection: format.portrait ? "column" : "row",
+            alignItems: format.portrait ? "center" : "flex-start",
+            gap: mm(2.4),
+            flex: 1,
+            minHeight: 0,
           }}
         >
-          {school?.logo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={school.logo_url}
-              alt=""
-              style={{
-                width: "7mm",
-                height: "7mm",
-                objectFit: "contain",
-                flexShrink: 0,
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                width: "7mm",
-                height: "7mm",
-                borderRadius: "1mm",
-                background: "oklch(0.585 0.16 38 / 0.12)",
-                flexShrink: 0,
-              }}
-            />
-          )}
+          {photo}
+          {identity}
+        </div>
 
-          <div style={{ minWidth: 0 }}>
+        {/*
+          Le contact du parent tient sur le recto : c'est l'information
+          qui sert vraiment si l'on retrouve un enfant avec sa carte.
+        */}
+        {!format.portrait && student.parent_phone && (
+          <div
+            style={{
+              borderTop: "0.3mm solid oklch(0.20 0.02 60 / 0.15)",
+              paddingTop: mm(1),
+              flexShrink: 0,
+            }}
+          >
             <p
-              className="font-heading"
               style={{
-                fontSize: "3mm",
-                fontWeight: 800,
-                margin: 0,
-                lineHeight: 1.15,
-                textTransform: "uppercase",
+                ...labelStyle,
+                textTransform: "none",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              {school?.name || "Établissement scolaire"}
-            </p>
-
-            <p
-              style={{
-                fontSize: "2.2mm",
-                margin: 0,
-                color: "oklch(0.45 0.02 60)",
-              }}
-            >
-              Carte scolaire · {academicYearName || "—"}
+              Parent : {student.parent_name || "—"} · {student.parent_phone}
             </p>
           </div>
-        </div>
-
-        <div style={{ display: "flex", gap: "3mm", flex: 1, minHeight: 0 }}>
-          {student.photo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={student.photo_url}
-              alt=""
-              style={{
-                width: "20mm",
-                height: "25mm",
-                objectFit: "cover",
-                borderRadius: "1.5mm",
-                border: "0.3mm solid oklch(0.20 0.02 60 / 0.15)",
-                flexShrink: 0,
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                width: "20mm",
-                height: "25mm",
-                borderRadius: "1.5mm",
-                border: "0.3mm dashed oklch(0.20 0.02 60 / 0.25)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "2.2mm",
-                color: "oklch(0.45 0.02 60)",
-                textAlign: "center",
-                flexShrink: 0,
-              }}
-            >
-              Sans photo
-            </div>
-          )}
-
-          <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "1.4mm" }}>
-            <div>
-              <p
-                style={{
-                  fontSize: "2.1mm",
-                  margin: 0,
-                  color: "oklch(0.45 0.02 60)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                }}
-              >
-                Nom et prénom
-              </p>
-
-              <p
-                className="font-heading"
-                style={{
-                  fontSize: "3.4mm",
-                  fontWeight: 700,
-                  margin: 0,
-                  lineHeight: 1.2,
-                }}
-              >
-                {student.last_name} {student.first_name}
-              </p>
-            </div>
-
-            <div>
-              <p
-                style={{
-                  fontSize: "2.1mm",
-                  margin: 0,
-                  color: "oklch(0.45 0.02 60)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                }}
-              >
-                Classe
-              </p>
-
-              <p style={{ fontSize: "2.9mm", fontWeight: 600, margin: 0 }}>
-                {selectedClass?.name ?? "—"}
-              </p>
-            </div>
-
-            <div>
-              <p
-                style={{
-                  fontSize: "2.1mm",
-                  margin: 0,
-                  color: "oklch(0.45 0.02 60)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                }}
-              >
-                Matricule
-              </p>
-
-              <p style={{ fontSize: "2.9mm", fontWeight: 600, margin: 0 }}>
-                {student.student_number || "—"}
-              </p>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     )
   }
@@ -663,10 +861,13 @@ export default function IdCardsPage() {
             page-break-inside: avoid;
           }
 
-          /* Deux cartes par rangée, quel que soit l'affichage à l'écran. */
+          /*
+           * Nombre de cartes par rangée propre au format choisi, calculé
+           * pour tenir dans les 190 mm utiles d'une A4 en marges de 10 mm.
+           */
           .id-card-sheet {
             display: grid !important;
-            grid-template-columns: repeat(2, auto) !important;
+            grid-template-columns: repeat(${format.columns}, auto) !important;
             justify-content: center !important;
             gap: 6mm !important;
           }
@@ -684,6 +885,12 @@ export default function IdCardsPage() {
           .id-card-main {
             background: white !important;
             min-height: 0 !important;
+          }
+
+          /* Les versos commencent toujours sur une page neuve. */
+          .id-card-back-sheet {
+            break-before: page;
+            page-break-before: always;
           }
 
           @page {
@@ -769,6 +976,57 @@ export default function IdCardsPage() {
               être lues.
             </p>
           )}
+
+          <div className="mt-6 grid gap-4 border-t pt-6 sm:grid-cols-2">
+            <div>
+              <label htmlFor="format" className="mb-2 block font-medium">
+                Format de carte
+              </label>
+
+              <select
+                id="format"
+                value={formatId}
+                onChange={(event) => setFormatId(event.target.value)}
+                className="w-full rounded-md border bg-background px-3 py-3"
+              >
+                {FORMATS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+
+              <p className="mt-2 text-xs text-muted-foreground">
+                {format.columns} carte(s) par rangée sur une page A4.
+              </p>
+            </div>
+
+            <div>
+              <span className="mb-2 block font-medium">Verso</span>
+
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={withBack}
+                  onChange={(event) => setWithBack(event.target.checked)}
+                  className="mt-1"
+                />
+
+                <span>
+                  Imprimer aussi le verso (adresse, parent, contact de
+                  l&apos;école)
+                </span>
+              </label>
+
+              {withBack && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Les versos sortent sur une page distincte, après les rectos.
+                  Réintroduisez les feuilles dans l&apos;imprimante pour les
+                  imprimer au dos.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
 
         {actionError && (
@@ -971,20 +1229,44 @@ export default function IdCardsPage() {
         {selectedClassId && students.length > 0 && (
           <div className="space-y-4">
             <h3 className="font-heading text-xl font-bold print-hidden">
-              Aperçu des cartes
+              Aperçu des cartes — recto
             </h3>
 
             <div
               className="id-card-sheet"
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(85.6mm, auto))",
+                gridTemplateColumns: `repeat(auto-fill, minmax(${format.width}mm, auto))`,
                 gap: "6mm",
                 justifyContent: "start",
               }}
             >
-              {students.map(renderCard)}
+              {students.map((student) => renderCard(student, "front"))}
             </div>
+
+            {/*
+              Les versos partent sur une nouvelle page : imprimés à la
+              suite des rectos, ils ne correspondraient à aucune carte.
+            */}
+            {withBack && (
+              <div className="id-card-back-sheet space-y-4">
+                <h3 className="font-heading text-xl font-bold print-hidden">
+                  Aperçu des cartes — verso
+                </h3>
+
+                <div
+                  className="id-card-sheet"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: `repeat(auto-fill, minmax(${format.width}mm, auto))`,
+                    gap: "6mm",
+                    justifyContent: "start",
+                  }}
+                >
+                  {students.map((student) => renderCard(student, "back"))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>
