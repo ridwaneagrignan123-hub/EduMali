@@ -38,14 +38,14 @@ const statusOptions: {
   {
     value: "present",
     label: "Présent",
-    color: "oklch(0.56 0.13 150)",
-    background: "oklch(0.56 0.13 150 / 0.12)",
+    color: "oklch(0.55 0.13 155)",
+    background: "oklch(0.55 0.13 155 / 0.12)",
   },
   {
     value: "late",
     label: "Retard",
-    color: "oklch(0.6 0.14 85)",
-    background: "oklch(0.6 0.14 85 / 0.18)",
+    color: "oklch(0.57 0.14 78)",
+    background: "oklch(0.57 0.14 78 / 0.18)",
   },
   {
     value: "excused",
@@ -389,8 +389,8 @@ export default function AttendancePage() {
             <div
               className="rounded-lg border p-4 text-sm md:col-span-2"
               style={{
-                background: "oklch(0.78 0.14 85 / 0.12)",
-                borderColor: "oklch(0.6 0.14 85 / 0.4)",
+                background: "oklch(0.80 0.14 78 / 0.12)",
+                borderColor: "oklch(0.57 0.14 78 / 0.4)",
               }}
             >
               <p className="font-medium">
@@ -440,8 +440,8 @@ export default function AttendancePage() {
                   <p
                     className="mt-2 inline-block rounded-full border px-3 py-1 text-xs font-semibold"
                     style={{
-                      color: "oklch(0.6 0.14 85)",
-                      borderColor: "oklch(0.6 0.14 85)",
+                      color: "oklch(0.57 0.14 78)",
+                      borderColor: "oklch(0.57 0.14 78)",
                     }}
                   >
                     {matchingHolidays

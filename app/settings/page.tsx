@@ -665,7 +665,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-4">
             <div
               className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border"
-              style={{ background: "oklch(0.58 0.15 45 / 0.08)" }}
+              style={{ background: "oklch(0.585 0.16 38 / 0.08)" }}
             >
               {logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -796,8 +796,8 @@ export default function SettingsPage() {
             <div
               className="mt-6 rounded-lg border p-4 text-sm"
               style={{
-                background: "oklch(0.78 0.14 85 / 0.12)",
-                borderColor: "oklch(0.6 0.14 85 / 0.4)",
+                background: "oklch(0.80 0.14 78 / 0.12)",
+                borderColor: "oklch(0.57 0.14 78 / 0.4)",
               }}
             >
               Seuls les administrateurs peuvent modifier ces paramètres. Vous
@@ -1003,8 +1003,8 @@ export default function SettingsPage() {
             <div
               className="mt-6 rounded-lg border p-4 text-sm"
               style={{
-                background: "oklch(0.78 0.14 85 / 0.12)",
-                borderColor: "oklch(0.6 0.14 85 / 0.4)",
+                background: "oklch(0.80 0.14 78 / 0.12)",
+                borderColor: "oklch(0.57 0.14 78 / 0.4)",
               }}
             >
               Seuls les administrateurs peuvent modifier ces montants. Vous les
@@ -1149,8 +1149,8 @@ export default function SettingsPage() {
             <div
               className="mt-6 rounded-lg border p-4 text-sm"
               style={{
-                background: "oklch(0.78 0.14 85 / 0.12)",
-                borderColor: "oklch(0.6 0.14 85 / 0.4)",
+                background: "oklch(0.80 0.14 78 / 0.12)",
+                borderColor: "oklch(0.57 0.14 78 / 0.4)",
               }}
             >
               Seuls les administrateurs peuvent modifier le calendrier. Vous le

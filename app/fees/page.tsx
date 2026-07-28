@@ -684,11 +684,11 @@ export default function FeesPage() {
               <div className="rounded-xl border border-border bg-card p-6">
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.58 0.15 45 / 0.12)" }}
+                  style={{ background: "oklch(0.585 0.16 38 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-sm"
-                    style={{ background: "oklch(0.58 0.15 45)" }}
+                    style={{ background: "oklch(0.585 0.16 38)" }}
                   />
                 </div>
 
@@ -702,11 +702,11 @@ export default function FeesPage() {
               <div className="rounded-xl border border-border bg-card p-6">
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.56 0.13 150 / 0.12)" }}
+                  style={{ background: "oklch(0.55 0.13 155 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-full"
-                    style={{ background: "oklch(0.56 0.13 150)" }}
+                    style={{ background: "oklch(0.55 0.13 155)" }}
                   />
                 </div>
 
@@ -720,11 +720,11 @@ export default function FeesPage() {
               <div className="rounded-xl border border-border bg-card p-6">
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.78 0.14 85 / 0.18)" }}
+                  style={{ background: "oklch(0.80 0.14 78 / 0.18)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-[3px]"
-                    style={{ background: "oklch(0.6 0.14 85)" }}
+                    style={{ background: "oklch(0.57 0.14 78)" }}
                   />
                 </div>
 
@@ -1003,9 +1003,9 @@ export default function FeesPage() {
 
                                     const statusColor =
                                       balance <= 0
-                                        ? "oklch(0.56 0.13 150)"
+                                        ? "oklch(0.55 0.13 155)"
                                         : paid > 0
-                                          ? "oklch(0.6 0.14 85)"
+                                          ? "oklch(0.57 0.14 78)"
                                           : "oklch(0.577 0.245 27.325)"
 
                                     return (

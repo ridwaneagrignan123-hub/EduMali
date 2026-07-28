@@ -1,591 +1,813 @@
 import Link from "next/link"
 import { Logo } from "@/components/logo"
 
+/*
+ * Page vitrine, reprise de la maquette « Ridwane — L'école ».
+ *
+ * Elle est en thème sombre, contrairement au reste de l'application qui
+ * reste clair pour la saisie quotidienne et l'impression des bulletins.
+ * Les couleurs correspondent aux jetons --rd-* de app/globals.css.
+ */
+
+const NIGHT = "oklch(17% 0.018 55)"
+const NIGHT_DEEP = "oklch(13% 0.02 50)"
+const NIGHT_SOFT = "oklch(22% 0.02 55)"
+const SAND = "oklch(95% 0.015 85)"
+const GOLD = "oklch(80% 0.15 78)"
+const GREEN = "oklch(60% 0.13 155)"
+const CLAY = "oklch(60% 0.17 38)"
+const LINE = "oklch(95% 0.015 85 / 0.09)"
+
+const display = "var(--font-bricolage), sans-serif"
+
+const navLinks = [
+  { label: "Fonctions", href: "#fonctions" },
+  { label: "Nos élèves", href: "#eleves" },
+  { label: "Le promoteur", href: "#promoteur" },
+  { label: "Contact", href: "#contact" },
+]
+
+const schoolTypes = [
+  { name: "Medersas", note: "Calendrier et matières adaptés", color: GOLD },
+  {
+    name: "Écoles publiques",
+    note: "Effectifs importants, gratuité",
+    color: GREEN,
+  },
+  { name: "Lycées & techniques", note: "Séries, options, examens", color: CLAY },
+  { name: "Écoles privées", note: "Facturation et relances", color: GOLD },
+]
+
 const features = [
   {
     title: "Inscriptions",
-    desc: "Enregistrez et suivez les inscriptions des élèves en quelques clics, du dossier à la classe.",
-    bg: "oklch(58% 0.15 45 / 0.12)",
-    color: "oklch(58% 0.15 45)",
-    shape: "8px",
+    desc: "Dossier élève complet, affectation en classe, réinscription en un clic d'une année à l'autre.",
+    color: GOLD,
   },
   {
     title: "Notes & bulletins",
-    desc: "Saisie des notes, génération automatique des bulletins conformes au système malien.",
-    bg: "oklch(56% 0.13 150 / 0.12)",
-    color: "oklch(56% 0.13 150)",
-    shape: "50%",
+    desc: "Saisie par matière, moyennes automatiques, bulletins trimestriels prêts à imprimer.",
+    color: GREEN,
   },
   {
-    title: "Classes & matières",
-    desc: "Organisez vos classes, affectez les matières et les enseignants avec les bons coefficients.",
-    bg: "oklch(78% 0.14 85 / 0.18)",
-    color: "oklch(60% 0.14 85)",
-    shape: "3px",
+    title: "Scolarité",
+    desc: "Échéanciers, paiements partiels, reçus numériques et suivi des impayés par classe.",
+    color: CLAY,
   },
   {
-    title: "Évaluations",
-    desc: "Créez des évaluations par classe et par matière, avec notes maximales et coefficients.",
-    bg: "oklch(58% 0.15 45 / 0.12)",
-    color: "oklch(58% 0.15 45)",
-    shape: "50% 50% 50% 0",
+    title: "Emploi du temps",
+    desc: "Grilles par classe et par enseignant, détection des conflits de salle et d'horaire.",
+    color: GOLD,
   },
   {
-    title: "Moyennes & classement",
-    desc: "Calcul automatique des moyennes pondérées et du classement par classe.",
-    bg: "oklch(56% 0.13 150 / 0.12)",
-    color: "oklch(56% 0.13 150)",
-    shape: "50%",
+    title: "Communication",
+    desc: "SMS et notifications aux parents : absences, bulletins disponibles, rappels de paiement.",
+    color: GREEN,
   },
   {
-    title: "Gestion par rôle",
-    desc: "Chaque utilisateur — direction ou enseignant — accède à un espace adapté à son rôle.",
-    bg: "oklch(78% 0.14 85 / 0.18)",
-    color: "oklch(60% 0.14 85)",
-    shape: "8px",
+    title: "Présences",
+    desc: "Appel quotidien en moins d'une minute, alertes automatiques aux parents dès l'absence.",
+    color: CLAY,
   },
 ]
 
-const roles = [
-  { name: "Directeurs", color: "oklch(58% 0.15 45)" },
-  { name: "Enseignants", color: "oklch(56% 0.13 150)" },
-  { name: "Personnel admin.", color: "oklch(78% 0.14 85)" },
-  { name: "Parents", color: "oklch(58% 0.15 45)" },
-  { name: "Élèves", color: "oklch(56% 0.13 150)" },
-  { name: "Comptabilité", color: "oklch(78% 0.14 85)" },
+const apercuClasses = [
+  { libelle: "6ᵉ A — Mathématiques", moyenne: "14,2", couleur: GREEN },
+  { libelle: "5ᵉ B — Français", moyenne: "12,8", couleur: GOLD },
+  { libelle: "4ᵉ A — Sciences", moyenne: "15,6", couleur: GREEN },
+  { libelle: "3ᵉ C — Histoire", moyenne: "11,4", couleur: CLAY },
 ]
-
-const bars = [40, 65, 50, 80, 60, 95, 72]
 
 export default function Home() {
   return (
     <div
       style={{
         fontFamily: "var(--font-manrope), sans-serif",
-        background: "oklch(97.5% 0.01 80)",
-        color: "oklch(20% 0.02 60)",
+        background: NIGHT,
+        color: SAND,
         overflowX: "hidden",
       }}
     >
       <style>{`
-        @keyframes ka-fadeup { from { opacity:0; transform:translateY(16px);} to { opacity:1; transform:translateY(0);} }
-        @keyframes ka-drift { 0%,100%{ transform:translate(0,0) rotate(0deg);} 50%{ transform:translate(10px,-14px) rotate(4deg);} }
-        @keyframes ka-drift2 { 0%,100%{ transform:translate(0,0) rotate(0deg);} 50%{ transform:translate(-14px,10px) rotate(-5deg);} }
-        @keyframes ka-grow { from { transform: scaleY(0);} to { transform: scaleY(1);} }
-        @keyframes kalanso-rise { 0% { transform: scaleY(0); opacity: 0; } 60% { transform: scaleY(1.08); opacity: 1; } 100% { transform: scaleY(1); opacity: 1; } }
-        @keyframes kalanso-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-        @keyframes kalanso-glow { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
-        .edumali-hero-link:hover { background: oklch(52% 0.15 45) !important; }
-        .edumali-outline-link:hover { border-color: oklch(20% 0.02 60 / 0.4) !important; }
-        .edumali-nav-cta:hover { background: oklch(30% 0.02 60) !important; }
-        .edumali-feature-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px oklch(20% 0.02 60 / 0.08); }
+        @keyframes rd-rise { from { opacity:0; transform:translateY(26px);} to { opacity:1; transform:translateY(0);} }
+        @keyframes rd-draw-rule { from { transform:scaleX(0);} to { transform:scaleX(1);} }
+        @keyframes rd-blink { 0%,49%{opacity:1;} 50%,100%{opacity:0.25;} }
+        @keyframes rd-glow { 0%,100%{ transform:scale(1); opacity:0.5;} 50%{ transform:scale(1.15); opacity:0.85;} }
+        @keyframes rd-pattern { to { background-position:88px 88px; } }
+        .rd-link { color: oklch(95% 0.015 85 / 0.62); transition: color .2s ease; }
+        .rd-link:hover { color: ${GOLD}; }
+        .rd-cta:hover { background: oklch(66% 0.17 38) !important; }
+        .rd-ghost:hover { border-color: ${GOLD} !important; color: ${GOLD} !important; }
+        .rd-card { transition: transform .3s cubic-bezier(.2,.8,.25,1), border-color .3s ease; }
+        .rd-card:hover { transform: translateY(-5px); border-color: oklch(95% 0.015 85 / 0.22) !important; }
+        @media (max-width: 900px) {
+          .rd-hero { grid-template-columns: 1fr !important; }
+          .rd-pad { padding-left: 22px !important; padding-right: 22px !important; }
+          .rd-h1 { font-size: 46px !important; }
+          .rd-h2 { font-size: 32px !important; }
+          .rd-nav-links { display: none !important; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .rd-anim, .rd-anim * { animation: none !important; }
+        }
       `}</style>
 
+      {/* ------------------------------------------------------------ nav */}
       <nav
+        className="rd-pad"
         style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 40,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "22px 64px",
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
-          background: "oklch(97.5% 0.01 80 / 0.85)",
-          backdropFilter: "blur(10px)",
-          borderBottom: "1px solid oklch(20% 0.02 60 / 0.06)",
+          gap: 20,
+          padding: "16px 56px",
+          background: "oklch(17% 0.018 55 / 0.82)",
+          backdropFilter: "blur(14px)",
+          borderBottom: `1px solid ${LINE}`,
         }}
       >
-        <Logo size="md" />
-
-        <div style={{ display: "flex", alignItems: "center", gap: 40 }}>
-          <a
-            href="#fonctionnalites"
-            style={{ fontWeight: 600, fontSize: 15, color: "oklch(20% 0.02 60)" }}
-          >
-            Fonctionnalités
-          </a>
-
-          <a
-            href="#public"
-            style={{ fontWeight: 600, fontSize: 15, color: "oklch(20% 0.02 60)" }}
-          >
-            Pour qui ?
-          </a>
-
-          <Link
-            href="/login"
-            className="edumali-nav-cta"
-            style={{
-              padding: "11px 24px",
-              background: "oklch(24% 0.02 60)",
-              color: "oklch(98% 0.005 80)",
-              borderRadius: 10,
-              fontWeight: 700,
-              fontSize: 14,
-            }}
-          >
-            Se connecter
-          </Link>
-        </div>
-      </nav>
-
-      <section
-        style={{
-          position: "relative",
-          padding: "100px 64px 120px",
-          display: "flex",
-          alignItems: "center",
-          gap: 60,
-          maxWidth: 1400,
-          margin: "0 auto",
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            top: 60,
-            right: 80,
-            width: 180,
-            height: 180,
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle, oklch(78% 0.14 85 / 0.35), transparent 70%)",
-            animation: "ka-drift 7s ease-in-out infinite",
-            pointerEvents: "none",
-          }}
-        />
+        <Logo size="md" dark />
 
         <div
-          style={{
-            position: "absolute",
-            bottom: 20,
-            right: 280,
-            width: 120,
-            height: 120,
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle, oklch(56% 0.13 150 / 0.25), transparent 70%)",
-            animation: "ka-drift2 8s ease-in-out infinite",
-            pointerEvents: "none",
-          }}
-        />
-
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "7px 14px",
-              background: "oklch(58% 0.15 45 / 0.1)",
-              borderRadius: 100,
-              fontSize: 13,
-              fontWeight: 700,
-              color: "oklch(48% 0.15 45)",
-              marginBottom: 24,
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "oklch(58% 0.15 45)",
-              }}
-            />
-            Conçu pour les écoles du Mali
-          </div>
-
-          <h1
-            style={{
-              fontFamily: "var(--font-plus-jakarta), sans-serif",
-              fontSize: 58,
-              fontWeight: 800,
-              lineHeight: 1.05,
-              letterSpacing: "-0.02em",
-              margin: "0 0 24px",
-            }}
-          >
-            <span style={{ color: "oklch(58% 0.15 45)" }}>Ridwane</span>
-            <br />
-            L&apos;école, simplement.
-          </h1>
-
-          <p
-            style={{
-              fontSize: 19,
-              lineHeight: 1.6,
-              color: "oklch(35% 0.02 60)",
-              maxWidth: 520,
-              margin: "0 0 36px",
-            }}
-          >
-            Inscriptions, notes, bulletins, classes et matières dans une
-            seule plateforme pensée pour les établissements maliens.
-          </p>
-
-          <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-            <Link
-              href="/login"
-              className="edumali-hero-link"
-              style={{
-                padding: "16px 30px",
-                background: "oklch(58% 0.15 45)",
-                color: "white",
-                borderRadius: 12,
-                fontWeight: 700,
-                fontSize: 16,
-                boxShadow: "0 12px 30px oklch(58% 0.15 45 / 0.35)",
-              }}
-            >
-              Se connecter →
-            </Link>
-
-            <a
-              href="#fonctionnalites"
-              className="edumali-outline-link"
-              style={{
-                padding: "16px 28px",
-                fontWeight: 700,
-                fontSize: 16,
-                color: "oklch(20% 0.02 60)",
-                border: "1.5px solid oklch(20% 0.02 60 / 0.15)",
-                borderRadius: 12,
-              }}
-            >
-              Découvrir
+          className="rd-nav-links"
+          style={{ display: "flex", gap: 30, fontSize: 14.5, fontWeight: 500 }}
+        >
+          {navLinks.map((link) => (
+            <a key={link.href} href={link.href} className="rd-link">
+              {link.label}
             </a>
-          </div>
-        </div>
-
-        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-          <div
-            style={{
-              background: "oklch(24% 0.02 60)",
-              borderRadius: 24,
-              padding: 20,
-              boxShadow: "0 40px 80px oklch(20% 0.02 60 / 0.25)",
-              transform: "rotate(1.2deg)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                gap: 6,
-                marginBottom: 14,
-                paddingLeft: 6,
-              }}
-            >
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  background: "oklch(65% 0.15 25)",
-                }}
-              />
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  background: "oklch(75% 0.13 85)",
-                }}
-              />
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  background: "oklch(60% 0.13 150)",
-                }}
-              />
-            </div>
-
-            <div
-              style={{
-                background: "oklch(97.5% 0.01 80)",
-                borderRadius: 14,
-                padding: 24,
-                display: "flex",
-                flexDirection: "column",
-                gap: 16,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div
-                  style={{
-                    fontFamily: "var(--font-plus-jakarta), sans-serif",
-                    fontWeight: 700,
-                    fontSize: 16,
-                  }}
-                >
-                  Aperçu des moyennes
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "flex-end",
-                  gap: 10,
-                  height: 110,
-                }}
-              >
-                {bars.map((h, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      flex: 1,
-                      height: `${h}%`,
-                      background:
-                        i === 5
-                          ? "oklch(58% 0.15 45)"
-                          : "oklch(56% 0.13 150 / 0.55)",
-                      borderRadius: "6px 6px 2px 2px",
-                    }}
-                  />
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  paddingTop: 14,
-                  borderTop: "1px solid oklch(20% 0.02 60 / 0.08)",
-                }}
-              >
-                <div style={{ fontSize: 13, color: "oklch(45% 0.02 60)" }}>
-                  Par classe et par matière
-                </div>
-
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "oklch(58% 0.15 45)",
-                  }}
-                >
-                  Calcul automatique
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        id="fonctionnalites"
-        style={{ padding: "100px 64px", maxWidth: 1400, margin: "0 auto" }}
-      >
-        <div
-          style={{
-            textAlign: "center",
-            maxWidth: 640,
-            margin: "0 auto 64px",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: "oklch(58% 0.15 45)",
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              marginBottom: 12,
-            }}
-          >
-            Fonctionnalités
-          </div>
-
-          <h2
-            style={{
-              fontFamily: "var(--font-plus-jakarta), sans-serif",
-              fontSize: 38,
-              fontWeight: 800,
-              letterSpacing: "-0.02em",
-              margin: 0,
-            }}
-          >
-            Tout ce qu'il faut pour piloter votre école
-          </h2>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 24,
-          }}
-        >
-          {features.map((f) => (
-            <div
-              key={f.title}
-              className="edumali-feature-card"
-              style={{
-                background: "white",
-                border: "1px solid oklch(20% 0.02 60 / 0.07)",
-                borderRadius: 18,
-                padding: 32,
-                transition: "transform 0.2s",
-              }}
-            >
-              <div
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 12,
-                  background: f.bg,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  marginBottom: 20,
-                }}
-              >
-                <div
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: f.shape,
-                    background: f.color,
-                  }}
-                />
-              </div>
-
-              <h3
-                style={{
-                  fontFamily: "var(--font-plus-jakarta), sans-serif",
-                  fontSize: 19,
-                  fontWeight: 700,
-                  margin: "0 0 8px",
-                }}
-              >
-                {f.title}
-              </h3>
-
-              <p
-                style={{
-                  fontSize: 15,
-                  lineHeight: 1.6,
-                  color: "oklch(45% 0.02 60)",
-                  margin: 0,
-                }}
-              >
-                {f.desc}
-              </p>
-            </div>
           ))}
         </div>
-      </section>
 
+        <Link
+          href="/login"
+          style={{
+            padding: "11px 22px",
+            borderRadius: 100,
+            background: SAND,
+            color: NIGHT,
+            fontWeight: 700,
+            fontSize: 14.5,
+            whiteSpace: "nowrap",
+          }}
+        >
+          Se connecter
+        </Link>
+      </nav>
+
+      {/* ---------------------------------------------------------- héros */}
       <section
-        id="public"
-        style={{ padding: "80px 64px 120px", maxWidth: 1400, margin: "0 auto" }}
+        className="rd-pad rd-anim"
+        style={{
+          position: "relative",
+          padding: "86px 56px 70px",
+          overflow: "hidden",
+        }}
       >
         <div
+          aria-hidden
           style={{
-            background: "oklch(24% 0.02 60)",
-            borderRadius: 28,
-            padding: 64,
+            position: "absolute",
+            inset: 0,
+            opacity: 0.07,
+            backgroundImage: `repeating-conic-gradient(from 45deg at 50% 50%, ${GOLD} 0deg 90deg, transparent 90deg 180deg)`,
+            backgroundSize: "88px 88px",
+            animation: "rd-pattern 24s linear infinite",
+            pointerEvents: "none",
+          }}
+        />
+
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: -60,
+            left: -40,
+            width: 340,
+            height: 340,
+            borderRadius: "50%",
+            background: `radial-gradient(circle, oklch(60% 0.17 38 / 0.55), transparent 68%)`,
+            filter: "blur(20px)",
+            animation: "rd-glow 9s ease-in-out infinite",
+            pointerEvents: "none",
+          }}
+        />
+
+        <div
+          className="rd-hero"
+          style={{
+            position: "relative",
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 48,
+            gridTemplateColumns: "1.05fr 0.95fr",
+            gap: 56,
             alignItems: "center",
+            maxWidth: 1360,
+            margin: "0 auto",
           }}
         >
           <div>
-            <h2
+            <div
               style={{
-                fontFamily: "var(--font-plus-jakarta), sans-serif",
-                fontSize: 34,
-                fontWeight: 800,
-                color: "white",
-                letterSpacing: "-0.02em",
-                margin: "0 0 16px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 9,
+                padding: "8px 16px",
+                border: `1px solid oklch(80% 0.15 78 / 0.4)`,
+                borderRadius: 100,
+                fontSize: 12.5,
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                color: GOLD,
+                marginBottom: 26,
+                animation: "rd-rise .6s ease both",
               }}
             >
-              Une plateforme, tous les acteurs de l'école
-            </h2>
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: GREEN,
+                  animation: "rd-blink 1.8s steps(1,end) infinite",
+                }}
+              />
+              Bamako · Sikasso · Mopti
+            </div>
+
+            <h1
+              className="rd-h1"
+              style={{
+                fontFamily: display,
+                fontSize: 76,
+                fontWeight: 800,
+                lineHeight: 0.94,
+                letterSpacing: "-0.035em",
+                margin: "0 0 26px",
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  animation: "rd-rise .7s cubic-bezier(.2,.8,.25,1) .05s both",
+                }}
+              >
+                L&apos;école
+              </span>
+
+              <span
+                style={{
+                  display: "block",
+                  color: GOLD,
+                  animation: "rd-rise .7s cubic-bezier(.2,.8,.25,1) .16s both",
+                }}
+              >
+                malienne,
+              </span>
+
+              <span
+                style={{
+                  display: "block",
+                  position: "relative",
+                  animation: "rd-rise .7s cubic-bezier(.2,.8,.25,1) .27s both",
+                }}
+              >
+                enfin connectée.
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    bottom: -6,
+                    width: "100%",
+                    height: 5,
+                    background: CLAY,
+                    transformOrigin: "left",
+                    animation:
+                      "rd-draw-rule 1.6s cubic-bezier(.2,.8,.25,1) .8s both",
+                  }}
+                />
+              </span>
+            </h1>
 
             <p
               style={{
-                fontSize: 16,
-                lineHeight: 1.7,
-                color: "oklch(85% 0.01 80 / 0.8)",
-                margin: 0,
+                fontSize: 18.5,
+                lineHeight: 1.62,
+                color: "oklch(95% 0.015 85 / 0.68)",
+                maxWidth: 500,
+                margin: "0 0 34px",
+                animation: "rd-rise .7s ease .4s both",
               }}
             >
-              Directeurs, enseignants, personnel administratif, parents et
-              élèves accèdent chacun à un espace pensé pour leur rôle.
+              Inscriptions, notes, scolarité, présences et communication avec les
+              familles — pour toutes les écoles du Mali, publiques comme privées,
+              medersas comme lycées.
             </p>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 14,
+                alignItems: "center",
+                flexWrap: "wrap",
+                animation: "rd-rise .7s ease .5s both",
+              }}
+            >
+              <Link
+                href="/login"
+                className="rd-cta"
+                style={{
+                  padding: "17px 32px",
+                  background: CLAY,
+                  color: "oklch(97% 0.01 85)",
+                  borderRadius: 100,
+                  fontWeight: 700,
+                  fontSize: 16,
+                  boxShadow: `0 16px 40px oklch(60% 0.17 38 / 0.35)`,
+                }}
+              >
+                Ouvrir mon espace →
+              </Link>
+
+              <a
+                href="#fonctions"
+                className="rd-ghost"
+                style={{
+                  padding: "16px 28px",
+                  borderRadius: 100,
+                  border: `1px solid oklch(95% 0.015 85 / 0.22)`,
+                  color: "oklch(95% 0.015 85 / 0.8)",
+                  fontWeight: 600,
+                  fontSize: 15.5,
+                }}
+              >
+                Découvrir
+              </a>
+            </div>
           </div>
+
+          {/*
+            La maquette montrait une photographie à cet endroit. Faute de
+            l'image, un aperçu construit avec la palette : il montre ce que
+            l'application affiche réellement, plutôt qu'un visuel décoratif.
+          */}
+          <div
+            aria-hidden
+            style={{
+              position: "relative",
+              borderRadius: 26,
+              border: `1px solid ${LINE}`,
+              background: NIGHT_SOFT,
+              padding: 26,
+              animation: "rd-rise .8s ease .35s both",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                marginBottom: 22,
+              }}
+            >
+              <span
+                style={{ fontFamily: display, fontWeight: 700, fontSize: 17 }}
+              >
+                Lycée de Badalabougou
+              </span>
+              <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>
+                640 élèves
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {apercuClasses.map((ligne) => (
+                <div
+                  key={ligne.libelle}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    padding: "13px 16px",
+                    borderRadius: 13,
+                    background: "oklch(95% 0.015 85 / 0.04)",
+                    border: `1px solid ${LINE}`,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 14,
+                      color: "oklch(95% 0.015 85 / 0.75)",
+                    }}
+                  >
+                    {ligne.libelle}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 15,
+                      fontWeight: 800,
+                      color: ligne.couleur,
+                    }}
+                  >
+                    {ligne.moyenne}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                marginTop: 20,
+                paddingTop: 18,
+                borderTop: `1px solid ${LINE}`,
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                fontSize: 13,
+                color: "oklch(95% 0.015 85 / 0.5)",
+              }}
+            >
+              <span>Bulletins du 1ᵉʳ trimestre</span>
+              <span style={{ color: GREEN, fontWeight: 700 }}>Prêts</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- élèves */}
+      <section
+        id="eleves"
+        className="rd-pad"
+        style={{ padding: "96px 56px", position: "relative" }}
+      >
+        <div style={{ maxWidth: 1360, margin: "0 auto" }}>
+          <h2
+            className="rd-h2"
+            style={{
+              fontFamily: display,
+              fontSize: 46,
+              fontWeight: 800,
+              lineHeight: 1.04,
+              letterSpacing: "-0.03em",
+              margin: "0 0 18px",
+              maxWidth: 620,
+            }}
+          >
+            Chaque élève du Mali, dans un même système.
+          </h2>
+
+          <p
+            style={{
+              fontSize: 17,
+              lineHeight: 1.65,
+              color: "oklch(95% 0.015 85 / 0.62)",
+              maxWidth: 620,
+              margin: "0 0 46px",
+            }}
+          >
+            Écoles publiques, écoles privées, medersas, lycées techniques.
+            Ridwane s&apos;adapte aux calendriers, aux matières et aux réalités
+            de chaque établissement — sans jamais imposer un modèle unique.
+          </p>
 
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
+              gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
               gap: 16,
             }}
           >
-            {roles.map((r) => (
+            {schoolTypes.map((type) => (
               <div
-                key={r.name}
+                key={type.name}
+                className="rd-card"
                 style={{
-                  background: "oklch(30% 0.02 60)",
-                  borderRadius: 14,
-                  padding: 20,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
+                  padding: "26px 24px",
+                  borderRadius: 18,
+                  background: NIGHT_SOFT,
+                  border: `1px solid ${LINE}`,
                 }}
               >
-                <div
+                <span
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
-                    background: r.color,
-                    flexShrink: 0,
+                    display: "block",
+                    width: 30,
+                    height: 4,
+                    borderRadius: 2,
+                    background: type.color,
+                    marginBottom: 18,
                   }}
                 />
 
-                <span
+                <p
                   style={{
-                    color: "white",
-                    fontWeight: 600,
-                    fontSize: 14.5,
+                    fontFamily: display,
+                    fontSize: 19,
+                    fontWeight: 700,
+                    margin: "0 0 7px",
                   }}
                 >
-                  {r.name}
-                </span>
+                  {type.name}
+                </p>
+
+                <p
+                  style={{
+                    fontSize: 14,
+                    color: "oklch(95% 0.015 85 / 0.55)",
+                    margin: 0,
+                  }}
+                >
+                  {type.note}
+                </p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
+      {/* ------------------------------------------------------- fonctions */}
+      <section
+        id="fonctions"
+        className="rd-pad"
+        style={{ padding: "24px 56px 104px" }}
+      >
+        <div style={{ maxWidth: 1360, margin: "0 auto" }}>
+          <h2
+            className="rd-h2"
+            style={{
+              fontFamily: display,
+              fontSize: 46,
+              fontWeight: 800,
+              letterSpacing: "-0.03em",
+              margin: "0 0 44px",
+              maxWidth: 620,
+              lineHeight: 1.04,
+            }}
+          >
+            Six outils, une seule connexion.
+          </h2>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+              gap: 18,
+            }}
+          >
+            {features.map((feature) => (
+              <div
+                key={feature.title}
+                className="rd-card"
+                style={{
+                  padding: "30px 28px",
+                  borderRadius: 20,
+                  background: NIGHT_SOFT,
+                  border: `1px solid ${LINE}`,
+                }}
+              >
+                <div
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 12,
+                    background: `color-mix(in oklch, ${feature.color} 16%, transparent)`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: 20,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 14,
+                      height: 14,
+                      borderRadius: 4,
+                      background: feature.color,
+                    }}
+                  />
+                </div>
+
+                <h3
+                  style={{
+                    fontFamily: display,
+                    fontSize: 20,
+                    fontWeight: 700,
+                    margin: "0 0 9px",
+                  }}
+                >
+                  {feature.title}
+                </h3>
+
+                <p
+                  style={{
+                    fontSize: 14.5,
+                    lineHeight: 1.6,
+                    color: "oklch(95% 0.015 85 / 0.58)",
+                    margin: 0,
+                  }}
+                >
+                  {feature.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------- promoteur */}
+      <section
+        id="promoteur"
+        className="rd-pad"
+        style={{ padding: "104px 56px", background: NIGHT_DEEP }}
+      >
+        <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+          <h2
+            className="rd-h2"
+            style={{
+              fontFamily: display,
+              fontSize: 52,
+              fontWeight: 800,
+              lineHeight: 0.98,
+              letterSpacing: "-0.035em",
+              margin: "0 0 26px",
+            }}
+          >
+            Toutes les <span style={{ color: GOLD }}>écoles du Mali</span>
+            <br />
+            dans une main.
+          </h2>
+
+          <p
+            style={{
+              fontSize: 18,
+              lineHeight: 1.65,
+              color: "oklch(95% 0.015 85 / 0.66)",
+              maxWidth: 620,
+              margin: "0 0 26px",
+            }}
+          >
+            Un directeur ne devrait pas choisir entre enseigner et compter.
+            Ridwane porte l&apos;administration — l&apos;école garde les élèves.
+          </p>
+
+          <p style={{ fontSize: 14, color: GOLD, fontWeight: 700, margin: 0 }}>
+            Fondateur — Ridwane, L&apos;école · Bamako
+          </p>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- contact */}
+      <section id="contact" className="rd-pad" style={{ padding: "104px 56px" }}>
+        <div style={{ maxWidth: 1360, margin: "0 auto" }}>
+          <h2
+            className="rd-h2"
+            style={{
+              fontFamily: display,
+              fontSize: 46,
+              fontWeight: 800,
+              letterSpacing: "-0.03em",
+              margin: "0 0 18px",
+              lineHeight: 1.04,
+            }}
+          >
+            Parlons de votre école.
+          </h2>
+
+          <p
+            style={{
+              fontSize: 17,
+              lineHeight: 1.65,
+              color: "oklch(95% 0.015 85 / 0.62)",
+              maxWidth: 560,
+              margin: "0 0 40px",
+            }}
+          >
+            Appelez ou écrivez directement — nous étudions ensemble vos
+            effectifs, vos classes et votre calendrier avant toute mise en route.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: 16,
+              maxWidth: 760,
+            }}
+          >
+            <a
+              href="tel:+22391949768"
+              className="rd-card"
+              style={{
+                padding: "26px 24px",
+                borderRadius: 18,
+                background: NIGHT_SOFT,
+                border: `1px solid ${LINE}`,
+                display: "block",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: 12.5,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "oklch(95% 0.015 85 / 0.5)",
+                  margin: "0 0 8px",
+                }}
+              >
+                Téléphone
+              </p>
+
+              <p
+                style={{
+                  fontFamily: display,
+                  fontSize: 20,
+                  fontWeight: 700,
+                  margin: 0,
+                }}
+              >
+                +223 91 94 97 68
+              </p>
+            </a>
+
+            <a
+              href="mailto:ridwaneagrignan123@gmail.com"
+              className="rd-card"
+              style={{
+                padding: "26px 24px",
+                borderRadius: 18,
+                background: NIGHT_SOFT,
+                border: `1px solid ${LINE}`,
+                display: "block",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: 12.5,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "oklch(95% 0.015 85 / 0.5)",
+                  margin: "0 0 8px",
+                }}
+              >
+                Email
+              </p>
+
+              <p
+                style={{
+                  fontFamily: display,
+                  fontSize: 16,
+                  fontWeight: 700,
+                  margin: 0,
+                  wordBreak: "break-all",
+                }}
+              >
+                ridwaneagrignan123@gmail.com
+              </p>
+            </a>
+          </div>
+
+          <p
+            style={{
+              marginTop: 22,
+              fontSize: 14,
+              color: "oklch(95% 0.015 85 / 0.45)",
+            }}
+          >
+            Bamako, Mali · Réponse sous 24 h
+          </p>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------------ pied */}
       <footer
+        className="rd-pad"
         style={{
-          padding: "48px 64px",
-          borderTop: "1px solid oklch(20% 0.02 60 / 0.08)",
+          padding: "40px 56px",
+          borderTop: `1px solid ${LINE}`,
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          gap: 24,
+          flexWrap: "wrap",
         }}
       >
-        <Logo size="sm" />
+        <Logo size="sm" dark />
 
-        <span style={{ fontSize: 13, color: "oklch(45% 0.02 60)" }}>
-          © {new Date().getFullYear()} Ridwane — Fait au Mali, pour les
-          écoles maliennes.
-        </span>
+        <p
+          style={{
+            fontSize: 13.5,
+            color: "oklch(95% 0.015 85 / 0.45)",
+            margin: 0,
+          }}
+        >
+          © {new Date().getFullYear()} Ridwane — L&apos;école. Bamako, Mali.
+        </p>
       </footer>
     </div>
   )

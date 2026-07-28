@@ -358,8 +358,8 @@ export default function DirectionsPage() {
           <div
             className="rounded-lg border p-4 text-sm"
             style={{
-              background: "oklch(0.56 0.13 150 / 0.1)",
-              borderColor: "oklch(0.56 0.13 150 / 0.4)",
+              background: "oklch(0.55 0.13 155 / 0.1)",
+              borderColor: "oklch(0.55 0.13 155 / 0.4)",
             }}
           >
             {actionMessage}
@@ -402,8 +402,8 @@ export default function DirectionsPage() {
           <div
             className="rounded-xl border p-6"
             style={{
-              background: "oklch(0.78 0.14 85 / 0.1)",
-              borderColor: "oklch(0.6 0.14 85 / 0.4)",
+              background: "oklch(0.80 0.14 78 / 0.1)",
+              borderColor: "oklch(0.57 0.14 78 / 0.4)",
             }}
           >
             <h3 className="font-heading text-xl font-bold">

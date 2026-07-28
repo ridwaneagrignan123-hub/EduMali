@@ -757,7 +757,7 @@ export default function StudentsPage() {
           </button>
 
           {!loading && !activeAcademicYearId && (
-            <p className="text-sm" style={{ color: "oklch(0.6 0.14 85)" }}>
+            <p className="text-sm" style={{ color: "oklch(0.57 0.14 78)" }}>
               Aucune année scolaire active : l'import est indisponible.
             </p>
           )}

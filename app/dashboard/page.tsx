@@ -441,7 +441,7 @@ export default function DashboardPage() {
             }
             style={
               isActive
-                ? { background: "oklch(0.58 0.15 45)" }
+                ? { background: "oklch(0.585 0.16 38)" }
                 : undefined
             }
           >
@@ -486,7 +486,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <div
               className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-primary-foreground"
-              style={{ background: "oklch(0.58 0.15 45)" }}
+              style={{ background: "oklch(0.585 0.16 38)" }}
             >
               {getUserName().charAt(0).toUpperCase() || "?"}
             </div>
@@ -585,8 +585,8 @@ export default function DashboardPage() {
                 <p
                   className="mt-3 inline-block rounded-full border px-3 py-1 text-xs font-semibold"
                   style={{
-                    color: "oklch(0.58 0.15 45)",
-                    borderColor: "oklch(0.58 0.15 45)",
+                    color: "oklch(0.585 0.16 38)",
+                    borderColor: "oklch(0.585 0.16 38)",
                   }}
                 >
                   {directionName
@@ -607,11 +607,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.58 0.15 45 / 0.12)" }}
+                  style={{ background: "oklch(0.585 0.16 38 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-sm"
-                    style={{ background: "oklch(0.58 0.15 45)" }}
+                    style={{ background: "oklch(0.585 0.16 38)" }}
                   />
                 </div>
 
@@ -638,11 +638,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.56 0.13 150 / 0.12)" }}
+                  style={{ background: "oklch(0.55 0.13 155 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-full"
-                    style={{ background: "oklch(0.56 0.13 150)" }}
+                    style={{ background: "oklch(0.55 0.13 155)" }}
                   />
                 </div>
 
@@ -669,11 +669,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.78 0.14 85 / 0.18)" }}
+                  style={{ background: "oklch(0.80 0.14 78 / 0.18)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-[3px]"
-                    style={{ background: "oklch(0.6 0.14 85)" }}
+                    style={{ background: "oklch(0.57 0.14 78)" }}
                   />
                 </div>
 
@@ -700,11 +700,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.58 0.15 45 / 0.12)" }}
+                  style={{ background: "oklch(0.585 0.16 38 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-[50%_50%_50%_0]"
-                    style={{ background: "oklch(0.58 0.15 45)" }}
+                    style={{ background: "oklch(0.585 0.16 38)" }}
                   />
                 </div>
 

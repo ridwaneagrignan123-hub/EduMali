@@ -942,8 +942,8 @@ export default function GradesPage() {
           <div
             className="rounded-lg border p-4"
             style={{
-              background: "oklch(0.78 0.14 85 / 0.14)",
-              borderColor: "oklch(0.6 0.14 85 / 0.5)",
+              background: "oklch(0.80 0.14 78 / 0.14)",
+              borderColor: "oklch(0.57 0.14 78 / 0.5)",
             }}
           >
             <p className="font-medium">
@@ -961,8 +961,8 @@ export default function GradesPage() {
           <div
             className="rounded-lg border p-4"
             style={{
-              background: "oklch(0.58 0.15 45 / 0.08)",
-              borderColor: "oklch(0.58 0.15 45 / 0.4)",
+              background: "oklch(0.585 0.16 38 / 0.08)",
+              borderColor: "oklch(0.585 0.16 38 / 0.4)",
             }}
           >
             <div className="flex flex-wrap items-center justify-between gap-3">

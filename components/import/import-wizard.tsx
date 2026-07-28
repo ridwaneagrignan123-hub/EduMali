@@ -369,8 +369,8 @@ export function ImportWizard({
                 <span
                   className="rounded-full border px-3 py-1 font-semibold"
                   style={{
-                    color: "oklch(0.56 0.13 150)",
-                    borderColor: "oklch(0.56 0.13 150)",
+                    color: "oklch(0.55 0.13 155)",
+                    borderColor: "oklch(0.55 0.13 155)",
                   }}
                 >
                   {importableRows.length} à importer
@@ -380,8 +380,8 @@ export function ImportWizard({
                   <span
                     className="rounded-full border px-3 py-1 font-semibold"
                     style={{
-                      color: "oklch(0.6 0.14 85)",
-                      borderColor: "oklch(0.6 0.14 85)",
+                      color: "oklch(0.57 0.14 78)",
+                      borderColor: "oklch(0.57 0.14 78)",
                     }}
                   >
                     {warningRows.length} à confirmer
@@ -416,7 +416,7 @@ export function ImportWizard({
                     : row.errors.length > 0
                       ? "oklch(0.577 0.245 27.325 / 0.5)"
                       : row.warnings.length > 0
-                        ? "oklch(0.6 0.14 85 / 0.5)"
+                        ? "oklch(0.57 0.14 78 / 0.5)"
                         : undefined
 
                   return (
@@ -455,7 +455,7 @@ export function ImportWizard({
                             <p
                               key={warning}
                               className="mt-1 text-xs"
-                              style={{ color: "oklch(0.6 0.14 85)" }}
+                              style={{ color: "oklch(0.57 0.14 78)" }}
                             >
                               {warning}
                             </p>
@@ -499,10 +499,10 @@ export function ImportWizard({
                             className="rounded-full border px-3 py-1 text-xs font-semibold"
                             style={{
                               color: importable
-                                ? "oklch(0.56 0.13 150)"
+                                ? "oklch(0.55 0.13 155)"
                                 : "oklch(0.45 0.02 60)",
                               borderColor: importable
-                                ? "oklch(0.56 0.13 150)"
+                                ? "oklch(0.55 0.13 155)"
                                 : "oklch(0.45 0.02 60)",
                             }}
                           >
@@ -551,7 +551,7 @@ export function ImportWizard({
                     ? 0
                     : (progress / importableRows.length) * 100
                 }%`,
-                background: "oklch(0.58 0.15 45)",
+                background: "oklch(0.585 0.16 38)",
               }}
             />
           </div>
@@ -567,8 +567,8 @@ export function ImportWizard({
           <div
             className="rounded-lg border p-4"
             style={{
-              background: "oklch(0.56 0.13 150 / 0.1)",
-              borderColor: "oklch(0.56 0.13 150 / 0.4)",
+              background: "oklch(0.55 0.13 155 / 0.1)",
+              borderColor: "oklch(0.55 0.13 155 / 0.4)",
             }}
           >
             <p className="font-medium">

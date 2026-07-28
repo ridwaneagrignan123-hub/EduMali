@@ -500,8 +500,8 @@ export default function UsersPage() {
               <div
                 className="mt-6 rounded-lg border p-4 text-sm"
                 style={{
-                  background: "oklch(0.56 0.13 150 / 0.1)",
-                  borderColor: "oklch(0.56 0.13 150 / 0.4)",
+                  background: "oklch(0.55 0.13 155 / 0.1)",
+                  borderColor: "oklch(0.55 0.13 155 / 0.4)",
                 }}
               >
                 {actionMessage}
@@ -567,10 +567,10 @@ export default function UsersPage() {
                               className="rounded-full border px-3 py-1 text-xs font-semibold"
                               style={{
                                 color: user.isActive
-                                  ? "oklch(0.56 0.13 150)"
+                                  ? "oklch(0.55 0.13 155)"
                                   : "oklch(0.577 0.245 27.325)",
                                 borderColor: user.isActive
-                                  ? "oklch(0.56 0.13 150)"
+                                  ? "oklch(0.55 0.13 155)"
                                   : "oklch(0.577 0.245 27.325)",
                               }}
                             >
@@ -581,8 +581,8 @@ export default function UsersPage() {
                               <span
                                 className="rounded-full border px-3 py-1 text-xs font-semibold"
                                 style={{
-                                  color: "oklch(0.6 0.14 85)",
-                                  borderColor: "oklch(0.6 0.14 85)",
+                                  color: "oklch(0.57 0.14 78)",
+                                  borderColor: "oklch(0.57 0.14 78)",
                                 }}
                               >
                                 Jamais connecté
