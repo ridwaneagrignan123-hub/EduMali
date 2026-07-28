@@ -1,12 +1,13 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { FormEvent, Suspense, useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
 import {
   checkPasswordExposure,
   findObviousWeakness,
+  snoozePasswordWarning,
 } from "@/src/lib/password-safety"
 
 /*
@@ -22,8 +23,34 @@ import {
 
 const MIN_PASSWORD_LENGTH = 8
 
+/*
+ * useSearchParams impose une frontière de Suspense au rendu statique :
+ * la page est enveloppée plus bas.
+ */
 export default function UpdatePasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center">
+          <p className="text-muted-foreground">Chargement...</p>
+        </main>
+      }
+    >
+      <UpdatePasswordForm />
+    </Suspense>
+  )
+}
+
+function UpdatePasswordForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  /*
+   * Renseigné quand la connexion vient de détecter un mot de passe
+   * présent dans des fuites : la personne n'a rien demandé, il faut donc
+   * lui expliquer pourquoi elle est ici.
+   */
+  const compromisedCount = searchParams.get("compromis")
 
   const [checkingSession, setCheckingSession] = useState(true)
   const [hasSession, setHasSession] = useState(false)
@@ -154,8 +181,39 @@ export default function UpdatePasswordPage() {
 
         <div className="rounded-xl border bg-background p-6">
           <h1 className="font-heading text-2xl font-bold">
-            Définir votre mot de passe
+            {compromisedCount
+              ? "Changez votre mot de passe"
+              : "Définir votre mot de passe"}
           </h1>
+
+          {compromisedCount && !done && (
+            <div
+              className="mt-4 rounded-lg border p-4 text-sm"
+              style={{
+                background: "oklch(0.80 0.14 78 / 0.12)",
+                borderColor: "oklch(0.57 0.14 78 / 0.5)",
+              }}
+            >
+              <p className="font-medium">
+                Votre mot de passe actuel figure dans des fuites de données
+                publiques.
+              </p>
+
+              <p className="mt-2 text-muted-foreground">
+                {`Il est apparu ${Number(compromisedCount).toLocaleString(
+                  "fr-FR"
+                )} fois dans des bases dérobées à d'autres sites.`}{" "}
+                Cela ne veut pas dire que votre compte Ridwane a été touché,
+                mais ce mot de passe est parmi les premiers qu&apos;un
+                attaquant essaierait.
+              </p>
+
+              <p className="mt-2 text-muted-foreground">
+                Votre connexion a réussi et votre accès reste ouvert. Changer
+                de mot de passe maintenant ne prend qu&apos;un instant.
+              </p>
+            </div>
+          )}
 
           {checkingSession ? (
             <p className="mt-4 text-muted-foreground">Vérification du lien...</p>
@@ -252,6 +310,24 @@ export default function UpdatePasswordPage() {
                     ? "Enregistrement..."
                     : "Enregistrer le mot de passe"}
               </button>
+
+              {/*
+                Seulement quand la personne a été redirigée depuis la
+                connexion : elle a un accès valide et doit pouvoir
+                travailler tout de suite. On ne la retient pas.
+              */}
+              {compromisedCount && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    snoozePasswordWarning()
+                    router.push("/dashboard")
+                  }}
+                  className="w-full rounded-md border px-4 py-2 text-sm hover:bg-muted"
+                >
+                  Plus tard — me le rappeler dans une semaine
+                </button>
+              )}
             </form>
           )}
         </div>
