@@ -4,12 +4,20 @@ import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
+import {
+  checkPasswordExposure,
+  findObviousWeakness,
+} from "@/src/lib/password-safety"
 
 /*
  * Page d'atterrissage des liens d'accès envoyés depuis /users.
  *
  * Supabase établit une session à l'ouverture du lien : il ne reste plus
  * qu'à définir le mot de passe.
+ *
+ * C'est le seul endroit de l'application où un mot de passe est choisi —
+ * les invitations y aboutissent toutes. Le contrôle contre les mots de
+ * passe issus de fuites est donc posé ici, et nulle part ailleurs.
  */
 
 const MIN_PASSWORD_LENGTH = 8
@@ -24,8 +32,15 @@ export default function UpdatePasswordPage() {
   const [confirmation, setConfirmation] = useState("")
 
   const [saving, setSaving] = useState(false)
+  const [checkingExposure, setCheckingExposure] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+
+  /** Renseigné pour refuser un mot de passe bâti sur sa propre adresse. */
+  const [userEmail, setUserEmail] = useState("")
+
+  /** Le contrôle anti-fuite n'a pas pu aboutir : on le dit sans bloquer. */
+  const [exposureUnchecked, setExposureUnchecked] = useState(false)
 
   useEffect(() => {
     /*
@@ -38,23 +53,30 @@ export default function UpdatePasswordPage() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         setHasSession(true)
+        setUserEmail(session.user?.email ?? "")
         setCheckingSession(false)
       }
     })
+
+    /*
+     * Déclarée dans l'effet plutôt qu'au-dessus : une fonction du corps
+     * du composant serait référencée avant sa déclaration, et la
+     * référence capturée ne suivrait pas les rendus suivants.
+     */
+    async function checkSession() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      setHasSession(Boolean(session))
+      setUserEmail(session?.user?.email ?? "")
+      setCheckingSession(false)
+    }
 
     checkSession()
 
     return () => subscription.unsubscribe()
   }, [])
-
-  async function checkSession() {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    setHasSession(Boolean(session))
-    setCheckingSession(false)
-  }
 
   async function updatePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -72,7 +94,39 @@ export default function UpdatePasswordPage() {
       return
     }
 
+    const weakness = findObviousWeakness(password, userEmail)
+
+    if (weakness) {
+      setError(weakness)
+      return
+    }
+
     setSaving(true)
+
+    /*
+     * Contrôle contre les fuites connues. Le mot de passe ne quitte pas
+     * l'appareil : seuls cinq caractères de son empreinte sont envoyés.
+     *
+     * Si le service est injoignable, on laisse passer plutôt que de
+     * bloquer quelqu'un qui doit accéder à son espace — un contrôle
+     * absent vaut mieux qu'un utilisateur enfermé dehors.
+     */
+    setCheckingExposure(true)
+    const exposure = await checkPasswordExposure(password)
+    setCheckingExposure(false)
+
+    if (exposure.status === "compromis") {
+      setError(
+        `Ce mot de passe figure dans des fuites de données connues (${exposure.occurrences.toLocaleString("fr-FR")} fois). Choisissez-en un autre : il serait parmi les premiers essayés.`
+      )
+      setSaving(false)
+      return
+    }
+
+    if (exposure.status === "indisponible") {
+      // Non bloquant, mais l'utilisateur doit savoir que le filet a manqué.
+      setExposureUnchecked(true)
+    }
 
     const { error: updateError } = await supabase.auth.updateUser({
       password,
@@ -108,7 +162,7 @@ export default function UpdatePasswordPage() {
           ) : !hasSession ? (
             <div className="mt-4 space-y-4">
               <p className="text-muted-foreground">
-                Ce lien n'est plus valide ou a déjà été utilisé. Demandez à
+                Ce lien n&apos;est plus valide ou a déjà été utilisé. Demandez à
                 votre administrateur de vous en envoyer un nouveau.
               </p>
 
@@ -125,6 +179,20 @@ export default function UpdatePasswordPage() {
                 Votre mot de passe a été enregistré. Vous pouvez maintenant
                 accéder à votre espace.
               </p>
+
+              {exposureUnchecked && (
+                <p
+                  className="rounded-lg border p-3 text-sm"
+                  style={{
+                    background: "oklch(0.80 0.14 78 / 0.12)",
+                    borderColor: "oklch(0.57 0.14 78 / 0.4)",
+                  }}
+                >
+                  La vérification contre les fuites de données connues
+                  n&apos;a pas pu aboutir — le service était injoignable.
+                  Votre mot de passe a bien été enregistré.
+                </p>
+              )}
 
               <button
                 onClick={() => router.push("/dashboard")}
@@ -148,7 +216,9 @@ export default function UpdatePasswordPage() {
                 />
 
                 <p className="text-xs text-muted-foreground">
-                  Au moins {MIN_PASSWORD_LENGTH} caractères.
+                  Au moins {MIN_PASSWORD_LENGTH} caractères. Il est comparé
+                  aux fuites de données connues, sans jamais quitter votre
+                  appareil.
                 </p>
               </div>
 
@@ -176,7 +246,11 @@ export default function UpdatePasswordPage() {
                 disabled={saving}
                 className="w-full rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {saving ? "Enregistrement..." : "Enregistrer le mot de passe"}
+                {checkingExposure
+                  ? "Vérification du mot de passe..."
+                  : saving
+                    ? "Enregistrement..."
+                    : "Enregistrer le mot de passe"}
               </button>
             </form>
           )}
