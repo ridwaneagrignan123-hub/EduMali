@@ -514,34 +514,44 @@ export default function DashboardPage() {
             className="absolute inset-0 bg-black/50"
           />
 
+          {/*
+            Le tiroir est figé à la hauteur de l'écran, alors qu'un
+            administrateur y a dix-huit entrées — plus haut que bien des
+            téléphones. Le menu doit donc défiler par lui-même, sinon la
+            déconnexion passe sous le bord sans aucun moyen d'y accéder.
+          */}
           <aside
-            className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col justify-between p-4 shadow-xl"
+            className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col p-4 shadow-xl"
             style={{ background: "oklch(0.24 0.02 60)" }}
           >
-            <div>
-              <div className="mb-4 flex items-center justify-between px-1">
-                <Logo size="sm" dark />
+            <div className="mb-4 flex shrink-0 items-center justify-between px-1">
+              <Logo size="sm" dark />
 
-                <button
-                  onClick={() => setMobileMenuOpen(false)}
-                  aria-label="Fermer le menu"
-                  className="flex h-9 w-9 items-center justify-center rounded-md text-white/80 hover:bg-white/10"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <nav className="space-y-1.5">
-                {renderNavItems(() => setMobileMenuOpen(false))}
-              </nav>
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Fermer le menu"
+                className="flex h-9 w-9 items-center justify-center rounded-md text-white/80 hover:bg-white/10"
+              >
+                ✕
+              </button>
             </div>
 
+            {/*
+              min-h-0 est indispensable : sans lui un enfant flexible refuse
+              de descendre sous la hauteur de son contenu, et le défilement
+              n'a jamais lieu.
+            */}
+            <nav className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+              {renderNavItems(() => setMobileMenuOpen(false))}
+            </nav>
+
+            {/* shrink-0 : la déconnexion reste posée au bas du tiroir. */}
             <button
               onClick={() => {
                 setMobileMenuOpen(false)
                 handleLogout()
               }}
-              className="w-full rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
+              className="mt-4 w-full shrink-0 rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
             >
               Déconnexion
             </button>
@@ -550,20 +560,37 @@ export default function DashboardPage() {
       )}
 
       <div className="flex min-h-[calc(100vh-81px)]">
+        {/*
+          Même écueil sur ordinateur : la barre s'étirait sur toute la
+          hauteur de la page, si bien qu'il fallait dérouler tout le contenu
+          pour atteindre la déconnexion — et sur un écran d'ordinateur
+          portable, les dix-huit entrées débordaient déjà.
+
+          Le bloc intérieur reste collé et ne dépasse jamais la hauteur de
+          l'écran : le menu défile en lui-même, la déconnexion reste posée
+          en dessous.
+
+          Les 7rem retranchées couvrent l'en-tête plus le décalage du bloc
+          collé. Sans cette marge, la déconnexion reste sous le bord tant
+          qu'on n'a pas fait défiler la page — récupérable, mais on ne la
+          voit pas en arrivant, ce qui est précisément le défaut corrigé.
+        */}
         <aside
-          className="hidden w-64 flex-col justify-between p-4 md:flex"
+          className="hidden w-64 shrink-0 p-4 md:block"
           style={{ background: "oklch(0.24 0.02 60)" }}
         >
-          <nav className="space-y-1.5">
-            {renderNavItems(() => {})}
-          </nav>
+          <div className="sticky top-4 flex max-h-[calc(100vh-7rem)] flex-col">
+            <nav className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+              {renderNavItems(() => {})}
+            </nav>
 
-          <button
-            onClick={handleLogout}
-            className="w-full rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
-          >
-            Déconnexion
-          </button>
+            <button
+              onClick={handleLogout}
+              className="mt-4 w-full shrink-0 rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
+            >
+              Déconnexion
+            </button>
+          </div>
         </aside>
 
         <section className="flex-1 p-6">
@@ -711,7 +738,7 @@ export default function DashboardPage() {
                 </div>
 
                 <p className="text-sm text-muted-foreground">
-                  Présences aujourd'hui
+                  Présences aujourd&apos;hui
                 </p>
 
                 <p className="mt-1 font-heading text-3xl font-extrabold">
