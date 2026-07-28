@@ -42,7 +42,12 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
-  const publicPaths = ["/", "/login"]
+  /*
+   * /update-password reçoit les liens d'accès envoyés par email : la session
+   * y est établie côté client à partir du jeton présent dans l'URL, donc la
+   * page doit pouvoir se charger sans cookie de session préalable.
+   */
+  const publicPaths = ["/", "/login", "/update-password"]
   const isPublicPath = publicPaths.includes(pathname)
 
   if (!user && !isPublicPath) {
@@ -59,7 +64,14 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
+  /*
+   * manifest.webmanifest et sw.js sont exclus : le navigateur les
+   * réclame sans cookie de session, avant toute connexion. Les rediriger
+   * vers /login empêche purement et simplement l'installation de la PWA.
+   * Ces deux ressources sont statiques et ne contiennent aucune donnée
+   * d'établissement.
+   */
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

@@ -11,34 +11,57 @@
   --card-foreground: oklch(0.20 0.02 60);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.20 0.02 60);
-  --primary: oklch(0.58 0.15 45);
+  /*
+   * Teintes de l'identité Ridwane (terre cuite 38, or 78, vert 155),
+   * mais à des luminosités recalculées pour le fond clair : les valeurs
+   * de la vitrine sont calibrées sur fond sombre et tomberaient à 1,9 de
+   * contraste sur blanc. Celles-ci atteignent le seuil WCAG AA de 4,5.
+   */
+  --primary: oklch(0.585 0.16 38);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.94 0.01 80);
   --secondary-foreground: oklch(0.20 0.02 60);
   --muted: oklch(0.94 0.01 80);
   --muted-foreground: oklch(0.45 0.02 60);
-  --accent: oklch(0.78 0.14 85);
+  --accent: oklch(0.80 0.14 78);
   --accent-foreground: oklch(0.20 0.02 60);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.20 0.02 60 / 0.1);
   --input: oklch(0.20 0.02 60 / 0.12);
-  --ring: oklch(0.58 0.15 45);
-  --chart-1: oklch(0.58 0.15 45);
-  --chart-2: oklch(0.56 0.13 150);
-  --chart-3: oklch(0.78 0.14 85);
+  --ring: oklch(0.585 0.16 38);
+  --chart-1: oklch(0.585 0.16 38);
+  --chart-2: oklch(0.55 0.13 155);
+  --chart-3: oklch(0.57 0.14 78);
   --chart-4: oklch(0.45 0.02 60);
   --chart-5: oklch(0.20 0.02 60);
   --radius: 0.75rem;
   --sidebar: oklch(0.24 0.02 60);
   --sidebar-foreground: oklch(0.98 0.005 80);
-  --sidebar-primary: oklch(0.58 0.15 45);
+  --sidebar-primary: oklch(0.585 0.16 38);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.30 0.02 60);
   --sidebar-accent-foreground: oklch(0.98 0.005 80);
   --sidebar-border: oklch(1 0 0 / 0.08);
-  --sidebar-ring: oklch(0.58 0.15 45);
-  --brand-green: oklch(0.56 0.13 150);
+  --sidebar-ring: oklch(0.585 0.16 38);
+  --brand-green: oklch(0.55 0.13 155);
   --brand-green-foreground: oklch(0.985 0 0);
+
+  /*
+   * Identité Ridwane — palette de la maquette du site.
+   *
+   * Elle vit à côté du thème clair de l'application, elle ne le remplace
+   * pas : la vitrine s'affiche en sombre, l'intérieur reste clair pour la
+   * saisie quotidienne et l'impression des bulletins.
+   */
+  --rd-night: oklch(17% 0.018 55);
+  --rd-night-deep: oklch(13% 0.02 50);
+  --rd-night-soft: oklch(22% 0.02 55);
+  --rd-sand: oklch(95% 0.015 85);
+  --rd-gold: oklch(80% 0.15 78);
+  --rd-gold-bright: oklch(88% 0.13 78);
+  --rd-green: oklch(60% 0.13 155);
+  --rd-clay: oklch(60% 0.17 38);
+  --rd-line: oklch(95% 0.015 85 / 0.09);
 }
 
 @theme inline {
@@ -46,7 +69,19 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-manrope);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-plus-jakarta);
+  /*
+   * Bricolage Grotesque porte désormais les titres de toute l'application,
+   * comme sur la vitrine. Plus Jakarta reste chargée en secours.
+   */
+  --font-heading: var(--font-bricolage);
+  --font-display: var(--font-bricolage);
+  --color-rd-night: var(--rd-night);
+  --color-rd-night-deep: var(--rd-night-deep);
+  --color-rd-night-soft: var(--rd-night-soft);
+  --color-rd-sand: var(--rd-sand);
+  --color-rd-gold: var(--rd-gold);
+  --color-rd-green: var(--rd-green);
+  --color-rd-clay: var(--rd-clay);
   --color-brand-green: var(--brand-green);
   --color-brand-green-foreground: var(--brand-green-foreground);
   --color-sidebar-ring: var(--sidebar-ring);

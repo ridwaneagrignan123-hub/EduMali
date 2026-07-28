@@ -20,44 +20,47 @@ export default function SetupSchoolPage() {
     setLoading(true)
     setError("")
 
+    /*
+     * La création passe par une route serveur, pas par un update direct.
+     *
+     * Le déclencheur profiles_prevent_privilege_escalation interdit à un
+     * utilisateur de modifier son propre role ou school_id — c'est ce qui
+     * empêche un enseignant de se promouvoir administrateur. L'inscription
+     * doit faire exactement cela une fois, légitimement : seul le service
+     * role en a le droit, donc seule une route serveur peut le faire.
+     */
     const {
-      data: { user },
-    } = await supabase.auth.getUser()
+      data: { session },
+    } = await supabase.auth.getSession()
 
-    if (!user) {
+    if (!session?.access_token) {
       router.push("/login")
       return
     }
 
-    const { data: school, error: schoolError } = await supabase
-      .from("schools")
-      .insert({
-        name,
-        address,
-        phone,
-        email,
+    try {
+      const response = await fetch("/api/setup-school", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ name, address, phone, email }),
       })
-      .select()
-      .single()
 
-    if (schoolError) {
-      setError(schoolError.message)
-      setLoading(false)
-      return
-    }
+      const result = await response.json()
 
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({
-        school_id: school.id,
-        first_name: user.user_metadata?.first_name ?? "",
-        last_name: user.user_metadata?.last_name ?? "",
-        role: "admin",
-      })
-      .eq("id", user.id)
+      if (!response.ok) {
+        setError(result.error ?? "La création de l'établissement a échoué.")
+        setLoading(false)
+        return
+      }
+    } catch (requestError) {
+      console.error("Erreur création de l'établissement :", requestError)
 
-    if (profileError) {
-      setError(profileError.message)
+      setError(
+        "Le serveur n'a pas répondu. Vérifiez votre connexion et réessayez."
+      )
       setLoading(false)
       return
     }
@@ -80,7 +83,7 @@ export default function SetupSchoolPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="name">Nom de l'école</label>
+            <label htmlFor="name">Nom de l&apos;école</label>
 
             <input
               id="name"
@@ -120,7 +123,7 @@ export default function SetupSchoolPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="email">Email de l'école</label>
+            <label htmlFor="email">Email de l&apos;école</label>
 
             <input
               id="email"

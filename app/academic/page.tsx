@@ -438,7 +438,7 @@ export default function AcademicPage() {
         <div className="flex min-h-16 items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
-              EduMali
+              Ridwane
             </h1>
 
             <p className="text-sm text-muted-foreground">

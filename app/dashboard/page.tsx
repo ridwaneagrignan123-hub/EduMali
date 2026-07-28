@@ -10,6 +10,7 @@ type Profile = {
   first_name: string | null
   last_name: string | null
   role: string | null
+  direction_id: string | null
 }
 
 type School = {
@@ -22,21 +23,52 @@ type NavItem = {
   roles: string[]
 }
 
+/*
+ * Rôles de l'application (contrainte profiles_role_check en base) :
+ * admin, teacher, promoteur, directeur_general, directeur_direction, comptable.
+ *
+ * "admin" est le rôle historique : il conserve un accès complet tant que les
+ * comptes n'ont pas été migrés. Chaque entrée liste explicitement les rôles
+ * autorisés — il n'y a volontairement aucun repli implicite.
+ */
+
+// Direction de l'établissement : vue globale sur toute l'école.
+const DIRECTION_GENERALE = ["admin", "promoteur", "directeur_general"]
+
+// Les mêmes, plus le directeur d'une direction (vue limitée à son périmètre).
+const ENCADREMENT = [...DIRECTION_GENERALE, "directeur_direction"]
+
+// Encadrement + enseignants : le quotidien pédagogique.
+const PEDAGOGIE = [...ENCADREMENT, "teacher"]
+
 const navItems: NavItem[] = [
-  { label: "Tableau de bord", path: "/dashboard", roles: ["admin", "teacher"] },
-  { label: "Élèves", path: "/students", roles: ["admin", "teacher"] },
-  { label: "Enseignants", path: "/teachers", roles: ["admin"] },
-  { label: "Classes", path: "/classes", roles: ["admin", "teacher"] },
-  { label: "Matières", path: "/subjects", roles: ["admin"] },
-  { label: "Classes / Matières", path: "/class_subjects", roles: ["admin"] },
-  { label: "Année scolaire", path: "/academic", roles: ["admin"] },
-  { label: "Évaluations", path: "/assessments", roles: ["admin", "teacher"] },
-  { label: "Notes", path: "/grades", roles: ["admin", "teacher"] },
-  { label: "Moyennes", path: "/averages", roles: ["admin", "teacher"] },
-  { label: "Bulletins", path: "/report-card", roles: ["admin", "teacher"] },
-  { label: "Présences", path: "/attendance", roles: ["admin", "teacher"] },
-  { label: "Frais scolaires", path: "/fees", roles: ["admin"] },
-  { label: "Paramètres", path: "/settings", roles: ["admin"] },
+  {
+    label: "Tableau de bord",
+    path: "/dashboard",
+    roles: [...PEDAGOGIE, "comptable"],
+  },
+  { label: "Élèves", path: "/students", roles: [...PEDAGOGIE, "comptable"] },
+  // Tâche administrative : l'encadrement la pilote, pas les enseignants.
+  { label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
+  { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
+  { label: "Classes", path: "/classes", roles: PEDAGOGIE },
+  { label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
+  { label: "Matières", path: "/subjects", roles: DIRECTION_GENERALE },
+  { label: "Classes / Matières", path: "/class_subjects", roles: ENCADREMENT },
+  { label: "Année scolaire", path: "/academic", roles: DIRECTION_GENERALE },
+  { label: "Emploi du temps", path: "/timetable", roles: PEDAGOGIE },
+  { label: "Évaluations", path: "/assessments", roles: PEDAGOGIE },
+  { label: "Notes", path: "/grades", roles: PEDAGOGIE },
+  { label: "Moyennes", path: "/averages", roles: PEDAGOGIE },
+  { label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
+  { label: "Présences", path: "/attendance", roles: PEDAGOGIE },
+  {
+    label: "Frais scolaires",
+    path: "/fees",
+    roles: [...DIRECTION_GENERALE, "comptable"],
+  },
+  { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
+  { label: "Paramètres", path: "/settings", roles: DIRECTION_GENERALE },
 ]
 
 export default function DashboardPage() {
@@ -44,6 +76,7 @@ export default function DashboardPage() {
 
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const [userEmail, setUserEmail] =
     useState("")
@@ -55,16 +88,20 @@ export default function DashboardPage() {
     useState<School | null>(null)
 
   const [studentCount, setStudentCount] =
-    useState(0)
+    useState<number | null>(0)
 
   const [classCount, setClassCount] =
-    useState(0)
+    useState<number | null>(0)
 
   const [teacherCount, setTeacherCount] =
-    useState(0)
+    useState<number | null>(0)
 
   const [attendanceCount, setAttendanceCount] =
-    useState(0)
+    useState<number | null>(0)
+
+  // Renseigné uniquement pour un directeur de direction.
+  const [directionName, setDirectionName] =
+    useState<string | null>(null)
 
   useEffect(() => {
     checkUserAndLoadDashboard()
@@ -91,7 +128,7 @@ export default function DashboardPage() {
     } = await supabase
       .from("profiles")
       .select(
-        "school_id, first_name, last_name, role"
+        "school_id, first_name, last_name, role, direction_id"
       )
       .eq("id", user.id)
       .maybeSingle()
@@ -126,147 +163,113 @@ export default function DashboardPage() {
 
     const dashboardErrors: string[] = []
 
-    const {
-      data: schoolData,
-      error: schoolError,
-    } = await supabase
-      .from("schools")
-      .select("name")
-      .eq("id", schoolId)
-      .maybeSingle()
-
-    if (schoolError) {
-      console.error(
-        "Erreur école :",
-        schoolError
-      )
-      dashboardErrors.push("les informations de l'établissement")
-    }
-
-    setSchool(schoolData)
-
-    const {
-      count: studentsCount,
-      error: studentsError,
-    } = await supabase
-      .from("students")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-
-    if (studentsError) {
-      console.error(
-        "Erreur nombre d'élèves :",
-        studentsError
-      )
-      dashboardErrors.push("le nombre d'élèves")
-    } else {
-      setStudentCount(
-        studentsCount ?? 0
-      )
-    }
-
-    const {
-      count: classesCount,
-      error: classesError,
-    } = await supabase
-      .from("classes")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-
-    if (classesError) {
-      console.error(
-        "Erreur nombre de classes :",
-        classesError
-      )
-      dashboardErrors.push("le nombre de classes")
-    } else {
-      setClassCount(
-        classesCount ?? 0
-      )
-    }
-
-    const {
-      count: teachersCount,
-      error: teachersError,
-    } = await supabase
-      .from("teachers")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-
-    if (teachersError) {
-      console.error(
-        "Erreur nombre d'enseignants :",
-        teachersError
-      )
-      dashboardErrors.push("le nombre d'enseignants")
-    } else {
-      setTeacherCount(
-        teachersCount ?? 0
-      )
-    }
-
-    /*
-     * Présences du jour
-     *
-     * Cette requête suppose que la table
-     * attendance possède les colonnes :
-     *
-     * school_id
-     * attendance_date
-     */
-
     const today =
       new Date()
         .toISOString()
         .split("T")[0]
 
-    const {
-      count: attendanceTodayCount,
-      error: attendanceError,
-    } = await supabase
-      .from("attendance")
-      .select("*", {
-        count: "exact",
-        head: true,
-      })
-      .eq(
-        "school_id",
-        schoolId
-      )
-      .eq(
-        "attendance_date",
-        today
-      )
-
-    if (attendanceError) {
-      console.error(
-        "Erreur présences :",
-        attendanceError
+    /*
+     * Un directeur de direction ne voit que son périmètre.
+     *
+     * Le RLS filtre déjà classes, inscriptions, notes, évaluations et
+     * affectations. Mais students, teachers et attendance restent au
+     * périmètre de l'école : leurs compteurs sont donc restreints ici,
+     * en repassant par les classes de la direction.
+     */
+    if (
+      profileData.role === "directeur_direction"
+    ) {
+      await loadDirectionCounts(
+        schoolId,
+        profileData.direction_id,
+        today,
+        dashboardErrors
       )
 
-      setAttendanceCount(0)
+      if (dashboardErrors.length > 0) {
+        setLoadError(
+          `Certaines données n'ont pas pu être chargées (${dashboardErrors.join(", ")}). Rechargez la page.`
+        )
+      }
+
+      setLoading(false)
+      return
+    }
+
+    const [
+      schoolResult,
+      studentsResult,
+      classesResult,
+      teachersResult,
+      attendanceResult,
+    ] = await Promise.all([
+      supabase
+        .from("schools")
+        .select("name")
+        .eq("id", schoolId)
+        .maybeSingle(),
+
+      supabase
+        .from("students")
+        .select("*", { count: "exact", head: true })
+        .eq("school_id", schoolId),
+
+      supabase
+        .from("classes")
+        .select("*", { count: "exact", head: true })
+        .eq("school_id", schoolId),
+
+      supabase
+        .from("teachers")
+        .select("*", { count: "exact", head: true })
+        .eq("school_id", schoolId),
+
+      // Présences du jour : suppose que la table attendance
+      // possède les colonnes school_id et attendance_date.
+      supabase
+        .from("attendance")
+        .select("*", { count: "exact", head: true })
+        .eq("school_id", schoolId)
+        .eq("attendance_date", today),
+    ])
+
+    if (schoolResult.error) {
+      console.error("Erreur école :", schoolResult.error)
+      dashboardErrors.push("les informations de l'établissement")
+    }
+
+    setSchool(schoolResult.data)
+
+    if (studentsResult.error) {
+      console.error("Erreur nombre d'élèves :", studentsResult.error)
+      dashboardErrors.push("le nombre d'élèves")
+      setStudentCount(null)
     } else {
-      setAttendanceCount(
-        attendanceTodayCount ?? 0
-      )
+      setStudentCount(studentsResult.count ?? 0)
+    }
+
+    if (classesResult.error) {
+      console.error("Erreur nombre de classes :", classesResult.error)
+      dashboardErrors.push("le nombre de classes")
+      setClassCount(null)
+    } else {
+      setClassCount(classesResult.count ?? 0)
+    }
+
+    if (teachersResult.error) {
+      console.error("Erreur nombre d'enseignants :", teachersResult.error)
+      dashboardErrors.push("le nombre d'enseignants")
+      setTeacherCount(null)
+    } else {
+      setTeacherCount(teachersResult.count ?? 0)
+    }
+
+    if (attendanceResult.error) {
+      console.error("Erreur présences :", attendanceResult.error)
+      dashboardErrors.push("le nombre de présences")
+      setAttendanceCount(null)
+    } else {
+      setAttendanceCount(attendanceResult.count ?? 0)
     }
 
     if (dashboardErrors.length > 0) {
@@ -276,6 +279,127 @@ export default function DashboardPage() {
     }
 
     setLoading(false)
+  }
+
+  /*
+   * Compteurs restreints au périmètre d'un directeur de direction.
+   *
+   * On part des classes visibles : le RLS ne renvoie déjà que celles de
+   * sa direction. Élèves et enseignants en sont déduits via les
+   * inscriptions et les affectations de matières.
+   */
+  async function loadDirectionCounts(
+    currentSchoolId: string,
+    directionId: string | null,
+    today: string,
+    dashboardErrors: string[]
+  ) {
+    const { data: schoolData, error: schoolError } = await supabase
+      .from("schools")
+      .select("name")
+      .eq("id", currentSchoolId)
+      .maybeSingle()
+
+    if (schoolError) {
+      console.error("Erreur école :", schoolError)
+      dashboardErrors.push("les informations de l'établissement")
+    }
+
+    setSchool(schoolData)
+
+    if (directionId) {
+      const { data: directionData } = await supabase
+        .from("directions")
+        .select("name")
+        .eq("id", directionId)
+        .maybeSingle()
+
+      setDirectionName(directionData?.name ?? null)
+    }
+
+    const { data: classesData, error: classesError } = await supabase
+      .from("classes")
+      .select("id")
+      .eq("school_id", currentSchoolId)
+
+    if (classesError) {
+      console.error("Erreur classes :", classesError)
+      dashboardErrors.push("le nombre de classes")
+
+      setClassCount(null)
+      setStudentCount(null)
+      setTeacherCount(null)
+      setAttendanceCount(null)
+      return
+    }
+
+    const classIds = (classesData ?? []).map((item) => item.id)
+
+    setClassCount(classIds.length)
+
+    if (classIds.length === 0) {
+      setStudentCount(0)
+      setTeacherCount(0)
+      setAttendanceCount(0)
+      return
+    }
+
+    const [enrollmentsResult, classSubjectsResult, attendanceResult] =
+      await Promise.all([
+        supabase
+          .from("student_class_enrollments")
+          .select("student_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        supabase
+          .from("class_subjects")
+          .select("teacher_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        supabase
+          .from("attendance")
+          .select("*", { count: "exact", head: true })
+          .eq("school_id", currentSchoolId)
+          .eq("attendance_date", today)
+          .in("class_id", classIds),
+      ])
+
+    if (enrollmentsResult.error) {
+      console.error("Erreur élèves :", enrollmentsResult.error)
+      dashboardErrors.push("le nombre d'élèves")
+      setStudentCount(null)
+    } else {
+      // Un élève inscrit dans plusieurs classes ne doit être compté qu'une fois.
+      const uniqueStudents = new Set(
+        (enrollmentsResult.data ?? []).map((item) => item.student_id)
+      )
+
+      setStudentCount(uniqueStudents.size)
+    }
+
+    if (classSubjectsResult.error) {
+      console.error("Erreur enseignants :", classSubjectsResult.error)
+      dashboardErrors.push("le nombre d'enseignants")
+      setTeacherCount(null)
+    } else {
+      const uniqueTeachers = new Set(
+        (classSubjectsResult.data ?? [])
+          .map((item) => item.teacher_id)
+          .filter(Boolean)
+      )
+
+      setTeacherCount(uniqueTeachers.size)
+    }
+
+    if (attendanceResult.error) {
+      console.error("Erreur présences :", attendanceResult.error)
+      dashboardErrors.push("le nombre de présences")
+      setAttendanceCount(null)
+    } else {
+      setAttendanceCount(attendanceResult.count ?? 0)
+    }
   }
 
   function getUserName() {
@@ -296,6 +420,39 @@ export default function DashboardPage() {
     router.push("/login")
   }
 
+  function renderNavItems(onNavigate: () => void) {
+    return navItems
+      .filter((item) =>
+        // Pas de repli implicite : un rôle inconnu ou absent n'ouvre rien.
+        item.roles.includes(profile?.role ?? "")
+      )
+      .map((item) => {
+        const isActive = item.path === "/dashboard"
+
+        return (
+          <button
+            key={item.path}
+            onClick={() => {
+              onNavigate()
+              router.push(item.path)
+            }}
+            className={
+              isActive
+                ? "w-full rounded-lg px-4 py-3 text-left text-sm font-semibold text-white"
+                : "w-full rounded-lg px-4 py-3 text-left text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+            }
+            style={
+              isActive
+                ? { background: "oklch(0.585 0.16 38)" }
+                : undefined
+            }
+          >
+            {item.label}
+          </button>
+        )
+      })
+  }
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
@@ -311,6 +468,16 @@ export default function DashboardPage() {
       <header className="border-b border-border bg-background">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Ouvrir le menu"
+              className="flex h-9 w-9 flex-col items-center justify-center gap-1 rounded-md border border-border md:hidden"
+            >
+              <span className="h-0.5 w-5 rounded-full bg-foreground" />
+              <span className="h-0.5 w-5 rounded-full bg-foreground" />
+              <span className="h-0.5 w-5 rounded-full bg-foreground" />
+            </button>
+
             <Logo size="sm" />
 
             <span className="hidden text-sm text-muted-foreground sm:inline">
@@ -321,12 +488,12 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <div
               className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-primary-foreground"
-              style={{ background: "oklch(0.58 0.15 45)" }}
+              style={{ background: "oklch(0.585 0.16 38)" }}
             >
               {getUserName().charAt(0).toUpperCase() || "?"}
             </div>
 
-            <div className="text-right">
+            <div className="hidden text-right sm:block">
               <p className="text-sm font-medium">
                 {getUserName()}
               </p>
@@ -339,42 +506,56 @@ export default function DashboardPage() {
         </div>
       </header>
 
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            aria-label="Fermer le menu"
+            onClick={() => setMobileMenuOpen(false)}
+            className="absolute inset-0 bg-black/50"
+          />
+
+          <aside
+            className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col justify-between p-4 shadow-xl"
+            style={{ background: "oklch(0.24 0.02 60)" }}
+          >
+            <div>
+              <div className="mb-4 flex items-center justify-between px-1">
+                <Logo size="sm" dark />
+
+                <button
+                  onClick={() => setMobileMenuOpen(false)}
+                  aria-label="Fermer le menu"
+                  className="flex h-9 w-9 items-center justify-center rounded-md text-white/80 hover:bg-white/10"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <nav className="space-y-1.5">
+                {renderNavItems(() => setMobileMenuOpen(false))}
+              </nav>
+            </div>
+
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false)
+                handleLogout()
+              }}
+              className="w-full rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
+            >
+              Déconnexion
+            </button>
+          </aside>
+        </div>
+      )}
+
       <div className="flex min-h-[calc(100vh-81px)]">
         <aside
           className="hidden w-64 flex-col justify-between p-4 md:flex"
           style={{ background: "oklch(0.24 0.02 60)" }}
         >
           <nav className="space-y-1.5">
-            {navItems
-              .filter((item) =>
-                item.roles.includes(
-                  profile?.role || "admin"
-                )
-              )
-              .map((item) => {
-                const isActive = item.path === "/dashboard"
-
-                return (
-                  <button
-                    key={item.path}
-                    onClick={() =>
-                      router.push(item.path)
-                    }
-                    className={
-                      isActive
-                        ? "w-full rounded-lg px-4 py-3 text-left text-sm font-semibold text-white"
-                        : "w-full rounded-lg px-4 py-3 text-left text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
-                    }
-                    style={
-                      isActive
-                        ? { background: "oklch(0.58 0.15 45)" }
-                        : undefined
-                    }
-                  >
-                    {item.label}
-                  </button>
-                )
-              })}
+            {renderNavItems(() => {})}
           </nav>
 
           <button
@@ -401,6 +582,20 @@ export default function DashboardPage() {
               <p className="mt-2 text-muted-foreground">
                 Bienvenue sur votre espace de gestion scolaire.
               </p>
+
+              {profile?.role === "directeur_direction" && (
+                <p
+                  className="mt-3 inline-block rounded-full border px-3 py-1 text-xs font-semibold"
+                  style={{
+                    color: "oklch(0.585 0.16 38)",
+                    borderColor: "oklch(0.585 0.16 38)",
+                  }}
+                >
+                  {directionName
+                    ? `Périmètre : ${directionName}`
+                    : "Aucune direction ne vous est affectée"}
+                </p>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -414,11 +609,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.58 0.15 45 / 0.12)" }}
+                  style={{ background: "oklch(0.585 0.16 38 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-sm"
-                    style={{ background: "oklch(0.58 0.15 45)" }}
+                    style={{ background: "oklch(0.585 0.16 38)" }}
                   />
                 </div>
 
@@ -427,7 +622,7 @@ export default function DashboardPage() {
                 </p>
 
                 <p className="mt-1 font-heading text-3xl font-extrabold">
-                  {studentCount}
+                  {studentCount ?? "—"}
                 </p>
 
                 <p className="mt-2 text-sm font-medium text-primary">
@@ -445,11 +640,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.56 0.13 150 / 0.12)" }}
+                  style={{ background: "oklch(0.55 0.13 155 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-full"
-                    style={{ background: "oklch(0.56 0.13 150)" }}
+                    style={{ background: "oklch(0.55 0.13 155)" }}
                   />
                 </div>
 
@@ -458,7 +653,7 @@ export default function DashboardPage() {
                 </p>
 
                 <p className="mt-1 font-heading text-3xl font-extrabold">
-                  {teacherCount}
+                  {teacherCount ?? "—"}
                 </p>
 
                 <p className="mt-2 text-sm font-medium text-primary">
@@ -476,11 +671,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.78 0.14 85 / 0.18)" }}
+                  style={{ background: "oklch(0.80 0.14 78 / 0.18)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-[3px]"
-                    style={{ background: "oklch(0.6 0.14 85)" }}
+                    style={{ background: "oklch(0.57 0.14 78)" }}
                   />
                 </div>
 
@@ -489,7 +684,7 @@ export default function DashboardPage() {
                 </p>
 
                 <p className="mt-1 font-heading text-3xl font-extrabold">
-                  {classCount}
+                  {classCount ?? "—"}
                 </p>
 
                 <p className="mt-2 text-sm font-medium text-primary">
@@ -507,11 +702,11 @@ export default function DashboardPage() {
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ background: "oklch(0.58 0.15 45 / 0.12)" }}
+                  style={{ background: "oklch(0.585 0.16 38 / 0.12)" }}
                 >
                   <div
                     className="h-4 w-4 rounded-[50%_50%_50%_0]"
-                    style={{ background: "oklch(0.58 0.15 45)" }}
+                    style={{ background: "oklch(0.585 0.16 38)" }}
                   />
                 </div>
 
@@ -520,7 +715,7 @@ export default function DashboardPage() {
                 </p>
 
                 <p className="mt-1 font-heading text-3xl font-extrabold">
-                  {attendanceCount}
+                  {attendanceCount ?? "—"}
                 </p>
 
                 <p className="mt-2 text-sm font-medium text-primary">

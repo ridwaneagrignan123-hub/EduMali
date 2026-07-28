@@ -1,0 +1,492 @@
+"use client"
+
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import { supabase } from "@/src/lib/supabase"
+
+type Direction = {
+  id: string
+  name: string
+  created_at: string
+}
+
+type ClassItem = {
+  id: string
+  name: string
+  level: string | null
+  direction_id: string | null
+}
+
+/*
+ * Rôles autorisés à organiser l'établissement en directions.
+ *
+ * "admin" est le rôle historique de l'application : il conserve les mêmes
+ * droits qu'un directeur général tant que les comptes n'ont pas été migrés
+ * vers les nouveaux rôles.
+ */
+const ALLOWED_ROLES = ["admin", "promoteur", "directeur_general"]
+
+export default function DirectionsPage() {
+  const router = useRouter()
+
+  const [loading, setLoading] = useState(true)
+  const [schoolId, setSchoolId] = useState("")
+  const [role, setRole] = useState("")
+
+  const [directions, setDirections] = useState<Direction[]>([])
+  const [classes, setClasses] = useState<ClassItem[]>([])
+
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+
+  const [newName, setNewName] = useState("")
+  const [creating, setCreating] = useState(false)
+
+  const [pendingClassId, setPendingClassId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const isAllowed = ALLOWED_ROLES.includes(role)
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  async function loadData() {
+    setLoading(true)
+    setLoadError(null)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      router.push("/login")
+      return
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("school_id, role")
+      .eq("id", user.id)
+      .maybeSingle()
+
+    if (profileError) {
+      console.error("Erreur profil :", profileError)
+      setLoadError(
+        "Impossible de charger votre profil. Réessayez ou reconnectez-vous."
+      )
+      setLoading(false)
+      return
+    }
+
+    if (!profile?.school_id) {
+      router.push("/setup-school")
+      return
+    }
+
+    setSchoolId(profile.school_id)
+    setRole(profile.role ?? "")
+
+    if (!ALLOWED_ROLES.includes(profile.role ?? "")) {
+      setLoading(false)
+      return
+    }
+
+    await loadDirectionsAndClasses(profile.school_id)
+    setLoading(false)
+  }
+
+  async function loadDirectionsAndClasses(currentSchoolId: string) {
+    const [directionsResult, classesResult] = await Promise.all([
+      supabase
+        .from("directions")
+        .select("id, name, created_at")
+        .eq("school_id", currentSchoolId)
+        .order("name"),
+
+      supabase
+        .from("classes")
+        .select("id, name, level, direction_id")
+        .eq("school_id", currentSchoolId)
+        .order("name"),
+    ])
+
+    if (directionsResult.error) {
+      console.error("Erreur directions :", directionsResult.error)
+      setLoadError("Impossible de charger la liste des directions.")
+    } else {
+      setDirections((directionsResult.data as Direction[]) ?? [])
+    }
+
+    if (classesResult.error) {
+      console.error("Erreur classes :", classesResult.error)
+      setLoadError("Impossible de charger la liste des classes.")
+    } else {
+      setClasses((classesResult.data as ClassItem[]) ?? [])
+    }
+  }
+
+  async function createDirection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    setActionError(null)
+    setActionMessage(null)
+
+    if (!newName.trim()) {
+      setActionError("Donnez un nom à la direction.")
+      return
+    }
+
+    setCreating(true)
+
+    const { error } = await supabase.from("directions").insert({
+      school_id: schoolId,
+      name: newName.trim(),
+    })
+
+    if (error) {
+      console.error("Erreur création direction :", error)
+
+      setActionError(
+        error.code === "23505"
+          ? `Une direction nommée « ${newName.trim()} » existe déjà.`
+          : "Impossible de créer cette direction. Vérifiez vos droits."
+      )
+
+      setCreating(false)
+      return
+    }
+
+    setNewName("")
+    await loadDirectionsAndClasses(schoolId)
+
+    setActionMessage("Direction créée.")
+    setCreating(false)
+  }
+
+  async function deleteDirection(direction: Direction) {
+    const attached = classes.filter(
+      (item) => item.direction_id === direction.id
+    )
+
+    const confirmed = window.confirm(
+      attached.length > 0
+        ? `Supprimer « ${direction.name} » ? Les ${attached.length} classe(s) rattachée(s) ne seront pas supprimées, mais redeviendront non rattachées — et donc invisibles pour un directeur de direction.`
+        : `Supprimer la direction « ${direction.name} » ?`
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setActionError(null)
+    setActionMessage(null)
+    setDeletingId(direction.id)
+
+    const { error } = await supabase
+      .from("directions")
+      .delete()
+      .eq("id", direction.id)
+      .eq("school_id", schoolId)
+
+    if (error) {
+      console.error("Erreur suppression direction :", error)
+      setActionError(
+        "Impossible de supprimer cette direction. Vérifiez vos droits."
+      )
+      setDeletingId(null)
+      return
+    }
+
+    await loadDirectionsAndClasses(schoolId)
+
+    setActionMessage(`Direction « ${direction.name} » supprimée.`)
+    setDeletingId(null)
+  }
+
+  async function assignClass(classItem: ClassItem, directionId: string) {
+    setActionError(null)
+    setActionMessage(null)
+    setPendingClassId(classItem.id)
+
+    const { error } = await supabase
+      .from("classes")
+      .update({ direction_id: directionId || null })
+      .eq("id", classItem.id)
+      .eq("school_id", schoolId)
+
+    if (error) {
+      console.error("Erreur rattachement de classe :", error)
+      setActionError(
+        "Impossible de rattacher cette classe. Vérifiez vos droits."
+      )
+      setPendingClassId(null)
+      return
+    }
+
+    await loadDirectionsAndClasses(schoolId)
+
+    const directionName = directions.find(
+      (item) => item.id === directionId
+    )?.name
+
+    setActionMessage(
+      directionId
+        ? `${classItem.name} rattachée à « ${directionName ?? "la direction"} ».`
+        : `${classItem.name} n'est plus rattachée à aucune direction.`
+    )
+
+    setPendingClassId(null)
+  }
+
+  const unassignedClasses = useMemo(
+    () => classes.filter((item) => item.direction_id === null),
+    [classes]
+  )
+
+  function renderClassRow(classItem: ClassItem) {
+    return (
+      <div
+        key={classItem.id}
+        className="flex flex-wrap items-center justify-between gap-4 rounded-lg border p-4"
+      >
+        <div>
+          <p className="font-medium">{classItem.name}</p>
+
+          {classItem.level && (
+            <p className="text-xs text-muted-foreground">{classItem.level}</p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label htmlFor={`direction-${classItem.id}`} className="sr-only">
+            Direction de {classItem.name}
+          </label>
+
+          <select
+            id={`direction-${classItem.id}`}
+            value={classItem.direction_id ?? ""}
+            onChange={(event) => assignClass(classItem, event.target.value)}
+            disabled={pendingClassId === classItem.id}
+            className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-60"
+          >
+            <option value="">Non rattachée</option>
+
+            {directions.map((direction) => (
+              <option key={direction.id} value={direction.id}>
+                {direction.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Chargement des directions...</p>
+      </main>
+    )
+  }
+
+  if (!isAllowed) {
+    return (
+      <main className="flex min-h-screen items-center justify-center p-6">
+        <div className="max-w-md rounded-xl border bg-background p-6 text-center">
+          <h1 className="font-heading text-xl font-bold">Accès réservé</h1>
+
+          <p className="mt-3 text-muted-foreground">
+            Seuls le promoteur et la direction générale peuvent organiser
+            l'établissement en directions.
+          </p>
+
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="mt-6 rounded-md border px-4 py-2 text-sm hover:bg-muted"
+          >
+            Retour au dashboard
+          </button>
+        </div>
+      </main>
+    )
+  }
+
+  return (
+    <main className="min-h-screen bg-muted/30">
+      <header className="border-b bg-background">
+        <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
+          <div>
+            <h1 className="text-xl font-bold">Ridwane</h1>
+            <p className="text-sm text-muted-foreground">Directions</p>
+          </div>
+
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+          >
+            Retour au dashboard
+          </button>
+        </div>
+      </header>
+
+      <section className="mx-auto max-w-5xl space-y-8 p-6">
+        <div>
+          <h2 className="text-3xl font-bold">Directions</h2>
+
+          <p className="mt-2 text-muted-foreground">
+            Organisez votre établissement en directions (primaire, secondaire,
+            etc.) et rattachez chaque classe à la sienne.
+          </p>
+        </div>
+
+        {loadError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {loadError}
+          </div>
+        )}
+
+        {actionError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {actionError}
+          </div>
+        )}
+
+        {actionMessage && (
+          <div
+            className="rounded-lg border p-4 text-sm"
+            style={{
+              background: "oklch(0.55 0.13 155 / 0.1)",
+              borderColor: "oklch(0.55 0.13 155 / 0.4)",
+            }}
+          >
+            {actionMessage}
+          </div>
+        )}
+
+        <div className="rounded-xl border bg-background p-6">
+          <h3 className="font-heading text-xl font-bold">
+            Créer une direction
+          </h3>
+
+          <form
+            onSubmit={createDirection}
+            className="mt-6 flex flex-wrap items-end gap-3"
+          >
+            <div className="flex-1 space-y-2" style={{ minWidth: "16rem" }}>
+              <label htmlFor="direction-name">Nom de la direction *</label>
+
+              <input
+                id="direction-name"
+                type="text"
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                placeholder="Primaire A, Secondaire..."
+                className="w-full rounded-md border bg-background px-3 py-2"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={creating}
+              className="rounded-md bg-primary px-6 py-2 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {creating ? "Création..." : "Créer"}
+            </button>
+          </form>
+        </div>
+
+        {unassignedClasses.length > 0 && (
+          <div
+            className="rounded-xl border p-6"
+            style={{
+              background: "oklch(0.80 0.14 78 / 0.1)",
+              borderColor: "oklch(0.57 0.14 78 / 0.4)",
+            }}
+          >
+            <h3 className="font-heading text-xl font-bold">
+              Classes non rattachées
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                {unassignedClasses.length}
+              </span>
+            </h3>
+
+            <p className="mt-2 text-sm text-muted-foreground">
+              Ces classes restent visibles pour vous, mais un directeur de
+              direction ne les verra pas tant qu'elles ne lui sont pas
+              rattachées.
+            </p>
+
+            <div className="mt-6 space-y-3">
+              {unassignedClasses.map(renderClassRow)}
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-xl border bg-background p-6">
+          <h3 className="font-heading text-xl font-bold">
+            Directions de l'établissement
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              {directions.length}
+            </span>
+          </h3>
+
+          {directions.length === 0 ? (
+            <p className="mt-6 text-muted-foreground">
+              Aucune direction pour le moment. Créez-en une ci-dessus pour
+              commencer à organiser vos classes.
+            </p>
+          ) : (
+            <div className="mt-6 space-y-6">
+              {directions.map((direction) => {
+                const attached = classes.filter(
+                  (item) => item.direction_id === direction.id
+                )
+
+                return (
+                  <div key={direction.id} className="rounded-lg border p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+                      <div>
+                        <p className="font-heading text-lg font-bold">
+                          {direction.name}
+                        </p>
+
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {attached.length} classe(s) rattachée(s)
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => deleteDirection(direction)}
+                        disabled={deletingId === direction.id}
+                        className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                        style={{ color: "oklch(0.577 0.245 27.325)" }}
+                      >
+                        {deletingId === direction.id
+                          ? "Suppression..."
+                          : "Supprimer"}
+                      </button>
+                    </div>
+
+                    {attached.length === 0 ? (
+                      <p className="mt-4 text-sm text-muted-foreground">
+                        Aucune classe rattachée. Un directeur affecté à cette
+                        direction ne verrait aucune donnée.
+                      </p>
+                    ) : (
+                      <div className="mt-4 space-y-3">
+                        {attached.map(renderClassRow)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+    </main>
+  )
+}

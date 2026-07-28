@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { matchesSearch } from "@/src/lib/search"
 
 type Student = {
   id: string
@@ -14,6 +15,13 @@ type ClassItem = {
   id: string
   name: string
 }
+
+type School = {
+  grading_scale: number
+}
+
+// Valeur de repli si l'école n'est pas encore chargée : même défaut qu'en base.
+const DEFAULT_GRADING_SCALE = 20
 
 type SubjectAverage = {
   subjectName: string
@@ -31,16 +39,29 @@ type StudentResult = {
 export default function AveragesPage() {
   const router = useRouter()
 
+  const [school, setSchool] =
+    useState<School | null>(null)
+
   /*
-   * Échelle de notation actuelle.
-   *
-   * Pour le moment :
-   * 10 = notation sur 10
-   *
-   * Plus tard, cette valeur pourra
-   * venir des paramètres de chaque école.
+   * Échelle de notation configurée dans
+   * les paramètres de l'établissement
+   * (schools.grading_scale).
    */
-  const gradingScale = 10
+  const gradingScale = Number(
+    school?.grading_scale ??
+      DEFAULT_GRADING_SCALE
+  )
+
+  function formatScore(
+    value: number
+  ) {
+    return value.toLocaleString(
+      "fr-FR",
+      {
+        maximumFractionDigits: 2,
+      }
+    )
+  }
 
   const [loading, setLoading] =
     useState(true)
@@ -62,6 +83,9 @@ export default function AveragesPage() {
 
   const [loadError, setLoadError] =
     useState<string | null>(null)
+
+  const [searchTerm, setSearchTerm] =
+    useState("")
 
   useEffect(() => {
     loadInitialData()
@@ -113,6 +137,42 @@ export default function AveragesPage() {
     setSchoolId(currentSchoolId)
 
     const {
+      data: schoolData,
+      error: schoolError,
+    } = await supabase
+      .from("schools")
+      .select(
+        "grading_scale"
+      )
+      .eq(
+        "id",
+        currentSchoolId
+      )
+      .maybeSingle()
+
+    if (schoolError) {
+      console.error(
+        "Erreur école :",
+        schoolError
+      )
+    } else {
+      setSchool(
+        schoolData as School
+      )
+    }
+
+    /*
+     * Le barème est passé explicitement au calcul :
+     * setSchool() n'est pas encore reflété dans la
+     * closure de ce premier appel.
+     */
+    const currentGradingScale =
+      Number(
+        schoolData?.grading_scale ??
+          DEFAULT_GRADING_SCALE
+      )
+
+    const {
       data: classesData,
       error: classesError,
     } = await supabase
@@ -150,7 +210,8 @@ export default function AveragesPage() {
 
       await calculateAverages(
         firstClass.id,
-        currentSchoolId
+        currentSchoolId,
+        currentGradingScale
       )
     }
 
@@ -159,7 +220,8 @@ export default function AveragesPage() {
 
   async function calculateAverages(
     classId: string,
-    currentSchoolId: string
+    currentSchoolId: string,
+    scale: number
   ) {
     setLoadingResults(true)
     setLoadError(null)
@@ -394,18 +456,19 @@ export default function AveragesPage() {
               }
 
               /*
-               * Normalisation sur 10.
+               * Normalisation sur le barème
+               * de l'établissement.
                *
-               * Exemple :
+               * Exemple sur /20 :
                *
-               * 18/20 = 9/10
-               * 15/30 = 5/10
+               * 9/10 = 18/20
+               * 15/30 = 10/20
                */
 
               const normalizedScore =
                 (score /
                   maxScore) *
-                gradingScale
+                scale
 
               const existing =
                 subjectMap.get(
@@ -546,9 +609,34 @@ export default function AveragesPage() {
 
     await calculateAverages(
       classId,
-      schoolId
+      schoolId,
+      gradingScale
     )
   }
+
+  const selectedClassName =
+    classes.find(
+      (classItem) =>
+        classItem.id ===
+        selectedClassId
+    )?.name ?? ""
+
+  /*
+   * Filtrage côté client sur les résultats déjà calculés :
+   * pas de nouvelle requête Supabase à chaque frappe.
+   */
+  const filteredResults = useMemo(
+    () =>
+      results.filter(
+        (result) =>
+          matchesSearch(
+            searchTerm,
+            result.student.first_name,
+            result.student.last_name
+          )
+      ),
+    [results, searchTerm]
+  )
 
   if (loading) {
     return (
@@ -566,7 +654,7 @@ export default function AveragesPage() {
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
             <h1 className="text-xl font-bold">
-              EduMali
+              Ridwane
             </h1>
 
             <p className="text-sm text-muted-foreground">
@@ -604,51 +692,79 @@ export default function AveragesPage() {
           </div>
         )}
 
-        <div className="rounded-xl border bg-background p-6">
-          <label
-            htmlFor="class"
-            className="mb-2 block font-medium"
-          >
-            Sélectionner une classe
-          </label>
+        <div className="grid gap-6 rounded-xl border bg-background p-6 md:grid-cols-2">
+          <div>
+            <label
+              htmlFor="class"
+              className="mb-2 block font-medium"
+            >
+              Sélectionner une classe
+            </label>
 
-          {classes.length === 0 ? (
-            <p className="text-muted-foreground">
-              Aucune classe disponible.
-            </p>
-          ) : (
-            <select
-              id="class"
-              value={
-                selectedClassId
-              }
-              onChange={(
-                event
-              ) =>
-                handleClassChange(
+            {classes.length === 0 ? (
+              <p className="text-muted-foreground">
+                Aucune classe disponible.
+              </p>
+            ) : (
+              <select
+                id="class"
+                value={
+                  selectedClassId
+                }
+                onChange={(
+                  event
+                ) =>
+                  handleClassChange(
+                    event.target.value
+                  )
+                }
+                className="w-full rounded-md border bg-background px-3 py-3"
+              >
+                {classes.map(
+                  (classItem) => (
+                    <option
+                      key={
+                        classItem.id
+                      }
+                      value={
+                        classItem.id
+                      }
+                    >
+                      {
+                        classItem.name
+                      }
+                    </option>
+                  )
+                )}
+              </select>
+            )}
+          </div>
+
+          <div>
+            <label
+              htmlFor="student-search"
+              className="mb-2 block font-medium"
+            >
+              Rechercher un élève
+            </label>
+
+            <input
+              id="student-search"
+              type="search"
+              value={searchTerm}
+              onChange={(event) =>
+                setSearchTerm(
                   event.target.value
                 )
               }
-              className="w-full rounded-md border bg-background px-3 py-3 md:max-w-md"
-            >
-              {classes.map(
-                (classItem) => (
-                  <option
-                    key={
-                      classItem.id
-                    }
-                    value={
-                      classItem.id
-                    }
-                  >
-                    {
-                      classItem.name
-                    }
-                  </option>
-                )
-              )}
-            </select>
-          )}
+              placeholder="Nom ou prénom de l'élève"
+              className="w-full rounded-md border bg-background px-3 py-3"
+            />
+
+            <p className="mt-2 text-sm text-muted-foreground">
+              Filtre les élèves de la classe affichée.
+            </p>
+          </div>
         </div>
 
         <div className="rounded-xl border bg-background p-6">
@@ -663,8 +779,32 @@ export default function AveragesPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-8">
-              {results.map(
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 border-b pb-3">
+                <h3 className="font-heading text-lg font-bold">
+                  {
+                    selectedClassName ||
+                    "Classe"
+                  }
+                </h3>
+
+                <p className="text-sm text-muted-foreground">
+                  {searchTerm.trim()
+                    ? `${filteredResults.length} élève(s) sur ${results.length}`
+                    : `${results.length} élève(s)`}
+                </p>
+              </div>
+
+              {filteredResults.length ===
+              0 ? (
+                <div className="rounded-lg border border-dashed p-8 text-center">
+                  <p className="text-muted-foreground">
+                    Aucun élève ne correspond à «{" "}
+                    {searchTerm.trim()} ».
+                  </p>
+                </div>
+              ) : (
+                filteredResults.map(
                 (result) => (
                   <div
                     key={
@@ -704,7 +844,7 @@ export default function AveragesPage() {
                                 2
                               )
                             : "—"}{" "}
-                          / {gradingScale}
+                          / {formatScore(gradingScale)}
                         </p>
                       </div>
                     </div>
@@ -760,7 +900,7 @@ export default function AveragesPage() {
                                         2
                                       )
                                     }{" "}
-                                    / {gradingScale}
+                                    / {formatScore(gradingScale)}
                                   </td>
 
                                   <td className="px-4 py-4">
@@ -782,6 +922,7 @@ export default function AveragesPage() {
                       </div>
                     )}
                   </div>
+                )
                 )
               )}
             </div>

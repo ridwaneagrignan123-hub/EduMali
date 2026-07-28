@@ -1,12 +1,19 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 
 type ClassItem = {
   id: string
   name: string
+}
+
+type SchoolHoliday = {
+  id: string
+  name: string
+  start_date: string
+  end_date: string
 }
 
 type Student = {
@@ -31,14 +38,14 @@ const statusOptions: {
   {
     value: "present",
     label: "Présent",
-    color: "oklch(0.56 0.13 150)",
-    background: "oklch(0.56 0.13 150 / 0.12)",
+    color: "oklch(0.55 0.13 155)",
+    background: "oklch(0.55 0.13 155 / 0.12)",
   },
   {
     value: "late",
     label: "Retard",
-    color: "oklch(0.6 0.14 85)",
-    background: "oklch(0.6 0.14 85 / 0.18)",
+    color: "oklch(0.57 0.14 78)",
+    background: "oklch(0.57 0.14 78 / 0.18)",
   },
   {
     value: "excused",
@@ -78,6 +85,8 @@ export default function AttendancePage() {
   const [students, setStudents] = useState<Student[]>([])
   const [attendance, setAttendance] = useState<Record<string, AttendanceEntry>>({})
   const [hasLoadedList, setHasLoadedList] = useState(false)
+
+  const [holidays, setHolidays] = useState<SchoolHoliday[]>([])
 
   useEffect(() => {
     loadInitialData()
@@ -129,6 +138,19 @@ export default function AttendancePage() {
       setLoadError("Impossible de charger la liste des classes.")
     } else {
       setClasses((classesData as ClassItem[]) ?? [])
+    }
+
+    // Sert uniquement à signaler les dates de vacances ou de jour férié.
+    const { data: holidaysData, error: holidaysError } = await supabase
+      .from("school_holidays")
+      .select("id, name, start_date, end_date")
+      .eq("school_id", profile.school_id)
+      .order("start_date", { ascending: true })
+
+    if (holidaysError) {
+      console.error("Erreur calendrier scolaire :", holidaysError)
+    } else {
+      setHolidays((holidaysData as SchoolHoliday[]) ?? [])
     }
 
     setLoading(false)
@@ -257,6 +279,22 @@ export default function AttendancePage() {
 
   const selectedClass = classes.find((item) => item.id === selectedClassId)
 
+  /*
+   * Périodes du calendrier scolaire couvrant la date sélectionnée.
+   *
+   * Les dates sont au format ISO (AAAA-MM-JJ) côté base comme côté champ :
+   * la comparaison de chaînes suffit et évite tout décalage de fuseau.
+   */
+  const matchingHolidays = useMemo(
+    () =>
+      holidays.filter(
+        (holiday) =>
+          selectedDate >= holiday.start_date &&
+          selectedDate <= holiday.end_date
+      ),
+    [holidays, selectedDate]
+  )
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center">
@@ -270,7 +308,7 @@ export default function AttendancePage() {
       <header className="border-b bg-background">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <h1 className="text-xl font-bold">EduMali</h1>
+            <h1 className="text-xl font-bold">Ridwane</h1>
             <p className="text-sm text-muted-foreground">
               Gestion des présences
             </p>
@@ -347,6 +385,29 @@ export default function AttendancePage() {
             />
           </div>
 
+          {matchingHolidays.length > 0 && (
+            <div
+              className="rounded-lg border p-4 text-sm md:col-span-2"
+              style={{
+                background: "oklch(0.80 0.14 78 / 0.12)",
+                borderColor: "oklch(0.57 0.14 78 / 0.4)",
+              }}
+            >
+              <p className="font-medium">
+                Cette date tombe pendant{" "}
+                {matchingHolidays
+                  .map((holiday) => `« ${holiday.name} »`)
+                  .join(", ")}
+                .
+              </p>
+
+              <p className="mt-1 text-muted-foreground">
+                Vous pouvez tout de même saisir les présences si un cours a été
+                assuré.
+              </p>
+            </div>
+          )}
+
           <div className="md:col-span-2">
             <button
               onClick={loadStudentsAndAttendance}
@@ -374,6 +435,20 @@ export default function AttendancePage() {
                     year: "numeric",
                   })}
                 </p>
+
+                {matchingHolidays.length > 0 && (
+                  <p
+                    className="mt-2 inline-block rounded-full border px-3 py-1 text-xs font-semibold"
+                    style={{
+                      color: "oklch(0.57 0.14 78)",
+                      borderColor: "oklch(0.57 0.14 78)",
+                    }}
+                  >
+                    {matchingHolidays
+                      .map((holiday) => holiday.name)
+                      .join(", ")}
+                  </p>
+                )}
               </div>
 
               <button

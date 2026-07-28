@@ -123,7 +123,7 @@ export default function ClassesPage() {
       <header className="border-b bg-background">
         <div className="flex h-16 items-center justify-between px-6">
           <div>
-            <h1 className="text-xl font-bold">EduMali</h1>
+            <h1 className="text-xl font-bold">Ridwane</h1>
             <p className="text-sm text-muted-foreground">
               Gestion des classes
             </p>

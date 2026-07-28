@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { matchesSearch } from "@/src/lib/search"
 
 type ClassItem = {
   id: string
@@ -44,7 +45,19 @@ type School = {
   address: string | null
   phone: string | null
   logo_url: string | null
+  grading_scale: number
+  appreciation_excellent: number
+  appreciation_very_good: number
+  appreciation_good: number
+  appreciation_fair: number
 }
+
+// Valeurs de repli si l'école n'est pas encore chargée : mêmes défauts qu'en base.
+const DEFAULT_GRADING_SCALE = 20
+const DEFAULT_APPRECIATION_EXCELLENT = 18
+const DEFAULT_APPRECIATION_VERY_GOOD = 16
+const DEFAULT_APPRECIATION_GOOD = 14
+const DEFAULT_APPRECIATION_FAIR = 10
 
 type SubjectResult = {
   subjectId: string
@@ -63,8 +76,38 @@ type ReportCardStudent = {
 export default function ReportCardPage() {
   const router = useRouter()
 
-  // Barème officiel malien / francophone : notes sur 20
-  const gradingScale = 20
+  const [school, setSchool] = useState<School | null>(null)
+
+  /*
+   * Barème et seuils d'appréciation configurés dans les paramètres
+   * de l'établissement (table schools). Le standard malien reste 20,
+   * mais chaque école peut l'adapter.
+   */
+  const gradingScale = Number(
+    school?.grading_scale ?? DEFAULT_GRADING_SCALE
+  )
+
+  const appreciationExcellent = Number(
+    school?.appreciation_excellent ?? DEFAULT_APPRECIATION_EXCELLENT
+  )
+
+  const appreciationVeryGood = Number(
+    school?.appreciation_very_good ?? DEFAULT_APPRECIATION_VERY_GOOD
+  )
+
+  const appreciationGood = Number(
+    school?.appreciation_good ?? DEFAULT_APPRECIATION_GOOD
+  )
+
+  const appreciationFair = Number(
+    school?.appreciation_fair ?? DEFAULT_APPRECIATION_FAIR
+  )
+
+  function formatScore(value: number) {
+    return value.toLocaleString("fr-FR", {
+      maximumFractionDigits: 2,
+    })
+  }
 
   const [loading, setLoading] = useState(true)
   const [loadingReport, setLoadingReport] = useState(false)
@@ -73,7 +116,6 @@ export default function ReportCardPage() {
   const [reportLoadError, setReportLoadError] = useState<string | null>(null)
 
   const [schoolId, setSchoolId] = useState("")
-  const [school, setSchool] = useState<School | null>(null)
 
   const [academicYear, setAcademicYear] =
     useState<AcademicYear | null>(null)
@@ -92,6 +134,9 @@ export default function ReportCardPage() {
 
   const [reportCards, setReportCards] =
     useState<ReportCardStudent[]>([])
+
+  const [searchTerm, setSearchTerm] =
+    useState("")
 
   // "all" = imprimer tous les bulletins, un id = un seul bulletin, null = pas d'impression en cours
   const [printTarget, setPrintTarget] =
@@ -175,7 +220,7 @@ export default function ReportCardPage() {
     } = await supabase
       .from("schools")
       .select(
-        "name, address, phone, logo_url"
+        "name, address, phone, logo_url, grading_scale, appreciation_excellent, appreciation_very_good, appreciation_good, appreciation_fair"
       )
       .eq(
         "id",
@@ -325,6 +370,9 @@ export default function ReportCardPage() {
 
     setLoadingReport(true)
     setReportLoadError(null)
+
+    // Nouvelle classe / période affichée : on repart d'une recherche vierge.
+    setSearchTerm("")
 
     const {
       data: enrollments,
@@ -775,7 +823,7 @@ export default function ReportCardPage() {
     })
   }
 
-  // Seuils sur barème /20 (standard francophone)
+  // Seuils configurés dans les paramètres de l'établissement.
   function getAppreciation(
     average: number | null
   ) {
@@ -783,19 +831,19 @@ export default function ReportCardPage() {
       return "Non évalué"
     }
 
-    if (average >= 18) {
+    if (average >= appreciationExcellent) {
       return "Excellent"
     }
 
-    if (average >= 16) {
+    if (average >= appreciationVeryGood) {
       return "Très bien"
     }
 
-    if (average >= 14) {
+    if (average >= appreciationGood) {
       return "Bien"
     }
 
-    if (average >= 10) {
+    if (average >= appreciationFair) {
       return "Passable"
     }
 
@@ -811,7 +859,8 @@ export default function ReportCardPage() {
       return "Non évalué"
     }
 
-    if (average >= 10) {
+    // Le résultat suit le seuil « Passable » configuré par l'établissement.
+    if (average >= appreciationFair) {
       return "Satisfaisant"
     }
 
@@ -825,19 +874,19 @@ export default function ReportCardPage() {
       return "Élève non évalué pour cette période."
     }
 
-    if (average >= 18) {
+    if (average >= appreciationExcellent) {
       return "Excellent travail. Les résultats sont remarquables. Félicitations pour les efforts et la régularité."
     }
 
-    if (average >= 16) {
+    if (average >= appreciationVeryGood) {
       return "Très bons résultats. Le travail est sérieux et les efforts doivent être poursuivis."
     }
 
-    if (average >= 14) {
+    if (average >= appreciationGood) {
       return "Bon travail dans l'ensemble. Les résultats sont satisfaisants. Il faut continuer les efforts."
     }
 
-    if (average >= 10) {
+    if (average >= appreciationFair) {
       return "Résultats passables. Des efforts supplémentaires et un travail plus régulier permettront de progresser."
     }
 
@@ -888,6 +937,25 @@ export default function ReportCardPage() {
       )
   }
 
+  /*
+   * Filtrage côté client des bulletins déjà affichés.
+   * Le rang reste calculé sur la classe entière : la recherche
+   * ne change que ce qui est visible (et donc imprimé).
+   */
+  const filteredReportCards = useMemo(
+    () =>
+      reportCards.filter(
+        (report) =>
+          matchesSearch(
+            searchTerm,
+            report.student.first_name,
+            report.student.last_name,
+            report.student.student_number
+          )
+      ),
+    [reportCards, searchTerm]
+  )
+
   function printReportCard(
     studentId: string
   ) {
@@ -896,7 +964,7 @@ export default function ReportCardPage() {
 
   function printAllReportCards() {
     if (
-      reportCards.length === 0
+      filteredReportCards.length === 0
     ) {
       return
     }
@@ -945,7 +1013,7 @@ export default function ReportCardPage() {
 
           <div>
             <h1 className="text-xl font-bold">
-              EduMali
+              Ridwane
             </h1>
 
             <p className="text-sm text-muted-foreground">
@@ -1073,6 +1141,38 @@ export default function ReportCardPage() {
             </select>
           </div>
 
+          {reportCards.length > 0 && (
+            <div className="md:col-span-2">
+
+              <label
+                htmlFor="student-search"
+                className="mb-2 block font-medium"
+              >
+                Rechercher un élève
+              </label>
+
+              <input
+                id="student-search"
+                type="search"
+                value={searchTerm}
+                onChange={(event) =>
+                  setSearchTerm(
+                    event.target.value
+                  )
+                }
+                placeholder="Nom, prénom ou matricule"
+                className="w-full rounded-md border bg-background px-3 py-3"
+              />
+
+              <p className="mt-2 text-sm text-muted-foreground">
+                {searchTerm.trim()
+                  ? `${filteredReportCards.length} bulletin(s) sur ${reportCards.length} — seuls les bulletins affichés seront imprimés.`
+                  : `${reportCards.length} bulletin(s) affiché(s).`}
+              </p>
+
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-3 md:col-span-2">
 
             <button
@@ -1093,7 +1193,7 @@ export default function ReportCardPage() {
               }
             </button>
 
-            {reportCards.length >
+            {filteredReportCards.length >
               0 && (
                 <button
                   onClick={
@@ -1101,7 +1201,9 @@ export default function ReportCardPage() {
                   }
                   className="rounded-md border bg-background px-6 py-3 font-medium hover:bg-muted"
                 >
-                  🖨️ Imprimer tous les bulletins
+                  {searchTerm.trim()
+                    ? `🖨️ Imprimer les ${filteredReportCards.length} bulletin(s) affiché(s)`
+                    : "🖨️ Imprimer tous les bulletins"}
                 </button>
               )}
 
@@ -1126,9 +1228,19 @@ export default function ReportCardPage() {
               </p>
             </div>
 
+          ) : filteredReportCards.length ===
+            0 ? (
+
+            <div className="rounded-xl border border-dashed bg-background p-10 text-center print-hidden">
+              <p className="text-muted-foreground">
+                Aucun bulletin ne correspond à «{" "}
+                {searchTerm.trim()} ».
+              </p>
+            </div>
+
           ) : (
 
-            reportCards.map(
+            filteredReportCards.map(
               (report) => (
 
                 <article
@@ -1309,7 +1421,7 @@ export default function ReportCardPage() {
                             </th>
 
                             <th className="px-4 py-4">
-                              Moyenne / 20
+                              Moyenne / {formatScore(gradingScale)}
                             </th>
 
                             <th className="px-4 py-4">
@@ -1348,7 +1460,7 @@ export default function ReportCardPage() {
                                     null
                                       ? `${subject.average.toFixed(
                                           2
-                                        )} / 20`
+                                        )} / ${formatScore(gradingScale)}`
                                       : "—"
                                   }
 
@@ -1437,7 +1549,7 @@ export default function ReportCardPage() {
                               : "—"
                           }{" "}
                           <span className="text-base font-normal">
-                            / 20
+                            / {formatScore(gradingScale)}
                           </span>
                         </p>
 
