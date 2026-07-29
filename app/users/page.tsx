@@ -7,6 +7,7 @@ import { matchesSearch } from "@/src/lib/search"
 import { EditDialog } from "@/components/edit-dialog"
 import { AccessLinkNotice } from "@/components/access-link-notice"
 import { ROLE_LABELS, can, canAssignRole } from "@/src/lib/roles"
+import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate"
 
 type UserAccount = {
   id: string
@@ -34,6 +35,9 @@ type Direction = {
  * manquant depuis sa création. La liste des rôles n'a qu'une source.
  */
 const roleLabels = ROLE_LABELS
+
+/* Doit rester aligné sur la permission comptes.consulter. */
+const ROLES_AUTORISES = ["admin", "promoteur", "directeur_general"]
 
 // Seul rôle dont le périmètre est limité à une direction.
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
@@ -65,6 +69,7 @@ function getFullName(user: UserAccount) {
 
 export default function UsersPage() {
   const router = useRouter()
+  const gate = useRoleGate(ROLES_AUTORISES)
 
   const [users, setUsers] = useState<UserAccount[]>([])
   const [directions, setDirections] = useState<Direction[]>([])
@@ -441,6 +446,20 @@ export default function UsersPage() {
 
   const activeCount = users.filter((user) => user.isActive).length
 
+  /*
+   * Un enseignant qui tape l'adresse voyait la page se dessiner, puis un
+   * message de permission au milieu. La route refusait bien — aucun
+   * compte ne s'affichait — mais autant le dire d'emblée, comme le font
+   * déjà /fees et /activity.
+   */
+  if (gate.statut === "chargement") {
+    return <ChargementPage />
+  }
+
+  if (gate.statut === "refuse") {
+    return <AccesRefuse role={gate.role} />
+  }
+
   return (
     <main className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
@@ -453,12 +472,15 @@ export default function UsersPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => router.push("/settings")}
-              className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
-            >
-              Paramètres
-            </button>
+            {/* Les paramètres restent réservés à l'administrateur. */}
+            {can(monRole, "parametres.gerer") && (
+              <button
+                onClick={() => router.push("/settings")}
+                className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+              >
+                Paramètres
+              </button>
+            )}
 
             <button
               onClick={() => router.push("/dashboard")}
@@ -475,8 +497,8 @@ export default function UsersPage() {
           <h2 className="text-3xl font-bold">Comptes utilisateurs</h2>
 
           <p className="mt-2 text-muted-foreground">
-            Gérez les accès des membres de votre établissement. Réservé aux
-            administrateurs.
+            Gérez les accès des membres de votre établissement. Les rôles que
+            vous pouvez attribuer dépendent du vôtre.
           </p>
         </div>
 
