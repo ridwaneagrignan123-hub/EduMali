@@ -4,12 +4,44 @@ Le schéma vit dans Supabase, pas dans ce dépôt. Ce dossier documente son éta
 pour qu'il soit reproductible, mais il n'est **pas** une source de vérité
 automatiquement synchronisée.
 
+> ## ⚠️ Toute modification du schéma régénère `schema.sql` dans le MÊME commit
+>
+> Créer une table, ajouter une colonne, changer une contrainte, poser une
+> policy ou une fonction : le fichier se régénère et part avec le changement.
+>
+> **Ce n'est pas une formalité.** Ce fichier existe pour mettre fin aux bugs
+> écrits contre un schéma supposé plutôt que vérifié. Il a déjà divergé
+> **trois fois** — et un fichier de référence périmé est plus dangereux
+> qu'un fichier absent, parce qu'on lui fait confiance.
+>
+> La régénération se fait par introspection de `pg_catalog`, jamais en
+> recopiant les scripts de ce dossier ni de mémoire : c'est précisément
+> l'écart entre le script et le réel que ce fichier doit révéler.
+
 ## Ce que contient ce dossier
 
 **`schema.sql`** — état de référence complet, obtenu par introspection de la
-base de production le 2026-07-27 (lecture de `pg_catalog`, pas une
-reconstitution de mémoire). Vérifié automatiquement : 20 tables, 164 colonnes,
-30 contraintes nommées, RLS active sur les 20 tables, 5 fonctions.
+base de production le **2026-07-29** (lecture de `pg_catalog`).
+
+| | |
+|---|---|
+| Tables | **24** |
+| Colonnes | 197 |
+| Contraintes | 115 |
+| Tables avec RLS active | **24 sur 24** |
+| Policies | 87 |
+| Index | 46 |
+| Fonctions `public` | 9 |
+| Fonctions `private` | 17 |
+| Déclencheurs | 24 |
+
+**`rls-roles.sql`** — le cloisonnement par rôle, appliqué le 2026-07-29.
+
+**`vie-scolaire-et-statistiques.sql`** — rôle `surveillant`, retards des
+enseignants, thèmes au rang, rappels, fonctions statistiques.
+
+Ces deux derniers sont la **trace** de ce qui a été appliqué, pas la source :
+les rejouer sur la production échouerait. `schema.sql` seul décrit l'état.
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -92,16 +124,26 @@ La colonne `students.photo_url` stocke l'URL publique résultante.
 
 ## Points connus
 
-- **`students.matricule`** est une colonne morte : aucune ligne renseignée,
-  aucune référence dans le code. L'application utilise `student_number`.
-  À supprimer un jour, mais elle est conservée ici pour rester fidèle au réel.
+Vérifiés en base le 2026-07-29, pas reconduits de mémoire.
+
+- **`students.matricule`** est une colonne morte : 0 ligne renseignée, aucune
+  référence dans le code. L'application utilise `student_number`. Conservée
+  ici pour rester fidèle au réel.
 - **`classes.academic_year`** (texte) coexiste avec la table `academic_years`.
   Héritage de la première version, remplacé mais jamais retiré.
-- **Les policies de `attendance`, `fee_assessments`, `fee_payments`,
-  `timetable_slots` et `sms_logs` visent le rôle `public`** et non
-  `authenticated`, contrairement aux plus récentes. Sans effet pratique — RLS
-  exige de toute façon un `auth.uid()` — mais l'incohérence est réelle.
-- **`schools` est lisible par tout utilisateur authentifié** (`using (true)`),
-  y compris les écoles dont il n'est pas membre.
-- **`attendance` et `timetable_slots` ne sont pas cloisonnées par direction.**
-  Un `directeur_direction` y voit toute l'école.
+- **`timetable_slots` n'est pas cloisonné par direction.** Sa policy de
+  lecture s'arrête au `school_id` : un `directeur_direction` voit l'emploi du
+  temps de tout l'établissement. Seul point de cloisonnement encore ouvert.
+- **Les fonctions `stats_*` contournent délibérément le RLS.** Elles sont en
+  `SECURITY DEFINER` pour que chacun puisse comparer les classes, et ne sont
+  sans danger **que** parce qu'elles ne rendent aucune colonne nominative. Y
+  ajouter un nom d'élève ouvrirait le carnet de notes de toute l'école.
+
+### Points résolus depuis, à ne pas réintroduire
+
+- Les policies de `attendance`, `fee_assessments`, `fee_payments`,
+  `timetable_slots` et `sms_logs` visaient le rôle `public` : **toutes visent
+  désormais `authenticated`** (0 policy sur `public`).
+- `schools` était lisible par tout utilisateur authentifié (`using (true)`) :
+  restreint à sa propre école.
+- `attendance` n'était pas cloisonné par direction : il l'est désormais.
