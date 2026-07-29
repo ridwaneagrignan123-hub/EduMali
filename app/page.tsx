@@ -1,4 +1,5 @@
 import Link from "next/link"
+import Image from "next/image"
 import { Logo } from "@/components/logo"
 
 /*
@@ -27,15 +28,103 @@ const navLinks = [
   { label: "Contact", href: "#contact" },
 ]
 
+/*
+ * Les photographies de la maquette.
+ *
+ * ---------------------------------------------------------------------
+ * LES DIMENSIONS ET LES CADRAGES SONT DES DONNÉES, PAS DE LA DÉCORATION
+ *
+ * `width` et `height` sont les dimensions INTRINSÈQUES du fichier : elles
+ * servent à next/image pour réserver la place et éviter que la page ne
+ * saute au chargement. Les changer sans changer le fichier déforme
+ * l'image.
+ *
+ * `position` est le réglage d'`object-position`. Chacune des trois photos
+ * d'élèves paraît deux fois, dans deux cadres de proportions
+ * différentes — d'où deux valeurs distinctes, réglées pour que les
+ * visages ne soient pas coupés. Elles ne sont pas interchangeables.
+ * ---------------------------------------------------------------------
+ */
+const PHOTOS = {
+  heros: {
+    src: "/eleve-main-levee.jpg",
+    width: 599,
+    height: 749,
+    alt: "Élève levant la main en classe",
+    position: "center 40%",
+  },
+  mains: {
+    src: "/eleves-mains.jpg",
+    width: 736,
+    height: 713,
+    bande: { alt: "Élèves réunis, mains jointes", position: "center 40%" },
+    carte: { alt: "Élèves en uniforme, mains jointes", position: "center 45%" },
+  },
+  lycee: {
+    src: "/eleves-lycee.jpg",
+    width: 736,
+    height: 736,
+    bande: { alt: "Élèves en classe levant la main", position: "center 45%" },
+    carte: { alt: "Élèves de lycée en cours", position: "center 45%" },
+  },
+  classeJaune: {
+    src: "/eleves-classe-jaune.jpg",
+    width: 640,
+    height: 498,
+    bande: { alt: "Salle de classe, élève et manuel", position: "center 55%" },
+    carte: { alt: "Élève avec son manuel en classe", position: "center 50%" },
+  },
+  promoteur: {
+    /*
+     * PNG conservé : le portrait est détouré. WebP et AVIF, les formats
+     * vers lesquels next/image convertit, gardent la transparence — ce
+     * que le JPEG ne sait pas faire.
+     */
+    src: "/promoteur-cutout.png",
+    width: 620,
+    height: 826,
+    alt: "Le promoteur de Ridwane — L'école",
+  },
+} as const
+
+/* La bande « Nos élèves », dans l'ordre de la maquette. */
+const bandeEleves = [
+  PHOTOS.mains,
+  PHOTOS.lycee,
+  PHOTOS.classeJaune,
+] as const
+
+/*
+ * Trois des quatre cartes portent une photographie ; « Écoles privées »
+ * n'en avait pas dans la maquette. Elle reçoit un aplat de la même
+ * hauteur, sinon la rangée se désaligne et l'absence passe pour un
+ * chargement qui a échoué.
+ */
 const schoolTypes = [
-  { name: "Medersas", note: "Calendrier et matières adaptés", color: GOLD },
+  {
+    name: "Medersas",
+    note: "Calendrier et matières adaptés",
+    color: GOLD,
+    photo: PHOTOS.mains,
+  },
   {
     name: "Écoles publiques",
     note: "Effectifs importants, gratuité",
     color: GREEN,
+    photo: PHOTOS.lycee,
   },
-  { name: "Lycées & techniques", note: "Séries, options, examens", color: CLAY },
-  { name: "Écoles privées", note: "Facturation et relances", color: GOLD },
+  {
+    name: "Lycées & techniques",
+    note: "Séries, options, examens",
+    color: CLAY,
+    photo: PHOTOS.classeJaune,
+  },
+  {
+    name: "Écoles privées",
+    note: "Facturation et relances",
+    color: GOLD,
+    photo: null,
+  },
 ]
 
 const features = [
@@ -71,13 +160,6 @@ const features = [
   },
 ]
 
-const apercuClasses = [
-  { libelle: "6ᵉ A — Mathématiques", moyenne: "14,2", couleur: GREEN },
-  { libelle: "5ᵉ B — Français", moyenne: "12,8", couleur: GOLD },
-  { libelle: "4ᵉ A — Sciences", moyenne: "15,6", couleur: GREEN },
-  { libelle: "3ᵉ C — Histoire", moyenne: "11,4", couleur: CLAY },
-]
-
 export default function Home() {
   return (
     <div
@@ -102,10 +184,31 @@ export default function Home() {
         .rd-card:hover { transform: translateY(-5px); border-color: oklch(95% 0.015 85 / 0.22) !important; }
         @media (max-width: 900px) {
           .rd-hero { grid-template-columns: 1fr !important; }
+          .rd-promoteur { grid-template-columns: 1fr !important; }
+          /*
+            Le héros passe sur une colonne : à ses proportions d'origine,
+            une image de 599×749 occuperait 925 px de haut sur une
+            tablette et repousserait tout le texte hors de l'écran. On
+            plafonne la hauteur ; le recadrage reste commandé par
+            object-position, donc le visage tient toujours.
+          */
+          .rd-heros-photo { aspect-ratio: auto !important; height: 420px !important; }
+          .rd-promoteur img { max-width: 400px !important; }
           .rd-pad { padding-left: 22px !important; padding-right: 22px !important; }
           .rd-h1 { font-size: 46px !important; }
           .rd-h2 { font-size: 32px !important; }
           .rd-nav-links { display: none !important; }
+        }
+        /*
+          La bande passe à deux colonnes puis à une. Trois photos côte à
+          côte sur un téléphone donneraient des bandeaux de 100 px de
+          large, où l'on ne distingue plus personne.
+        */
+        @media (max-width: 1000px) {
+          .rd-bande { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+        @media (max-width: 620px) {
+          .rd-bande { grid-template-columns: 1fr !important; }
         }
         @media (prefers-reduced-motion: reduce) {
           .rd-anim, .rd-anim * { animation: none !important; }
@@ -351,91 +454,41 @@ export default function Home() {
           </div>
 
           {/*
-            La maquette montrait une photographie à cet endroit. Faute de
-            l'image, un aperçu construit avec la palette : il montre ce que
-            l'application affiche réellement, plutôt qu'un visuel décoratif.
+            La photographie de la maquette. Elle remplace l'aperçu qui la
+            remplaçait : le commentaire précédent disait explicitement
+            qu'il n'était là qu'à défaut de l'image.
+
+            `fill` plutôt que width/height : le cadre a ses propres
+            proportions, et c'est lui qui commande. Les dimensions
+            intrinsèques restent déclarées dans PHOTOS, pour mémoire.
+
+            `priority` parce que l'image est au-dessus de la ligne de
+            flottaison : la charger paresseusement retarderait le premier
+            affichage utile, ce qui compte sur une connexion lente.
           */}
           <div
-            aria-hidden
+            className="rd-heros-photo"
             style={{
               position: "relative",
+              aspectRatio: `${PHOTOS.heros.width} / ${PHOTOS.heros.height}`,
               borderRadius: 26,
+              overflow: "hidden",
               border: `1px solid ${LINE}`,
               background: NIGHT_SOFT,
-              padding: 26,
               animation: "rd-rise .8s ease .35s both",
             }}
           >
-            <div
+            <Image
+              src={PHOTOS.heros.src}
+              alt={PHOTOS.heros.alt}
+              fill
+              priority
+              sizes="(max-width: 900px) 100vw, 44vw"
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                marginBottom: 22,
+                objectFit: "cover",
+                objectPosition: PHOTOS.heros.position,
               }}
-            >
-              <span
-                style={{ fontFamily: display, fontWeight: 700, fontSize: 17 }}
-              >
-                Lycée de Badalabougou
-              </span>
-              <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>
-                640 élèves
-              </span>
-            </div>
-
-            <div style={{ display: "grid", gap: 10 }}>
-              {apercuClasses.map((ligne) => (
-                <div
-                  key={ligne.libelle}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    padding: "13px 16px",
-                    borderRadius: 13,
-                    background: "oklch(95% 0.015 85 / 0.04)",
-                    border: `1px solid ${LINE}`,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 14,
-                      color: "oklch(95% 0.015 85 / 0.75)",
-                    }}
-                  >
-                    {ligne.libelle}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 15,
-                      fontWeight: 800,
-                      color: ligne.couleur,
-                    }}
-                  >
-                    {ligne.moyenne}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div
-              style={{
-                marginTop: 20,
-                paddingTop: 18,
-                borderTop: `1px solid ${LINE}`,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                fontSize: 13,
-                color: "oklch(95% 0.015 85 / 0.5)",
-              }}
-            >
-              <span>Bulletins du 1ᵉʳ trimestre</span>
-              <span style={{ color: GREEN, fontWeight: 700 }}>Prêts</span>
-            </div>
+            />
           </div>
         </div>
       </section>
@@ -476,6 +529,47 @@ export default function Home() {
             de chaque établissement — sans jamais imposer un modèle unique.
           </p>
 
+          {/*
+            La bande de la maquette. Trois photographies, cadrées chacune
+            selon son propre réglage : ces valeurs diffèrent de celles
+            employées plus bas dans les cartes, parce que le cadre n'a pas
+            les mêmes proportions.
+          */}
+          <div
+            className="rd-bande"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 16,
+              marginBottom: 46,
+            }}
+          >
+            {bandeEleves.map((photo) => (
+              <div
+                key={photo.src}
+                style={{
+                  position: "relative",
+                  height: 260,
+                  borderRadius: 18,
+                  overflow: "hidden",
+                  border: `1px solid ${LINE}`,
+                  background: NIGHT_SOFT,
+                }}
+              >
+                <Image
+                  src={photo.src}
+                  alt={photo.bande.alt}
+                  fill
+                  sizes="(max-width: 760px) 100vw, 30vw"
+                  style={{
+                    objectFit: "cover",
+                    objectPosition: photo.bande.position,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
           <div
             style={{
               display: "grid",
@@ -488,12 +582,40 @@ export default function Home() {
                 key={type.name}
                 className="rd-card"
                 style={{
-                  padding: "26px 24px",
                   borderRadius: 18,
                   background: NIGHT_SOFT,
                   border: `1px solid ${LINE}`,
+                  overflow: "hidden",
                 }}
               >
+                {/*
+                  Même photographie que dans la bande, mais cadrée
+                  autrement : le cadre est ici plus large que haut.
+                */}
+                {type.photo ? (
+                  <div style={{ position: "relative", height: 132 }}>
+                    <Image
+                      src={type.photo.src}
+                      alt={type.photo.carte.alt}
+                      fill
+                      sizes="(max-width: 640px) 100vw, 24vw"
+                      style={{
+                        objectFit: "cover",
+                        objectPosition: type.photo.carte.position,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    aria-hidden
+                    style={{
+                      height: 132,
+                      background: `linear-gradient(140deg, color-mix(in oklch, ${type.color} 26%, transparent), transparent 70%)`,
+                    }}
+                  />
+                )}
+
+                <div style={{ padding: "22px 24px 26px" }}>
                 <span
                   style={{
                     display: "block",
@@ -525,6 +647,7 @@ export default function Home() {
                 >
                   {type.note}
                 </p>
+                </div>
               </div>
             ))}
           </div>
@@ -626,7 +749,18 @@ export default function Home() {
         className="rd-pad"
         style={{ padding: "104px 56px", background: NIGHT_DEEP }}
       >
-        <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+        <div
+          className="rd-promoteur"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 0.85fr",
+            gap: 56,
+            alignItems: "center",
+            maxWidth: 1100,
+            margin: "0 auto",
+          }}
+        >
+          <div>
           <h2
             className="rd-h2"
             style={{
@@ -659,6 +793,31 @@ export default function Home() {
           <p style={{ fontSize: 14, color: GOLD, fontWeight: 700, margin: 0 }}>
             Fondateur — Ridwane, L&apos;école · Bamako
           </p>
+          </div>
+
+          {/*
+            Portrait détouré, donc pas de cadre ni de recadrage : on garde
+            ses proportions et on le laisse poser sur le fond. L'ombre
+            portée de la maquette lui donne son assise — sans elle il
+            flotte, découpé aux ciseaux.
+
+            width/height sont ici les dimensions du fichier ; le style
+            ramène la largeur au conteneur et laisse la hauteur suivre.
+          */}
+          <Image
+            src={PHOTOS.promoteur.src}
+            alt={PHOTOS.promoteur.alt}
+            width={PHOTOS.promoteur.width}
+            height={PHOTOS.promoteur.height}
+            sizes="(max-width: 900px) 90vw, 45vw"
+            style={{
+              width: "100%",
+              maxWidth: 560,
+              height: "auto",
+              margin: "0 auto",
+              filter: "drop-shadow(0 30px 60px oklch(8% 0.02 55 / 0.7))",
+            }}
+          />
         </div>
       </section>
 
