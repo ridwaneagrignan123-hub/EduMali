@@ -238,6 +238,19 @@ function UpdatePasswordForm() {
                 accéder à votre espace.
               </p>
 
+              {/*
+                Le compte est nommé explicitement : un lien ouvert dans un
+                navigateur déjà connecté voit l'ancienne session reprendre
+                le dessus, et l'on croit alors travailler sous une identité
+                qui n'est pas la sienne.
+              */}
+              {userEmail && (
+                <p className="rounded-md border bg-muted/40 p-3 text-sm">
+                  Vous êtes connecté en tant que{" "}
+                  <strong>{userEmail}</strong>.
+                </p>
+              )}
+
               {exposureUnchecked && (
                 <p
                   className="rounded-lg border p-3 text-sm"

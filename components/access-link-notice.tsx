@@ -101,6 +101,28 @@ export function AccessLinkNotice({
             </a>
           </div>
 
+          {/*
+            Avertissement indispensable, appris d'un cas réel : le lien a
+            été ouvert dans le navigateur de l'administrateur, déjà
+            connecté. Un navigateur ne retient qu'une session par site,
+            si bien que celle de l'administrateur a repris le dessus une
+            seconde après. On a cru que l'enseignant voyait tout le
+            tableau de bord ; il regardait celui de l'administrateur.
+          */}
+          <p
+            className="rounded-md border p-3 text-xs"
+            style={{
+              background: "oklch(0.80 0.14 78 / 0.14)",
+              borderColor: "oklch(0.57 0.14 78 / 0.45)",
+            }}
+          >
+            <strong>À ouvrir sur l&apos;appareil de la personne concernée</strong>{" "}
+            — ou, à défaut, dans une fenêtre de navigation privée. Ouvert
+            dans votre propre navigateur, votre session reprend le dessus
+            et vous verriez votre écran d&apos;administrateur en croyant
+            voir le sien.
+          </p>
+
           <p className="text-xs text-muted-foreground">
             Ce lien vaut mot de passe : ne le diffusez qu&apos;à la personne
             concernée. Il s&apos;utilise une seule fois et expire.
