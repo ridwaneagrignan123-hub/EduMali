@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
 import { NAV_ITEMS } from "@/src/lib/roles"
+import { AvertissementDirection } from "@/components/avertissement-direction"
 
 type Profile = {
   school_id: string | null
@@ -565,7 +566,14 @@ export default function DashboardPage() {
                 Bienvenue sur votre espace de gestion scolaire.
               </p>
 
-              {profile?.role === "directeur_direction" && (
+              {/*
+                La pastille ne sert plus qu'à annoncer un périmètre
+                existant. Le cas « aucune direction » passe par un vrai
+                avertissement, plus bas : une pastille de trois mots
+                n'expliquait ni pourquoi tout est vide, ni à qui
+                s'adresser.
+              */}
+              {profile?.role === "directeur_direction" && directionName && (
                 <p
                   className="mt-3 inline-block rounded-full border px-3 py-1 text-xs font-semibold"
                   style={{
@@ -573,12 +581,12 @@ export default function DashboardPage() {
                     borderColor: "oklch(0.585 0.16 38)",
                   }}
                 >
-                  {directionName
-                    ? `Périmètre : ${directionName}`
-                    : "Aucune direction ne vous est affectée"}
+                  Périmètre : {directionName}
                 </p>
               )}
             </div>
+
+            <AvertissementDirection />
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <button

@@ -6,6 +6,7 @@ import { supabase } from "@/src/lib/supabase"
 import { matchesSearch, normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
 import { EditDialog } from "@/components/edit-dialog"
+import { AvertissementDirection } from "@/components/avertissement-direction"
 import {
   ImportOutcome,
   ImportRow,
@@ -738,6 +739,7 @@ export default function StudentsPage() {
       </header>
 
       <section className="mx-auto max-w-7xl space-y-8 p-6">
+        <AvertissementDirection compact />
         <div>
           <h2 className="text-3xl font-bold">
             Élèves

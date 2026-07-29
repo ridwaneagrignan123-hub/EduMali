@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
+import { AvertissementDirection } from "@/components/avertissement-direction"
 
 type ClassItem = {
   id: string
@@ -1036,6 +1037,7 @@ export default function ReportCardPage() {
       </header>
 
       <section className="mx-auto max-w-7xl space-y-8 p-6">
+        <AvertissementDirection compact />
 
         {initialLoadError && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive print-hidden">
