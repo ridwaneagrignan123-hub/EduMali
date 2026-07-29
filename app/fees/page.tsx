@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
+import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate"
 
 type Student = {
   id: string
@@ -64,8 +65,12 @@ function formatAmount(value: number) {
 // Libellé du groupe pour les élèves sans inscription en classe sur l'année sélectionnée.
 const UNASSIGNED_CLASS_LABEL = "Sans classe"
 
+/* Le directeur général en est exclu : voir supabase/rls-roles.sql. */
+const ROLES_AUTORISES = ["admin", "promoteur", "comptable"]
+
 export default function FeesPage() {
   const router = useRouter()
+  const gate = useRoleGate(ROLES_AUTORISES)
 
   const [schoolId, setSchoolId] = useState("")
 
@@ -578,6 +583,20 @@ export default function FeesPage() {
       paymentMethods.find((item) => item.value === method)?.label ??
       "Non précisé"
     )
+  }
+
+  /*
+   * Cette page n'avait aucun contrôle de rôle : un enseignant qui tapait
+   * l'adresse voyait la comptabilité de l'établissement. Le RLS le
+   * bloque désormais — il ne verrait qu'une page vide — mais autant le
+   * lui dire clairement.
+   */
+  if (gate.statut === "chargement") {
+    return <ChargementPage />
+  }
+
+  if (gate.statut === "refuse") {
+    return <AccesRefuse role={gate.role} />
   }
 
   if (loading) {
