@@ -5,59 +5,60 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 
 /*
- * Statistiques de l'établissement.
+ * Rapport statistique, destiné au papier.
  *
- * Ouverte à tout le personnel, y compris à un enseignant qui ne voit
- * que sa classe ailleurs dans l'application. Ce n'est pas une entorse au
- * cloisonnement : les chiffres viennent des fonctions stats_* en base,
- * qui ne rendent que des agrégats — jamais un nom d'élève, jamais une
- * note isolée.
+ * Ce qui est à l'écran n'est qu'un aperçu de la feuille A4 : les
+ * sélecteurs disparaissent à l'impression, le reste sort tel quel. Le
+ * rapport peut occuper deux pages ou un recto-verso selon le nombre de
+ * matières — on ne comprime rien, on laisse le flux se répartir et on
+ * empêche seulement les tableaux et les blocs de signature d'être coupés
+ * en deux.
  *
- * Une classe comptant moins de trois notes est masquée : en deçà, une
- * « moyenne » est la note d'un élève identifiable.
+ * L'espace d'observation est volontairement VIDE : l'enseignant y écrit
+ * à la main, une fois la feuille sortie. Ce n'est pas un champ de
+ * saisie, et rien n'est enregistré.
+ *
+ * Les chiffres viennent des fonctions stats_* en base, qui ne rendent
+ * que des agrégats — jamais un nom d'élève, jamais une note isolée.
  */
 
-type StatClasse = {
-  classe_id: string
-  classe: string
-  direction: string | null
+type StatMatiere = {
+  matiere: string
   eleves: number
   moyenne: number | null
-  taux_reussite: number | null
-  note_min: number | null
-  note_max: number | null
+  admis: number
+  non_admis: number
+  taux_admis: number | null
   masque: boolean
 }
 
-type Evaluation = {
-  id: string
-  titre: string
-  classe: string
-  matiere: string | null
-  date_eval: string | null
-  periode: string | null
+type Resume = {
+  eleves: number
+  moyenne_generale: number | null
+  admis: number
+  non_admis: number
+  taux_admis: number | null
+  meilleure: number | null
+  plus_basse: number | null
+  masque: boolean
 }
 
 type Comparaison = {
-  classe: string
-  eleves_communs: number
+  matiere: string
+  eleves_a: number
+  admis_a: number
+  non_admis_a: number
+  taux_a: number | null
   moyenne_a: number | null
+  eleves_b: number
+  admis_b: number
+  non_admis_b: number
+  taux_b: number | null
   moyenne_b: number | null
-  ecart: number | null
-  progressions: number
-  regressions: number
-  stables: number
-  masque: boolean
+  ecart_taux: number | null
 }
 
-type Periode = { id: string; name: string }
-
-function couleurMoyenne(valeur: number | null) {
-  if (valeur === null) return "oklch(0.6 0.02 60)"
-  if (valeur >= 14) return "oklch(0.55 0.13 155)"
-  if (valeur >= 10) return "oklch(0.585 0.16 38)"
-  return "oklch(0.55 0.19 25)"
-}
+type Option = { id: string; name: string }
 
 export default function StatisticsPage() {
   const router = useRouter()
@@ -65,15 +66,18 @@ export default function StatisticsPage() {
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState<string | null>(null)
 
-  const [periodes, setPeriodes] = useState<Periode[]>([])
-  const [periodeId, setPeriodeId] = useState("")
-  const [classes, setClasses] = useState<StatClasse[]>([])
+  const [ecole, setEcole] = useState("")
+  const [classes, setClasses] = useState<Option[]>([])
+  const [periodes, setPeriodes] = useState<Option[]>([])
 
-  const [evaluations, setEvaluations] = useState<Evaluation[]>([])
-  const [evalA, setEvalA] = useState("")
-  const [evalB, setEvalB] = useState("")
-  const [comparaison, setComparaison] = useState<Comparaison[] | null>(null)
-  const [comparaisonEnCours, setComparaisonEnCours] = useState(false)
+  const [classeId, setClasseId] = useState("")
+  const [periodeId, setPeriodeId] = useState("")
+  const [comparerA, setComparerA] = useState("")
+  const [comparerB, setComparerB] = useState("")
+
+  const [matieres, setMatieres] = useState<StatMatiere[]>([])
+  const [resume, setResume] = useState<Resume | null>(null)
+  const [comparaison, setComparaison] = useState<Comparaison[]>([])
 
   useEffect(() => {
     let annule = false
@@ -88,20 +92,33 @@ export default function StatisticsPage() {
         return
       }
 
-      const [periodesResultat, evaluationsResultat] = await Promise.all([
-        supabase.from("academic_periods").select("id, name").order("name"),
-        supabase.rpc("stats_assessments"),
-      ])
+      const { data: profil } = await supabase
+        .from("profiles")
+        .select("school_id")
+        .eq("id", user.id)
+        .maybeSingle()
+
+      if (!profil?.school_id) {
+        router.push("/setup-school")
+        return
+      }
+
+      const [ecoleResultat, classesResultat, periodesResultat] =
+        await Promise.all([
+          supabase
+            .from("schools")
+            .select("name")
+            .eq("id", profil.school_id)
+            .maybeSingle(),
+          supabase.from("classes").select("id, name").order("name"),
+          supabase.from("academic_periods").select("id, name").order("name"),
+        ])
 
       if (annule) return
 
-      if (evaluationsResultat.error) {
-        console.error("Erreur évaluations :", evaluationsResultat.error)
-        setErreur("Impossible de charger la liste des évaluations.")
-      }
-
+      setEcole(ecoleResultat.data?.name ?? "")
+      setClasses(classesResultat.data ?? [])
       setPeriodes(periodesResultat.data ?? [])
-      setEvaluations(evaluationsResultat.data ?? [])
       setChargement(false)
     }
 
@@ -114,174 +131,176 @@ export default function StatisticsPage() {
   useEffect(() => {
     let annule = false
 
-    async function chargerClasses() {
-      const { data, error } = await supabase.rpc("stats_classes", {
-        p_period_id: periodeId || null,
+    async function calculer() {
+      const [matieresResultat, resumeResultat] = await Promise.all([
+        supabase.rpc("stats_subjects", {
+          p_period_id: periodeId || null,
+          p_class_id: classeId || null,
+        }),
+        supabase.rpc("stats_summary", {
+          p_period_id: periodeId || null,
+          p_class_id: classeId || null,
+        }),
+      ])
+
+      if (annule) return
+
+      if (matieresResultat.error || resumeResultat.error) {
+        console.error(
+          "Erreur statistiques :",
+          matieresResultat.error ?? resumeResultat.error
+        )
+        setErreur("Les statistiques n'ont pas pu être calculées.")
+        return
+      }
+
+      setErreur(null)
+      setMatieres(matieresResultat.data ?? [])
+      setResume(resumeResultat.data?.[0] ?? null)
+    }
+
+    calculer()
+    return () => {
+      annule = true
+    }
+  }, [periodeId, classeId])
+
+  useEffect(() => {
+    let annule = false
+
+    async function comparer() {
+      if (!comparerA || !comparerB || comparerA === comparerB) {
+        setComparaison([])
+        return
+      }
+
+      const { data, error } = await supabase.rpc("stats_compare_periods", {
+        p_a: comparerA,
+        p_b: comparerB,
+        p_class_id: classeId || null,
       })
 
       if (annule) return
 
       if (error) {
-        console.error("Erreur statistiques :", error)
-        setErreur("Impossible de calculer les statistiques.")
+        console.error("Erreur comparaison :", error)
+        setErreur("La comparaison n'a pas pu être calculée.")
         return
       }
 
-      setErreur(null)
-      setClasses(data ?? [])
+      setComparaison(data ?? [])
     }
 
-    chargerClasses()
+    comparer()
     return () => {
       annule = true
     }
-  }, [periodeId])
+  }, [comparerA, comparerB, classeId])
 
-  async function comparer() {
-    if (!evalA || !evalB || evalA === evalB) {
-      return
-    }
-
-    setComparaisonEnCours(true)
-
-    const { data, error } = await supabase.rpc("stats_compare_assessments", {
-      p_a: evalA,
-      p_b: evalB,
-    })
-
-    setComparaisonEnCours(false)
-
-    if (error) {
-      console.error("Erreur comparaison :", error)
-      setErreur("La comparaison n'a pas pu être calculée.")
-      return
-    }
-
-    setErreur(null)
-    setComparaison(data ?? [])
-  }
-
-  const visibles = useMemo(
-    () => classes.filter((classe) => !classe.masque),
-    [classes]
+  const nomClasse = useMemo(
+    () => classes.find((classe) => classe.id === classeId)?.name ?? "Toutes les classes",
+    [classes, classeId]
   )
 
-  const masquees = classes.length - visibles.length
+  const nomPeriode = useMemo(
+    () => periodes.find((p) => p.id === periodeId)?.name ?? "Année entière",
+    [periodes, periodeId]
+  )
 
-  const moyenneEcole = useMemo(() => {
-    const avecNote = visibles.filter((classe) => classe.moyenne !== null)
+  const nomPeriodeA = periodes.find((p) => p.id === comparerA)?.name ?? ""
+  const nomPeriodeB = periodes.find((p) => p.id === comparerB)?.name ?? ""
 
-    if (avecNote.length === 0) return null
-
-    const total = avecNote.reduce(
-      (somme, classe) => somme + Number(classe.moyenne) * classe.eleves,
-      0
+  const totaux = useMemo(() => {
+    return matieres.reduce(
+      (somme, matiere) => ({
+        eleves: somme.eleves + matiere.eleves,
+        admis: somme.admis + matiere.admis,
+        non_admis: somme.non_admis + matiere.non_admis,
+      }),
+      { eleves: 0, admis: 0, non_admis: 0 }
     )
-    const effectif = avecNote.reduce((somme, classe) => somme + classe.eleves, 0)
-
-    return effectif > 0 ? total / effectif : null
-  }, [visibles])
-
-  const meilleure = useMemo(
-    () =>
-      visibles
-        .filter((c) => c.moyenne !== null)
-        .sort((a, b) => Number(b.moyenne) - Number(a.moyenne))[0] ?? null,
-    [visibles]
-  )
-
-  function libelleEvaluation(evaluation: Evaluation) {
-    const morceaux = [evaluation.titre, evaluation.classe]
-
-    if (evaluation.matiere) morceaux.push(evaluation.matiere)
-    if (evaluation.date_eval) {
-      morceaux.push(new Date(evaluation.date_eval).toLocaleDateString("fr-FR"))
-    }
-
-    return morceaux.join(" — ")
-  }
+  }, [matieres])
 
   if (chargement) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-muted-foreground">Chargement des statistiques...</p>
+        <p className="text-muted-foreground">Chargement...</p>
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen bg-muted/30">
-      <section className="mx-auto max-w-6xl space-y-8 p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="font-heading text-3xl font-bold">Statistiques</h1>
+    <main className="stats-main min-h-screen bg-muted/30">
+      <style>{`
+        @media print {
+          .print-hidden { display: none !important; }
 
-            <p className="mt-2 text-muted-foreground">
-              Comparaison des classes et des évaluations. Les chiffres sont
-              des moyennes : aucune note d&apos;élève n&apos;y figure.
-            </p>
-          </div>
+          /* Un tableau coupé en deux pages perd ses en-têtes de colonne. */
+          .stats-bloc {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
 
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
-          >
-            Retour
-          </button>
-        </div>
+          /* Les signatures ne doivent jamais partir seules sur une page. */
+          .stats-signatures {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
 
-        {erreur && (
-          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-            {erreur}
-          </div>
-        )}
+          .stats-comparaison { break-before: page; page-break-before: always; }
 
-        {/* ---------- Vue d'ensemble ---------- */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-xl border bg-background p-6">
-            <p className="text-sm text-muted-foreground">Moyenne générale</p>
+          .stats-feuille {
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: none !important;
+          }
 
-            <p
-              className="mt-2 text-3xl font-bold"
-              style={{ color: couleurMoyenne(moyenneEcole) }}
-            >
-              {moyenneEcole === null
-                ? "—"
-                : `${moyenneEcole.toFixed(2)} / 20`}
-            </p>
-          </div>
+          .stats-main { background: white !important; min-height: 0 !important; }
 
-          <div className="rounded-xl border bg-background p-6">
-            <p className="text-sm text-muted-foreground">Classes comparées</p>
-            <p className="mt-2 text-3xl font-bold">{visibles.length}</p>
-          </div>
+          /* Les en-têtes se répètent si un long tableau franchit une page. */
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
 
-          <div className="rounded-xl border bg-background p-6">
-            <p className="text-sm text-muted-foreground">Meilleure moyenne</p>
+          @page { size: A4; margin: 14mm; }
+        }
+      `}</style>
 
-            <p className="mt-2 text-xl font-bold">
-              {meilleure ? meilleure.classe : "—"}
-            </p>
-
-            {meilleure && (
-              <p className="text-sm text-muted-foreground">
-                {Number(meilleure.moyenne).toFixed(2)} / 20
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* ---------- Comparaison des classes ---------- */}
-        <div className="rounded-xl border bg-background p-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <h2 className="text-xl font-semibold">Comparaison des classes</h2>
+      {/* ---------- Réglages, absents du papier ---------- */}
+      <div className="print-hidden border-b bg-background">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-end gap-4 p-6">
+          <div className="space-y-1">
+            <label htmlFor="classe" className="text-xs font-medium text-muted-foreground">
+              Classe
+            </label>
 
             <select
+              id="classe"
+              value={classeId}
+              onChange={(event) => setClasseId(event.target.value)}
+              className="block rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Toutes les classes</option>
+
+              {classes.map((classe) => (
+                <option key={classe.id} value={classe.id}>
+                  {classe.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="periode" className="text-xs font-medium text-muted-foreground">
+              Période
+            </label>
+
+            <select
+              id="periode"
               value={periodeId}
               onChange={(event) => setPeriodeId(event.target.value)}
-              className="rounded-md border bg-background px-3 py-2 text-sm"
+              className="block rounded-md border bg-background px-3 py-2 text-sm"
             >
-              <option value="">Toute l&apos;année</option>
+              <option value="">Année entière</option>
 
               {periodes.map((periode) => (
                 <option key={periode.id} value={periode.id}>
@@ -291,233 +310,402 @@ export default function StatisticsPage() {
             </select>
           </div>
 
-          {visibles.length === 0 ? (
-            <p className="mt-6 text-muted-foreground">
-              Aucune note saisie sur cette période : il n&apos;y a rien à
-              comparer pour l&apos;instant.
+          <div className="space-y-1">
+            <label htmlFor="compA" className="text-xs font-medium text-muted-foreground">
+              Comparer
+            </label>
+
+            <div className="flex items-center gap-2">
+              <select
+                id="compA"
+                value={comparerA}
+                onChange={(event) => setComparerA(event.target.value)}
+                className="rounded-md border bg-background px-3 py-2 text-sm"
+              >
+                <option value="">—</option>
+
+                {periodes.map((periode) => (
+                  <option key={periode.id} value={periode.id}>
+                    {periode.name}
+                  </option>
+                ))}
+              </select>
+
+              <span className="text-sm text-muted-foreground">à</span>
+
+              <select
+                value={comparerB}
+                onChange={(event) => setComparerB(event.target.value)}
+                className="rounded-md border bg-background px-3 py-2 text-sm"
+              >
+                <option value="">—</option>
+
+                {periodes.map((periode) => (
+                  <option key={periode.id} value={periode.id}>
+                    {periode.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+            >
+              Retour
+            </button>
+
+            <button
+              onClick={() => window.print()}
+              className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground"
+            >
+              Imprimer
+            </button>
+          </div>
+        </div>
+
+        {erreur && (
+          <div className="mx-auto max-w-4xl px-6 pb-4">
+            <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              {erreur}
             </p>
-          ) : (
-            <div className="mt-6 overflow-x-auto">
-              <table className="w-full text-sm">
+          </div>
+        )}
+      </div>
+
+      {/* ---------- La feuille ---------- */}
+      <div className="stats-feuille mx-auto my-8 max-w-4xl bg-white p-10 text-black shadow-sm">
+        <header className="stats-bloc border-b-2 border-black pb-4 text-center">
+          <h1 className="text-lg font-bold uppercase tracking-wide">
+            {ecole || "Établissement"}
+          </h1>
+
+          <p className="mt-2 text-xl font-bold">
+            Rapport statistique des résultats
+          </p>
+
+          <div className="mt-3 flex flex-wrap justify-center gap-x-8 gap-y-1 text-sm">
+            <span>
+              <strong>Classe :</strong> {nomClasse}
+            </span>
+
+            <span>
+              <strong>Période :</strong> {nomPeriode}
+            </span>
+
+            <span>
+              <strong>Édité le :</strong>{" "}
+              {new Date().toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+          </div>
+        </header>
+
+        {matieres.length === 0 ? (
+          <p className="mt-10 text-center text-sm">
+            Aucune note n&apos;a été saisie pour cette sélection : il
+            n&apos;y a rien à rapporter.
+          </p>
+        ) : (
+          <>
+            {/* ---------- Résultats par matière ---------- */}
+            <section className="stats-bloc mt-8">
+              <h2 className="mb-3 text-base font-bold uppercase">
+                I. Résultats par matière
+              </h2>
+
+              <table className="w-full border-collapse text-sm">
                 <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="pb-2 pr-4 font-medium">Classe</th>
-                    <th className="pb-2 pr-4 font-medium">Élèves</th>
-                    <th className="pb-2 pr-4 font-medium">Moyenne</th>
-                    <th className="pb-2 pr-4 font-medium">Réussite</th>
-                    <th className="pb-2 pr-4 font-medium">Min</th>
-                    <th className="pb-2 font-medium">Max</th>
+                  <tr className="bg-neutral-100">
+                    <th className="border border-black px-2 py-1.5 text-left">
+                      Matière
+                    </th>
+                    <th className="border border-black px-2 py-1.5">
+                      Élèves notés
+                    </th>
+                    <th className="border border-black px-2 py-1.5">
+                      Ont la moyenne
+                    </th>
+                    <th className="border border-black px-2 py-1.5">
+                      N&apos;ont pas la moyenne
+                    </th>
+                    <th className="border border-black px-2 py-1.5">
+                      % de réussite
+                    </th>
+                    <th className="border border-black px-2 py-1.5">
+                      Moyenne
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {visibles.map((classe) => (
-                    <tr key={classe.classe_id} className="border-b last:border-0">
-                      <td className="py-3 pr-4">
-                        <span className="font-medium">{classe.classe}</span>
-
-                        {classe.direction && (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {classe.direction}
-                          </span>
-                        )}
+                  {matieres.map((matiere) => (
+                    <tr key={matiere.matiere}>
+                      <td className="border border-black px-2 py-1.5">
+                        {matiere.matiere}
                       </td>
 
-                      <td className="py-3 pr-4 tabular-nums">{classe.eleves}</td>
-
-                      <td className="py-3 pr-4">
-                        <span
-                          className="font-semibold tabular-nums"
-                          style={{ color: couleurMoyenne(classe.moyenne) }}
-                        >
-                          {Number(classe.moyenne).toFixed(2)}
-                        </span>
+                      <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                        {matiere.eleves}
                       </td>
 
-                      <td className="py-3 pr-4">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-16 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${classe.taux_reussite ?? 0}%`,
-                                background: couleurMoyenne(classe.moyenne),
-                              }}
-                            />
-                          </div>
-
-                          <span className="tabular-nums text-muted-foreground">
-                            {Number(classe.taux_reussite).toFixed(0)}%
-                          </span>
-                        </div>
+                      <td className="border border-black px-2 py-1.5 text-center font-semibold tabular-nums">
+                        {matiere.admis}
                       </td>
 
-                      <td className="py-3 pr-4 tabular-nums text-muted-foreground">
-                        {Number(classe.note_min).toFixed(2)}
+                      <td className="border border-black px-2 py-1.5 text-center font-semibold tabular-nums">
+                        {matiere.non_admis}
                       </td>
 
-                      <td className="py-3 tabular-nums text-muted-foreground">
-                        {Number(classe.note_max).toFixed(2)}
+                      <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                        {matiere.taux_admis === null
+                          ? "—"
+                          : `${Number(matiere.taux_admis).toFixed(1)} %`}
+                      </td>
+
+                      <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                        {matiere.moyenne === null
+                          ? "—"
+                          : Number(matiere.moyenne).toFixed(2)}
                       </td>
                     </tr>
                   ))}
+
+                  <tr className="bg-neutral-100 font-bold">
+                    <td className="border border-black px-2 py-1.5">
+                      Total (toutes matières)
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {totaux.eleves}
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {totaux.admis}
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {totaux.non_admis}
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {totaux.eleves > 0
+                        ? `${((100 * totaux.admis) / totaux.eleves).toFixed(1)} %`
+                        : "—"}
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5" />
+                  </tr>
                 </tbody>
               </table>
-            </div>
-          )}
 
-          {masquees > 0 && (
-            <p className="mt-4 text-xs text-muted-foreground">
-              {masquees === 1
-                ? "1 classe est masquée"
-                : `${masquees} classes sont masquées`}{" "}
-              : moins de trois notes y ont été saisies, et une moyenne
-              calculée sur si peu reviendrait à publier la note d&apos;un
-              élève reconnaissable.
+              <p className="mt-2 text-xs italic">
+                Chaque ligne compte des élèves, non des notes : un élève est
+                compté « ayant la moyenne » lorsque sa moyenne dans la
+                matière, pondérée par les coefficients, atteint 10 sur 20.
+              </p>
+            </section>
+
+            {/* ---------- Résumé général ---------- */}
+            {resume && (
+              <section className="stats-bloc mt-8">
+                <h2 className="mb-3 text-base font-bold uppercase">
+                  II. Résumé général
+                </h2>
+
+                <table className="w-full border-collapse text-sm">
+                  <tbody>
+                    <tr>
+                      <td className="border border-black px-2 py-1.5 font-medium">
+                        Effectif noté
+                      </td>
+                      <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                        {resume.eleves}
+                      </td>
+                      <td className="border border-black px-2 py-1.5 font-medium">
+                        Moyenne générale
+                      </td>
+                      <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                        {resume.moyenne_generale === null
+                          ? "—"
+                          : `${Number(resume.moyenne_generale).toFixed(2)} / 20`}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td className="border border-black px-2 py-1.5 font-medium">
+                        Élèves ayant la moyenne
+                      </td>
+                      <td className="border border-black px-2 py-1.5 text-center font-bold tabular-nums">
+                        {resume.admis}
+                      </td>
+                      <td className="border border-black px-2 py-1.5 font-medium">
+                        Taux de réussite
+                      </td>
+                      <td className="border border-black px-2 py-1.5 text-center font-bold tabular-nums">
+                        {resume.taux_admis === null
+                          ? "—"
+                          : `${Number(resume.taux_admis).toFixed(1)} %`}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td className="border border-black px-2 py-1.5 font-medium">
+                        Élèves n&apos;ayant pas la moyenne
+                      </td>
+                      <td className="border border-black px-2 py-1.5 text-center font-bold tabular-nums">
+                        {resume.non_admis}
+                      </td>
+                      <td className="border border-black px-2 py-1.5 font-medium">
+                        Plus forte / plus faible moyenne
+                      </td>
+                      <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                        {resume.meilleure === null
+                          ? "—"
+                          : `${Number(resume.meilleure).toFixed(2)} / ${Number(resume.plus_basse).toFixed(2)}`}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </section>
+            )}
+          </>
+        )}
+
+        {/* ---------- Comparaison ---------- */}
+        {comparaison.length > 0 && (
+          <section className="stats-comparaison stats-bloc mt-8">
+            <h2 className="mb-3 text-base font-bold uppercase">
+              III. Comparaison — {nomPeriodeA} / {nomPeriodeB}
+            </h2>
+
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-neutral-100">
+                  <th
+                    rowSpan={2}
+                    className="border border-black px-2 py-1.5 text-left align-bottom"
+                  >
+                    Matière
+                  </th>
+                  <th colSpan={3} className="border border-black px-2 py-1.5">
+                    {nomPeriodeA}
+                  </th>
+                  <th colSpan={3} className="border border-black px-2 py-1.5">
+                    {nomPeriodeB}
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="border border-black px-2 py-1.5 align-bottom"
+                  >
+                    Écart
+                  </th>
+                </tr>
+
+                <tr className="bg-neutral-100 text-xs">
+                  <th className="border border-black px-2 py-1">Moyenne</th>
+                  <th className="border border-black px-2 py-1">Sans</th>
+                  <th className="border border-black px-2 py-1">%</th>
+                  <th className="border border-black px-2 py-1">Moyenne</th>
+                  <th className="border border-black px-2 py-1">Sans</th>
+                  <th className="border border-black px-2 py-1">%</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {comparaison.map((ligne) => (
+                  <tr key={ligne.matiere}>
+                    <td className="border border-black px-2 py-1.5">
+                      {ligne.matiere}
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {ligne.admis_a}
+                    </td>
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {ligne.non_admis_a}
+                    </td>
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {ligne.taux_a === null
+                        ? "—"
+                        : `${Number(ligne.taux_a).toFixed(1)}`}
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {ligne.admis_b}
+                    </td>
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {ligne.non_admis_b}
+                    </td>
+                    <td className="border border-black px-2 py-1.5 text-center tabular-nums">
+                      {ligne.taux_b === null
+                        ? "—"
+                        : `${Number(ligne.taux_b).toFixed(1)}`}
+                    </td>
+
+                    <td className="border border-black px-2 py-1.5 text-center font-semibold tabular-nums">
+                      {ligne.ecart_taux === null
+                        ? "—"
+                        : `${Number(ligne.ecart_taux) > 0 ? "+" : ""}${Number(ligne.ecart_taux).toFixed(1)}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <p className="mt-2 text-xs italic">
+              « Moyenne » : élèves ayant obtenu 10 sur 20 ou plus dans la
+              matière. « Sans » : ceux qui ne l&apos;ont pas obtenue.
+              L&apos;écart est la différence de taux de réussite, en points.
             </p>
-          )}
-        </div>
+          </section>
+        )}
 
-        {/* ---------- Comparaison de deux évaluations ---------- */}
-        <div className="rounded-xl border bg-background p-6">
-          <h2 className="text-xl font-semibold">
-            Comparer deux évaluations
+        {/* ---------- Observations, à remplir à la main ---------- */}
+        <section className="stats-bloc mt-8">
+          <h2 className="mb-3 text-base font-bold uppercase">
+            {comparaison.length > 0 ? "IV." : "III."} Observations de
+            l&apos;enseignant
           </h2>
 
-          <p className="mt-2 text-sm text-muted-foreground">
-            Les notes sont ramenées sur 20 : un devoir sur 10 et une
-            composition sur 20 restent comparables.
-          </p>
+          {/*
+            Volontairement vide : ces lignes se remplissent au stylo,
+            une fois la feuille sortie de l'imprimante.
+          */}
+          <div className="border border-black">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={index}
+                className="h-8 border-b border-dotted border-neutral-400 last:border-b-0"
+              />
+            ))}
+          </div>
+        </section>
 
-          {evaluations.length < 2 ? (
-            <p className="mt-6 text-muted-foreground">
-              Il faut au moins deux évaluations pour en comparer deux.
-            </p>
-          ) : (
-            <>
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label htmlFor="evalA" className="text-sm font-medium">
-                    Première évaluation
-                  </label>
+        {/* ---------- Signatures ---------- */}
+        <section className="stats-signatures mt-10 flex justify-between gap-8">
+          <div className="w-64">
+            <p className="text-sm font-semibold">L&apos;Enseignant</p>
 
-                  <select
-                    id="evalA"
-                    value={evalA}
-                    onChange={(event) => setEvalA(event.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">À choisir</option>
+            <p className="mt-1 text-xs italic">Nom et signature</p>
 
-                    {evaluations.map((evaluation) => (
-                      <option key={evaluation.id} value={evaluation.id}>
-                        {libelleEvaluation(evaluation)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            <div className="mt-16 border-t border-black" />
+          </div>
 
-                <div className="space-y-2">
-                  <label htmlFor="evalB" className="text-sm font-medium">
-                    Seconde évaluation
-                  </label>
+          <div className="w-64 text-right">
+            <p className="text-sm font-semibold">Le Directeur</p>
 
-                  <select
-                    id="evalB"
-                    value={evalB}
-                    onChange={(event) => setEvalB(event.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">À choisir</option>
+            <p className="mt-1 text-xs italic">Nom, signature et cachet</p>
 
-                    {evaluations.map((evaluation) => (
-                      <option key={evaluation.id} value={evaluation.id}>
-                        {libelleEvaluation(evaluation)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {evalA && evalB && evalA === evalB && (
-                <p className="mt-3 text-sm text-destructive">
-                  Choisissez deux évaluations différentes.
-                </p>
-              )}
-
-              <button
-                onClick={comparer}
-                disabled={!evalA || !evalB || evalA === evalB || comparaisonEnCours}
-                className="mt-4 rounded-md bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {comparaisonEnCours ? "Calcul..." : "Comparer"}
-              </button>
-            </>
-          )}
-
-          {comparaison && comparaison.length === 0 && (
-            <p className="mt-6 text-muted-foreground">
-              Aucun élève n&apos;a de note dans les deux évaluations : il
-              n&apos;y a rien à comparer.
-            </p>
-          )}
-
-          {comparaison && comparaison.length > 0 && (
-            <div className="mt-6 space-y-3">
-              {comparaison.map((ligne) => (
-                <div key={ligne.classe} className="rounded-lg border p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{ligne.classe}</p>
-
-                      <p className="text-xs text-muted-foreground">
-                        {ligne.eleves_communs} élève
-                        {ligne.eleves_communs > 1 ? "s" : ""} noté
-                        {ligne.eleves_communs > 1 ? "s" : ""} dans les deux
-                      </p>
-                    </div>
-
-                    {ligne.masque ? (
-                      <p className="text-sm text-muted-foreground">
-                        Trop peu d&apos;élèves pour publier une moyenne.
-                      </p>
-                    ) : (
-                      <div className="flex items-center gap-3 text-sm tabular-nums">
-                        <span>{Number(ligne.moyenne_a).toFixed(2)}</span>
-                        <span className="text-muted-foreground">→</span>
-                        <span>{Number(ligne.moyenne_b).toFixed(2)}</span>
-
-                        <span
-                          className="rounded-full px-2 py-0.5 text-xs font-semibold"
-                          style={{
-                            color:
-                              Number(ligne.ecart) >= 0
-                                ? "oklch(0.45 0.13 155)"
-                                : "oklch(0.5 0.19 25)",
-                            background:
-                              Number(ligne.ecart) >= 0
-                                ? "oklch(0.55 0.13 155 / 0.15)"
-                                : "oklch(0.55 0.19 25 / 0.13)",
-                          }}
-                        >
-                          {Number(ligne.ecart) >= 0 ? "+" : ""}
-                          {Number(ligne.ecart).toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
-                    <span>{ligne.progressions} en progrès</span>
-                    <span>{ligne.stables} stables</span>
-                    <span>{ligne.regressions} en recul</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
+            <div className="mt-16 border-t border-black" />
+          </div>
+        </section>
+      </div>
     </main>
   )
 }

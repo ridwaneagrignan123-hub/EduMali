@@ -265,3 +265,131 @@ grant execute on function public.stats_classes(uuid) to authenticated;
 grant execute on function public.stats_compare_assessments(uuid, uuid) to authenticated;
 
 commit;
+
+
+-- =====================================================================
+-- 6. Rapport par matière (ajouté après retour d'usage)
+-- =====================================================================
+-- Le premier jet comptait des NOTES ; le rapport demandé compte des
+-- ÉLÈVES ayant la moyenne dans chaque matière. On calcule donc d'abord
+-- la moyenne de chaque élève dans chaque matière, pondérée par le
+-- coefficient de chaque évaluation, avant de compter ceux qui
+-- atteignent 10.
+
+create or replace function public.stats_subjects(
+  p_period_id uuid default null,
+  p_class_id uuid default null
+)
+returns table (
+  matiere text, eleves bigint, moyenne numeric,
+  admis bigint, non_admis bigint, taux_admis numeric, masque boolean
+)
+language sql stable security definer set search_path to 'public'
+as $$
+  with base as (
+    select coalesce(s.name, 'Sans matiere') as matiere, g.student_id,
+           sum(g.score / nullif(a.max_score, 0) * 20 * coalesce(a.coefficient, 1))
+             / nullif(sum(coalesce(a.coefficient, 1)), 0) as moy
+    from grades g
+    join assessments a on a.id = g.assessment_id
+    join classes c on c.id = a.class_id
+    left join subjects s on s.id = a.subject_id
+    where g.school_id = (select p.school_id from profiles p where p.id = auth.uid())
+      and (p_period_id is null or a.academic_period_id = p_period_id)
+      and (p_class_id is null or c.id = p_class_id)
+    group by coalesce(s.name, 'Sans matiere'), g.student_id
+  )
+  select matiere, count(*),
+    case when count(*) >= 3 then round(avg(moy)::numeric, 2) end,
+    count(*) filter (where moy >= 10),
+    count(*) filter (where moy < 10),
+    case when count(*) >= 3 then round(100.0 * count(*) filter (where moy >= 10) / count(*), 1) end,
+    count(*) < 3
+  from base group by matiere order by matiere;
+$$;
+
+create or replace function public.stats_summary(
+  p_period_id uuid default null,
+  p_class_id uuid default null
+)
+returns table (
+  eleves bigint, moyenne_generale numeric,
+  admis bigint, non_admis bigint, taux_admis numeric,
+  meilleure numeric, plus_basse numeric, masque boolean
+)
+language sql stable security definer set search_path to 'public'
+as $$
+  with par_matiere as (
+    select g.student_id, coalesce(s.name, 'Sans matiere') as matiere,
+           sum(g.score / nullif(a.max_score, 0) * 20 * coalesce(a.coefficient, 1))
+             / nullif(sum(coalesce(a.coefficient, 1)), 0) as moy
+    from grades g
+    join assessments a on a.id = g.assessment_id
+    join classes c on c.id = a.class_id
+    left join subjects s on s.id = a.subject_id
+    where g.school_id = (select p.school_id from profiles p where p.id = auth.uid())
+      and (p_period_id is null or a.academic_period_id = p_period_id)
+      and (p_class_id is null or c.id = p_class_id)
+    group by g.student_id, coalesce(s.name, 'Sans matiere')
+  ),
+  par_eleve as (select student_id, avg(moy) as moy_gen from par_matiere group by student_id)
+  select count(*),
+    case when count(*) >= 3 then round(avg(moy_gen)::numeric, 2) end,
+    count(*) filter (where moy_gen >= 10),
+    count(*) filter (where moy_gen < 10),
+    case when count(*) >= 3 then round(100.0 * count(*) filter (where moy_gen >= 10) / count(*), 1) end,
+    case when count(*) >= 3 then round(max(moy_gen)::numeric, 2) end,
+    case when count(*) >= 3 then round(min(moy_gen)::numeric, 2) end,
+    count(*) < 3
+  from par_eleve;
+$$;
+
+-- Comparaison de deux périodes, matière par matière, même principe.
+create or replace function public.stats_compare_periods(
+  p_a uuid, p_b uuid, p_class_id uuid default null
+)
+returns table (
+  matiere text,
+  eleves_a bigint, admis_a bigint, non_admis_a bigint, taux_a numeric, moyenne_a numeric,
+  eleves_b bigint, admis_b bigint, non_admis_b bigint, taux_b numeric, moyenne_b numeric,
+  ecart_taux numeric
+)
+language sql stable security definer set search_path to 'public'
+as $$
+  with base as (
+    select a.academic_period_id as periode, coalesce(s.name, 'Sans matiere') as matiere,
+           g.student_id,
+           sum(g.score / nullif(a.max_score, 0) * 20 * coalesce(a.coefficient, 1))
+             / nullif(sum(coalesce(a.coefficient, 1)), 0) as moy
+    from grades g
+    join assessments a on a.id = g.assessment_id
+    join classes c on c.id = a.class_id
+    left join subjects s on s.id = a.subject_id
+    where g.school_id = (select p.school_id from profiles p where p.id = auth.uid())
+      and a.academic_period_id in (p_a, p_b)
+      and (p_class_id is null or c.id = p_class_id)
+    group by a.academic_period_id, coalesce(s.name, 'Sans matiere'), g.student_id
+  ),
+  agrege as (
+    select matiere, periode, count(*) as eleves,
+      count(*) filter (where moy >= 10) as admis,
+      count(*) filter (where moy < 10) as non_admis,
+      case when count(*) >= 3 then round(100.0 * count(*) filter (where moy >= 10) / count(*), 1) end as taux,
+      case when count(*) >= 3 then round(avg(moy)::numeric, 2) end as moyenne
+    from base group by matiere, periode
+  )
+  select coalesce(a.matiere, b.matiere),
+    coalesce(a.eleves, 0), coalesce(a.admis, 0), coalesce(a.non_admis, 0), a.taux, a.moyenne,
+    coalesce(b.eleves, 0), coalesce(b.admis, 0), coalesce(b.non_admis, 0), b.taux, b.moyenne,
+    case when a.taux is not null and b.taux is not null then round(b.taux - a.taux, 1) end
+  from (select * from agrege where periode = p_a) a
+  full outer join (select * from agrege where periode = p_b) b on b.matiere = a.matiere
+  order by 1;
+$$;
+
+revoke execute on function public.stats_subjects(uuid, uuid) from public;
+revoke execute on function public.stats_summary(uuid, uuid) from public;
+revoke execute on function public.stats_compare_periods(uuid, uuid, uuid) from public;
+grant execute on function public.stats_subjects(uuid, uuid) to authenticated;
+grant execute on function public.stats_summary(uuid, uuid) to authenticated;
+grant execute on function public.stats_compare_periods(uuid, uuid, uuid) to authenticated;
