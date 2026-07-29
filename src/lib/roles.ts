@@ -20,7 +20,12 @@ export const ROLE_LABELS: Record<string, string> = {
   directeur_direction: "Directeur de direction",
   teacher: "Enseignant",
   comptable: "Comptable",
+  surveillant: "Surveillant",
 }
+
+/** Tient la vie scolaire : retards, thèmes au rang, rappels. */
+export const VIE_SCOLAIRE = ["admin", "promoteur", "directeur_general",
+  "directeur_direction", "surveillant"]
 
 /** Direction générale : vue d'ensemble de l'établissement. */
 const DIRECTION_GENERALE = ["admin", "promoteur", "directeur_general"]
@@ -45,6 +50,8 @@ export type Permission =
   | "activite.consulter"
   /** Modifier les paramètres de l'établissement. */
   | "parametres.gerer"
+  /** Noter les retards, poser les thèmes au rang et les rappels. */
+  | "vie_scolaire.tenir"
 
 const PERMISSIONS: Record<Permission, string[]> = {
   // Le directeur général en est volontairement exclu.
@@ -61,6 +68,7 @@ const PERMISSIONS: Record<Permission, string[]> = {
   "notes.saisir": ["admin", "teacher"],
   "activite.consulter": ["admin", "promoteur"],
   "parametres.gerer": ["admin"],
+  "vie_scolaire.tenir": VIE_SCOLAIRE,
 }
 
 export function can(role: string | null | undefined, permission: Permission) {
@@ -91,8 +99,18 @@ export type NavItem = { label: string; path: string; roles: string[] }
 
 const PEDAGOGIE = [...ENCADREMENT, "teacher"]
 
+/*
+ * Les statistiques sont ouvertes à tous, y compris au comptable et au
+ * surveillant : elles ne portent que des moyennes agrégées, jamais une
+ * note nominative. C'est la raison d'être des fonctions stats_* en base,
+ * qui ne rendent rien d'autre que des agrégats.
+ */
+const TOUS = [...PEDAGOGIE, "comptable", "surveillant"]
+
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Tableau de bord", path: "/dashboard", roles: [...PEDAGOGIE, "comptable"] },
+  { label: "Tableau de bord", path: "/dashboard", roles: TOUS },
+  { label: "Statistiques", path: "/statistics", roles: TOUS },
+  { label: "Vie scolaire", path: "/supervision", roles: VIE_SCOLAIRE },
   { label: "Élèves", path: "/students", roles: ENCADREMENT },
   { label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
   { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
