@@ -66,7 +66,12 @@ const PERMISSIONS: Record<Permission, string[]> = {
   // le promoteur la lisent et l'impriment, ils ne la modifient pas.
   // L'admin fait exception : c'est le compte qui répare.
   "notes.saisir": ["admin", "teacher"],
-  "activite.consulter": ["admin", "promoteur"],
+  /*
+   * Le directeur général y a droit lui aussi, mais le RLS lui retire
+   * les lignes financières — il voit passer les notes, les élèves et
+   * les comptes, jamais un montant.
+   */
+  "activite.consulter": DIRECTION_GENERALE,
   "parametres.gerer": ["admin"],
   "vie_scolaire.tenir": VIE_SCOLAIRE,
 }
@@ -126,7 +131,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
   { label: "Présences", path: "/attendance", roles: PEDAGOGIE },
   { label: "Frais scolaires", path: "/fees", roles: ["admin", "promoteur", "comptable"] },
-  { label: "Activité", path: "/activity", roles: ["admin", "promoteur"] },
+  { label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
   { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
   { label: "Paramètres", path: "/settings", roles: ["admin"] },
 ]
