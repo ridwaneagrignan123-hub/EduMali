@@ -1,15 +1,21 @@
 /*
- * Ce que chaque rôle a le droit de faire, côté écran.
+ * Ce que chaque rôle a le droit de faire.
  *
  * ---------------------------------------------------------------------
- * CE FICHIER NE PROTÈGE RIEN.
+ * OÙ CETTE MATRICE FAIT FOI, ET OÙ ELLE NE FAIT PAS FOI
  *
- * La sécurité est dans les policies RLS (supabase/rls-roles.sql), et
- * elle seule fait foi : un menu se contourne en tapant l'adresse. Ce qui
- * est ici sert à ne pas proposer une action qui sera refusée — un
- * formulaire qui échoue est pire qu'un formulaire absent.
+ * Sur les TABLES, la sécurité est dans les policies RLS
+ * (supabase/rls-roles.sql), et elle seule compte : un menu se contourne
+ * en tapant l'adresse.
  *
- * Toute règle ajoutée ici doit avoir sa contrepartie dans le SQL.
+ * Sur les ROUTES SERVEUR, en revanche, cette matrice fait foi. Les
+ * routes sous app/api/ écrivent avec la clé service role, qui contourne
+ * le RLS : leur seule barrière est requirePermission() dans
+ * src/lib/apiAuth.ts, qui interroge PERMISSIONS ci-dessous. Une
+ * permission élargie ici ouvre réellement l'accès.
+ *
+ * Enfin, can() sert aussi à l'écran, pour ne pas proposer un bouton qui
+ * renverra 403. Cet usage-là ne protège rien.
  * ---------------------------------------------------------------------
  */
 
@@ -52,6 +58,14 @@ export type Permission =
   | "parametres.gerer"
   /** Noter les retards, poser les thèmes au rang et les rappels. */
   | "vie_scolaire.tenir"
+  /** Voir la liste des comptes de l'établissement. */
+  | "comptes.consulter"
+  /** Modifier l'identité d'un compte et lui renvoyer un lien d'accès. */
+  | "comptes.gerer"
+  /** Attribuer un rôle ordinaire, activer ou désactiver un compte. */
+  | "comptes.roles"
+  /** Attribuer ou retirer « admin » et « promoteur ». */
+  | "comptes.roles_eleves"
 
 const PERMISSIONS: Record<Permission, string[]> = {
   // Le directeur général en est volontairement exclu.
@@ -74,10 +88,58 @@ const PERMISSIONS: Record<Permission, string[]> = {
   "activite.consulter": DIRECTION_GENERALE,
   "parametres.gerer": ["admin"],
   "vie_scolaire.tenir": VIE_SCOLAIRE,
+
+  /*
+   * Les comptes, à granularité fine — et c'est délibéré.
+   *
+   * Consulter, renommer et renvoyer un lien d'accès sont des gestes
+   * d'administration courante. Attribuer un rôle en est un autre : c'est
+   * la seule opération de l'application qui donne du pouvoir à
+   * quelqu'un. Les confondre reviendrait à laisser une secrétaire
+   * nommer un administrateur.
+   */
+  "comptes.consulter": DIRECTION_GENERALE,
+  "comptes.gerer": DIRECTION_GENERALE,
+  "comptes.roles": DIRECTION_GENERALE,
+
+  /*
+   * « admin » et « promoteur » voient les finances ; le directeur
+   * général en est exclu. S'il pouvait nommer un administrateur, il lui
+   * suffirait d'en créer un pour contourner cette exclusion — ou de
+   * désactiver l'administrateur en place. Ces deux rôles sont donc hors
+   * de sa portée, en attribution comme en retrait.
+   */
+  "comptes.roles_eleves": ["admin", "promoteur"],
 }
+
+/*
+ * Les rôles qui donnent accès à tout, finances comprises. Les attribuer
+ * ou toucher à un compte qui les porte demande « comptes.roles_eleves ».
+ */
+export const ROLES_ELEVES = ["admin", "promoteur"]
 
 export function can(role: string | null | undefined, permission: Permission) {
   return PERMISSIONS[permission].includes(role ?? "")
+}
+
+/**
+ * Vrai si `role` a le droit d'attribuer `roleVise`, ou d'agir sur un
+ * compte qui le porte déjà.
+ */
+export function canAssignRole(
+  role: string | null | undefined,
+  roleVise: string | null | undefined
+) {
+  if (ROLES_ELEVES.includes(roleVise ?? "")) {
+    return can(role, "comptes.roles_eleves")
+  }
+
+  return can(role, "comptes.roles")
+}
+
+/** Les rôles que `role` peut effectivement attribuer. */
+export function assignableRoles(role: string | null | undefined) {
+  return Object.keys(ROLE_LABELS).filter((cible) => canAssignRole(role, cible))
 }
 
 export function isDirectionGenerale(role: string | null | undefined) {
