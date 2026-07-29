@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { AvertissementDirection } from "@/components/avertissement-direction"
 
 type ClassItem = {
   id: string
@@ -324,6 +325,7 @@ export default function AttendancePage() {
       </header>
 
       <section className="mx-auto max-w-5xl space-y-8 p-6">
+        <AvertissementDirection compact />
         <div>
           <h2 className="text-3xl font-bold">Présences</h2>
           <p className="mt-2 text-muted-foreground">

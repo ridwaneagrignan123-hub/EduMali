@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
+import { AvertissementDirection } from "@/components/avertissement-direction"
 
 type Student = {
   id: string
@@ -676,6 +677,7 @@ export default function AveragesPage() {
       </header>
 
       <section className="mx-auto max-w-7xl space-y-8 p-6">
+        <AvertissementDirection compact />
         <div>
           <h2 className="text-3xl font-bold">
             Moyennes des élèves

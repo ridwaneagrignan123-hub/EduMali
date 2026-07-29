@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { normalizeSearchText } from "@/src/lib/search"
+import { AvertissementDirection } from "@/components/avertissement-direction"
 import {
   ImportOutcome,
   ImportRow,
@@ -930,6 +931,7 @@ export default function GradesPage() {
       </header>
 
       <section className="mx-auto max-w-5xl space-y-8 p-6">
+        <AvertissementDirection compact />
         <div>
           <h2 className="text-3xl font-bold">Notes</h2>
           <p className="mt-2 text-muted-foreground">
