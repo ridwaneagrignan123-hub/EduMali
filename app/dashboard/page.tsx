@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
+import { NAV_ITEMS } from "@/src/lib/roles"
 
 type Profile = {
   school_id: string | null
@@ -17,59 +18,13 @@ type School = {
   name: string | null
 }
 
-type NavItem = {
-  label: string
-  path: string
-  roles: string[]
-}
-
 /*
- * Rôles de l'application (contrainte profiles_role_check en base) :
- * admin, teacher, promoteur, directeur_general, directeur_direction, comptable.
- *
- * "admin" est le rôle historique : il conserve un accès complet tant que les
- * comptes n'ont pas été migrés. Chaque entrée liste explicitement les rôles
- * autorisés — il n'y a volontairement aucun repli implicite.
+ * Le menu vit désormais dans src/lib/roles.ts, aux côtés des
+ * permissions, pour qu'une règle et son affichage ne puissent plus
+ * diverger. C'est ainsi que « Frais scolaires » restait proposé au
+ * directeur général, qui n'y a pas accès.
  */
-
-// Direction de l'établissement : vue globale sur toute l'école.
-const DIRECTION_GENERALE = ["admin", "promoteur", "directeur_general"]
-
-// Les mêmes, plus le directeur d'une direction (vue limitée à son périmètre).
-const ENCADREMENT = [...DIRECTION_GENERALE, "directeur_direction"]
-
-// Encadrement + enseignants : le quotidien pédagogique.
-const PEDAGOGIE = [...ENCADREMENT, "teacher"]
-
-const navItems: NavItem[] = [
-  {
-    label: "Tableau de bord",
-    path: "/dashboard",
-    roles: [...PEDAGOGIE, "comptable"],
-  },
-  { label: "Élèves", path: "/students", roles: [...PEDAGOGIE, "comptable"] },
-  // Tâche administrative : l'encadrement la pilote, pas les enseignants.
-  { label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
-  { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
-  { label: "Classes", path: "/classes", roles: PEDAGOGIE },
-  { label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
-  { label: "Matières", path: "/subjects", roles: DIRECTION_GENERALE },
-  { label: "Classes / Matières", path: "/class_subjects", roles: ENCADREMENT },
-  { label: "Année scolaire", path: "/academic", roles: DIRECTION_GENERALE },
-  { label: "Emploi du temps", path: "/timetable", roles: PEDAGOGIE },
-  { label: "Évaluations", path: "/assessments", roles: PEDAGOGIE },
-  { label: "Notes", path: "/grades", roles: PEDAGOGIE },
-  { label: "Moyennes", path: "/averages", roles: PEDAGOGIE },
-  { label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
-  { label: "Présences", path: "/attendance", roles: PEDAGOGIE },
-  {
-    label: "Frais scolaires",
-    path: "/fees",
-    roles: [...DIRECTION_GENERALE, "comptable"],
-  },
-  { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
-  { label: "Paramètres", path: "/settings", roles: DIRECTION_GENERALE },
-]
+const navItems = NAV_ITEMS
 
 export default function DashboardPage() {
   const router = useRouter()
