@@ -17,7 +17,13 @@ import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate
  * son côté, cet écran ne fait que l'annoncer proprement.
  */
 
-const ROLES_AUTORISES = ["admin", "promoteur"]
+/*
+ * Le directeur général est admis ici, mais le RLS lui retire les lignes
+ * financières : il voit passer les notes, les élèves et les comptes,
+ * jamais un montant. Cet écran n'a donc rien à filtrer lui-même — et il
+ * ne le doit pas, un filtre côté navigateur ne protégeant rien.
+ */
+const ROLES_AUTORISES = ["admin", "promoteur", "directeur_general"]
 
 const PAGE = 50
 
@@ -39,21 +45,72 @@ const LIBELLE_ACTION: Record<string, string> = {
 
 const LIBELLE_ENTITE: Record<string, string> = {
   note: "une note",
+  evaluation: "une évaluation",
   paiement: "un paiement",
   frais: "un frais",
+  montant_reference: "un montant de référence",
   eleve: "un élève",
   inscription: "une inscription",
-  evaluation: "une évaluation",
+  classe: "une classe",
+  matiere: "une matière",
+  affectation: "une affectation",
+  enseignant: "un enseignant",
+  compte: "un compte",
+  presence: "une présence",
+  retard: "un retard d'enseignant",
+  theme: "un thème au rang",
+  rappel: "un rappel",
+  emploi_du_temps: "un créneau",
+  annee: "une année scolaire",
+  periode: "une période",
+  direction: "une direction",
 }
 
+/* Une couleur par famille : pédagogie, argent, personnes, vie scolaire. */
 const COULEUR_ENTITE: Record<string, string> = {
   note: "oklch(0.55 0.13 155)",
+  evaluation: "oklch(0.55 0.13 155)",
   paiement: "oklch(0.585 0.16 38)",
   frais: "oklch(0.585 0.16 38)",
+  montant_reference: "oklch(0.585 0.16 38)",
   eleve: "oklch(0.55 0.12 250)",
   inscription: "oklch(0.55 0.12 250)",
-  evaluation: "oklch(0.55 0.13 155)",
+  enseignant: "oklch(0.55 0.12 250)",
+  compte: "oklch(0.55 0.12 250)",
+  classe: "oklch(0.5 0.1 300)",
+  matiere: "oklch(0.5 0.1 300)",
+  affectation: "oklch(0.5 0.1 300)",
+  annee: "oklch(0.5 0.1 300)",
+  periode: "oklch(0.5 0.1 300)",
+  direction: "oklch(0.5 0.1 300)",
+  presence: "oklch(0.55 0.14 78)",
+  retard: "oklch(0.55 0.14 78)",
+  theme: "oklch(0.55 0.14 78)",
+  rappel: "oklch(0.55 0.14 78)",
+  emploi_du_temps: "oklch(0.55 0.14 78)",
 }
+
+/*
+ * Familles de filtres plutôt qu'une puce par type : vingt puces ne
+ * tiendraient sur aucun téléphone.
+ */
+const FAMILLES: [string, string, string[]][] = [
+  ["tout", "Tout", []],
+  ["pedagogie", "Pédagogie", ["note", "evaluation"]],
+  ["eleves", "Élèves", ["eleve", "inscription", "presence"]],
+  ["argent", "Finances", ["paiement", "frais", "montant_reference"]],
+  ["personnes", "Comptes", ["enseignant", "compte"]],
+  [
+    "vie_scolaire",
+    "Vie scolaire",
+    ["retard", "theme", "rappel", "emploi_du_temps"],
+  ],
+  [
+    "structure",
+    "Structure",
+    ["classe", "matiere", "affectation", "annee", "periode", "direction"],
+  ],
+]
 
 export default function ActivityPage() {
   const router = useRouter()
@@ -117,10 +174,12 @@ export default function ActivityPage() {
   }, [gate.statut, pageIndex])
 
   const groupes = useMemo(() => {
+    const famille = FAMILLES.find(([cle]) => cle === filtre)
+
     const visibles =
-      filtre === "tout"
+      !famille || famille[2].length === 0
         ? entrees
-        : entrees.filter((entree) => entree.entity === filtre)
+        : entrees.filter((entree) => famille[2].includes(entree.entity))
 
     const parJour = new Map<string, Entree[]>()
 
@@ -168,15 +227,7 @@ export default function ActivityPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {[
-            ["tout", "Tout"],
-            ["note", "Notes"],
-            ["paiement", "Paiements"],
-            ["frais", "Frais"],
-            ["eleve", "Élèves"],
-            ["inscription", "Inscriptions"],
-            ["evaluation", "Évaluations"],
-          ].map(([valeur, libelle]) => (
+          {FAMILLES.map(([valeur, libelle]) => (
             <button
               key={valeur}
               onClick={() => setFiltre(valeur)}

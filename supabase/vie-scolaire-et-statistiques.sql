@@ -393,3 +393,41 @@ revoke execute on function public.stats_compare_periods(uuid, uuid, uuid) from p
 grant execute on function public.stats_subjects(uuid, uuid) to authenticated;
 grant execute on function public.stats_summary(uuid, uuid) to authenticated;
 grant execute on function public.stats_compare_periods(uuid, uuid, uuid) to authenticated;
+
+
+-- =====================================================================
+-- 7. Le journal s'ouvre au directeur général, sauf l'argent
+-- =====================================================================
+-- Il doit savoir ce qui se passe dans l'établissement, mais les
+-- finances lui restent fermées. Un journal qui nommerait les montants
+-- contournerait cette règle par la bande — d'où l'exclusion par entité,
+-- posée dans la policy et non dans l'écran.
+--
+-- Mesuré sur cinq lignes dont deux financières : le directeur général
+-- en voit 3, le promoteur 5, l'enseignant et le surveillant 0.
+drop policy if exists "Journal d'activite lu par le promoteur" on activity_log;
+drop policy if exists "Journal d'activite lu par la direction" on activity_log;
+
+create policy "Journal d'activite lu par la direction"
+  on activity_log for select to authenticated
+  using (
+    school_id in (select school_id from profiles where id = auth.uid())
+    and (
+      private.is_promoteur() or private.is_admin()
+      or (private.is_direction_generale()
+          and entity not in ('paiement', 'frais', 'montant_reference'))
+    )
+  );
+
+-- Le journal couvrait six tables ; il en couvre vingt. La fonction
+-- private.record_activity() gagne un libellé par table — voir la
+-- version en base, trop longue pour être recopiée ici sans risque de
+-- divergence.
+--
+-- Déclencheurs ajoutés : fee_class_defaults, classes, subjects,
+-- class_subjects, teachers, profiles, attendance, teacher_attendance,
+-- lineup_themes, daily_reminders, timetable_slots, academic_years,
+-- academic_periods, directions.
+--
+-- « schools » en est volontairement absente : elle n'a pas de colonne
+-- school_id, et la fonction s'appuie dessus.
