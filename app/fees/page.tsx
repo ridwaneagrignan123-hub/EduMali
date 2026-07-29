@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
 import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate"
+import { can } from "@/src/lib/roles"
 
 type Student = {
   id: string
@@ -71,6 +72,10 @@ const ROLES_AUTORISES = ["admin", "promoteur", "comptable"]
 export default function FeesPage() {
   const router = useRouter()
   const gate = useRoleGate(ROLES_AUTORISES)
+
+  /* Le promoteur lit les finances, il ne les saisit pas. */
+  const peutSaisir =
+    gate.statut === "autorise" && can(gate.role, "finances.saisir")
 
   const [schoolId, setSchoolId] = useState("")
 
@@ -763,6 +768,14 @@ export default function FeesPage() {
 
             <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
               <div className="space-y-8">
+                {/*
+                  Le promoteur consulte les finances sans les écrire : il
+                  ne change pas les montants en cours d'année. Lui
+                  montrer ces deux formulaires reviendrait à lui proposer
+                  des boutons que le RLS refuse.
+                */}
+                {peutSaisir && (
+                <>
                 <div className="rounded-xl border bg-background p-6">
                   <h3 className="text-xl font-semibold">
                     Définir les frais dus
@@ -940,6 +953,19 @@ export default function FeesPage() {
                     </p>
                   )}
                 </div>
+                </>
+                )}
+
+                {!peutSaisir && (
+                  <div className="rounded-xl border bg-background p-6">
+                    <h3 className="text-xl font-semibold">Consultation</h3>
+
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Votre rôle donne accès aux frais et aux paiements en
+                      lecture. Leur saisie revient à la comptabilité.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-8">

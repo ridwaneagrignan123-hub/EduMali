@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import {
   requireManageableTarget,
-  requireSchoolAdmin,
+  requirePermission,
 } from "@/src/lib/apiAuth"
 
 /*
@@ -39,7 +39,7 @@ export async function POST(
   try {
     const { userId } = await params
 
-    const guard = await requireSchoolAdmin(request)
+    const guard = await requirePermission(request, "comptes.gerer")
 
     if (!guard.ok) {
       return guard.response

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
-import { requireSchoolAdmin } from "@/src/lib/apiAuth"
+import { requirePermission } from "@/src/lib/apiAuth"
 
 /*
  * Création d'un compte enseignant.
@@ -66,7 +66,7 @@ function isMailDeliveryFailure(error: { code?: string; status?: number }) {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireSchoolAdmin(request)
+    const guard = await requirePermission(request, "enseignants.gerer")
 
     if (!guard.ok) {
       return guard.response

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { can } from "@/src/lib/roles"
 
 type ClassItem = {
   id: string
@@ -58,6 +59,9 @@ export default function TimetablePage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
+  /* Role de la personne connectee, pour masquer ce qu\'elle ne peut pas faire. */
+  const [monRole, setMonRole] = useState("")
+
   const [schoolId, setSchoolId] = useState("")
   const [academicYearId, setAcademicYearId] = useState("")
 
@@ -112,7 +116,7 @@ export default function TimetablePage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("school_id")
+      .select("school_id, role")
       .eq("id", user.id)
       .maybeSingle()
 
@@ -124,6 +128,8 @@ export default function TimetablePage() {
       setLoading(false)
       return
     }
+
+    setMonRole(profile?.role ?? "")
 
     if (!profile?.school_id) {
       router.push("/setup-school")
@@ -484,6 +490,12 @@ export default function TimetablePage() {
 
         {selectedClassId && (
           <div className="grid gap-8 xl:grid-cols-[380px_1fr]">
+            {/*
+              L'emploi du temps se compose depuis l'encadrement : le RLS
+              refuse l'écriture à l'enseignant, qui n'a ici qu'à lire le
+              sien.
+            */}
+            {can(monRole, "structure.gerer") ? (
             <div className="rounded-xl border bg-background p-6">
               <h3 className="text-xl font-semibold">
                 Ajouter un créneau
@@ -649,6 +661,16 @@ export default function TimetablePage() {
                 </button>
               </form>
             </div>
+            ) : (
+              <div className="rounded-xl border bg-background p-6">
+                <h3 className="text-xl font-semibold">Consultation</h3>
+
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Vous consultez l&apos;emploi du temps de cette classe.
+                  Sa composition revient à la direction.
+                </p>
+              </div>
+            )}
 
             <div className="rounded-xl border bg-background p-6">
               <h3 className="text-xl font-semibold">
@@ -710,12 +732,14 @@ export default function TimetablePage() {
                                     )}
                                   </div>
 
-                                  <button
-                                    onClick={() => deleteSlot(slot.id)}
-                                    className="text-xs font-medium text-destructive hover:underline"
-                                  >
-                                    Supprimer
-                                  </button>
+                                  {can(monRole, "structure.gerer") && (
+                                    <button
+                                      onClick={() => deleteSlot(slot.id)}
+                                      className="text-xs font-medium text-destructive hover:underline"
+                                    >
+                                      Supprimer
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             ))}

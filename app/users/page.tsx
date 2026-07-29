@@ -6,6 +6,7 @@ import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
 import { EditDialog } from "@/components/edit-dialog"
 import { AccessLinkNotice } from "@/components/access-link-notice"
+import { ROLE_LABELS, can, canAssignRole } from "@/src/lib/roles"
 
 type UserAccount = {
   id: string
@@ -28,14 +29,11 @@ type Direction = {
   name: string
 }
 
-const roleLabels: Record<string, string> = {
-  admin: "Administrateur",
-  teacher: "Enseignant",
-  promoteur: "Promoteur",
-  directeur_general: "Directeur général",
-  directeur_direction: "Directeur de direction",
-  comptable: "Comptable",
-}
+/*
+ * Copie locale supprimée : elle avait déjà divergé, « surveillant » y
+ * manquant depuis sa création. La liste des rôles n'a qu'une source.
+ */
+const roleLabels = ROLE_LABELS
 
 // Seul rôle dont le périmètre est limité à une direction.
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
@@ -94,6 +92,9 @@ export default function UsersPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
 
+  /** Rôle de la personne connectée, pour n'afficher que ses commandes. */
+  const [monRole, setMonRole] = useState("")
+
   /* Lien d'accès du dernier compte relancé, à transmettre à la main. */
   const [accessNotice, setAccessNotice] = useState<{
     email: string
@@ -151,7 +152,15 @@ export default function UsersPage() {
       return
     }
 
-    setUsers((result.users as UserAccount[]) ?? [])
+    const comptes = (result.users as UserAccount[]) ?? []
+    setUsers(comptes)
+
+    /*
+     * Le rôle de l'appelant sert à masquer les commandes qu'il ne peut
+     * pas déclencher. La route serveur les refuse de toute façon : ceci
+     * évite seulement de proposer un bouton qui rendrait 403.
+     */
+    setMonRole(comptes.find((compte) => compte.isSelf)?.role ?? "")
 
     // Lisible par tout membre de l'école : pas besoin de passer par l'API.
     const { data: directionsData, error: directionsError } = await supabase
@@ -654,20 +663,43 @@ export default function UsersPage() {
                               onChange={(event) =>
                                 selectRole(user, event.target.value)
                               }
-                              disabled={user.isSelf || isPending}
+                              /*
+                               * Verrouillé si l'appelant ne peut pas
+                               * attribuer de rôle, ou si ce compte porte
+                               * déjà un rôle hors de sa portée : un
+                               * directeur général ne rétrograde pas un
+                               * administrateur.
+                               */
+                              disabled={
+                                user.isSelf ||
+                                isPending ||
+                                !can(monRole, "comptes.roles") ||
+                                !canAssignRole(monRole, user.role)
+                              }
                               className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {!user.role && (
                                 <option value="">Non défini</option>
                               )}
 
-                              {Object.entries(roleLabels).map(
-                                ([value, label]) => (
+                              {Object.entries(roleLabels)
+                                /*
+                                 * On ne propose que ce que l'appelant
+                                 * peut réellement donner. Le rôle actuel
+                                 * du compte reste listé, sans quoi le
+                                 * sélecteur afficherait autre chose que
+                                 * la réalité.
+                                 */
+                                .filter(
+                                  ([value]) =>
+                                    canAssignRole(monRole, value) ||
+                                    value === user.role
+                                )
+                                .map(([value, label]) => (
                                   <option key={value} value={value}>
                                     {label}
                                   </option>
-                                )
-                              )}
+                                ))}
                             </select>
                           </div>
 
@@ -754,7 +786,18 @@ export default function UsersPage() {
 
                           <button
                             onClick={() => toggleActive(user)}
-                            disabled={user.isSelf || isPending}
+                            /*
+                             * Désactiver relève du même pouvoir
+                             * qu'attribuer un rôle : couper l'accès de
+                             * l'administrateur reviendrait à régner
+                             * seul.
+                             */
+                            disabled={
+                              user.isSelf ||
+                              isPending ||
+                              !can(monRole, "comptes.roles") ||
+                              !canAssignRole(monRole, user.role)
+                            }
                             className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                             style={
                               user.isActive

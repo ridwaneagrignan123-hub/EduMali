@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
-import { requireSchoolAdmin } from "@/src/lib/apiAuth"
+import { requirePermission } from "@/src/lib/apiAuth"
 
 /*
  * Modifie les informations personnelles d'un enseignant.
@@ -46,7 +46,7 @@ export async function PATCH(
   try {
     const { teacherId } = await params
 
-    const guard = await requireSchoolAdmin(request)
+    const guard = await requirePermission(request, "enseignants.gerer")
 
     if (!guard.ok) {
       return guard.response

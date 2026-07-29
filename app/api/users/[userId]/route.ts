@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import {
+  forbidRoleEscalation,
   requireManageableTarget,
-  requireSchoolAdmin,
+  requirePermission,
 } from "@/src/lib/apiAuth"
+import { can } from "@/src/lib/roles"
 
 /*
  * Modifie les informations personnelles, le rôle et/ou l'état actif d'un
@@ -32,6 +34,9 @@ const ALLOWED_ROLES = [
   "directeur_general",
   "directeur_direction",
   "comptable",
+  // Ajouté en même temps que la contrainte en base ; il manquait ici,
+  // si bien qu'aucun surveillant ne pouvait être nommé depuis la page.
+  "surveillant",
 ]
 
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
@@ -43,7 +48,7 @@ export async function PATCH(
   try {
     const { userId } = await params
 
-    const guard = await requireSchoolAdmin(request)
+    const guard = await requirePermission(request, "comptes.gerer")
 
     if (!guard.ok) {
       return guard.response
@@ -57,6 +62,38 @@ export async function PATCH(
 
     const body = await request.json()
     const { role, isActive, directionId, firstName, lastName, phone } = body
+
+    /*
+     * Le plafond d'attribution s'applique dès qu'on touche au rôle ou à
+     * l'activation : ce sont les deux opérations qui déplacent du
+     * pouvoir. Renommer un compte ou lui renvoyer un lien d'accès reste
+     * ouvert à « comptes.gerer ».
+     *
+     * Il porte aussi sur le rôle ACTUEL de la cible : sans cela, un
+     * directeur général pourrait désactiver l'administrateur, ou le
+     * rétrograder en enseignant, et régner seul.
+     */
+    if (role !== undefined || isActive !== undefined) {
+      if (!can(guard.context.role, "comptes.roles")) {
+        return NextResponse.json(
+          {
+            error:
+              "Votre rôle ne permet pas de modifier le rôle ni l'état d'un compte.",
+          },
+          { status: 403 }
+        )
+      }
+
+      const refus = forbidRoleEscalation(
+        guard.context,
+        targetGuard.target.role,
+        role
+      )
+
+      if (refus) {
+        return refus
+      }
+    }
 
     if (
       role === undefined &&

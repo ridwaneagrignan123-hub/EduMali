@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { sendSms } from "@/src/lib/africastalking"
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { can } from "@/src/lib/roles"
 
 type EventType = "absence" | "report_card" | "fee_overdue"
 
@@ -116,12 +117,29 @@ export async function POST(request: Request) {
       )
     }
 
-    if (eventType === "fee_overdue" && profile.role !== "admin") {
+    /*
+     * Un rappel de paiement énonce un solde : l'envoyer, c'est divulguer
+     * une donnée financière. Le droit suit donc « finances.voir », et
+     * non plus le seul rôle admin — le comptable, dont c'est le métier,
+     * en était exclu.
+     */
+    if (eventType === "fee_overdue" && !can(profile.role, "finances.voir")) {
       return NextResponse.json(
         {
           error:
-            "Seuls les administrateurs peuvent envoyer des rappels de paiement.",
+            "Votre rôle ne permet pas d'envoyer un rappel de paiement.",
         },
+        { status: 403 }
+      )
+    }
+
+    /*
+     * Les autres messages — absence, bulletin — relèvent du suivi des
+     * élèves. Un comptable n'a pas à écrire aux familles à ce sujet.
+     */
+    if (eventType !== "fee_overdue" && !can(profile.role, "vie_scolaire.tenir")) {
+      return NextResponse.json(
+        { error: "Votre rôle ne permet pas d'envoyer ce message." },
         { status: 403 }
       )
     }

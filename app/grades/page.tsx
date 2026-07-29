@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { can } from "@/src/lib/roles"
 import { normalizeSearchText } from "@/src/lib/search"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 import {
@@ -100,6 +101,9 @@ export default function GradesPage() {
   const [saving, setSaving] = useState(false)
 
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  /* Role de la personne connectee, pour masquer ce qu\'elle ne peut pas faire. */
+  const [monRole, setMonRole] = useState("")
   const [studentsError, setStudentsError] = useState<string | null>(null)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
@@ -179,7 +183,7 @@ export default function GradesPage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("school_id")
+      .select("school_id, role")
       .eq("id", user.id)
       .maybeSingle()
 
@@ -191,6 +195,8 @@ export default function GradesPage() {
       setLoading(false)
       return
     }
+
+    setMonRole(profile?.role ?? "")
 
     if (!profile?.school_id) {
       router.push("/setup-school")
@@ -1123,14 +1129,29 @@ export default function GradesPage() {
                     : "Importer les notes depuis Excel"}
                 </button>
 
-                <button
-                  onClick={saveGrades}
-                  disabled={saving || loadingStudents || students.length === 0}
-                  className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saving ? "Enregistrement..." : "Enregistrer les notes"}
-                </button>
+                {/*
+                  La note appartient à l'enseignant qui l'a donnée : le
+                  RLS n'accepte que lui et l'admin. Un directeur ouvrant
+                  cette page la consulte et l'imprime, il ne l'écrit pas
+                  — inutile de lui montrer un bouton qui échouerait.
+                */}
+                {can(monRole, "notes.saisir") && (
+                  <button
+                    onClick={saveGrades}
+                    disabled={saving || loadingStudents || students.length === 0}
+                    className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {saving ? "Enregistrement..." : "Enregistrer les notes"}
+                  </button>
+                )}
               </div>
+
+              {!can(monRole, "notes.saisir") && (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Vous consultez ces notes. Leur saisie revient à
+                  l&apos;enseignant de la classe.
+                </p>
+              )}
             </div>
 
             {showImport && (
