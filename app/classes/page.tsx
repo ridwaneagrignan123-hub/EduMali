@@ -4,11 +4,18 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { AvertissementDirection } from "@/components/avertissement-direction"
+import {
+  CYCLES,
+  CYCLE_HINTS,
+  CYCLE_LABELS,
+  cycleLabel,
+} from "@/src/lib/etablissement"
 
 type ClassItem = {
   id: string
   name: string
   level: string | null
+  cycle: string | null
 }
 
 export default function ClassesPage() {
@@ -21,6 +28,7 @@ export default function ClassesPage() {
 
   const [name, setName] = useState("")
   const [level, setLevel] = useState("")
+  const [cycle, setCycle] = useState("")
 
   useEffect(() => {
     loadClasses()
@@ -52,7 +60,7 @@ export default function ClassesPage() {
 
     const { data, error } = await supabase
       .from("classes")
-      .select("id, name, level")
+      .select("id, name, level, cycle")
       .eq("school_id", profile.school_id)
       .order("created_at", { ascending: false })
 
@@ -102,6 +110,7 @@ export default function ClassesPage() {
       school_id: profile.school_id,
       name: name.trim(),
       level: level.trim() || null,
+      cycle: cycle || null,
     })
 
     if (error) {
@@ -113,6 +122,7 @@ export default function ClassesPage() {
 
     setName("")
     setLevel("")
+    setCycle("")
 
     await loadClasses()
 
@@ -202,6 +212,38 @@ export default function ClassesPage() {
                 />
               </div>
 
+              {/*
+                Le cycle décide du mode d'affectation des enseignants :
+                un titulaire pour toute la classe au premier cycle, un
+                enseignant par matière au second cycle et au lycée. C'est
+                pourquoi il ne se déduit pas du niveau, texte libre où
+                « 6eme », « 6e » et « Sixième » coexistent.
+              */}
+              <div className="space-y-2">
+                <label htmlFor="cycle">Cycle</label>
+
+                <select
+                  id="cycle"
+                  value={cycle}
+                  onChange={(event) => setCycle(event.target.value)}
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                >
+                  <option value="">Non défini</option>
+
+                  {CYCLES.map((value) => (
+                    <option key={value} value={value}>
+                      {CYCLE_LABELS[value]}
+                    </option>
+                  ))}
+                </select>
+
+                <p className="text-xs text-muted-foreground">
+                  {cycle
+                    ? CYCLE_HINTS[cycle as keyof typeof CYCLE_HINTS]
+                    : "Sans cycle, la classe s'affecte matière par matière."}
+                </p>
+              </div>
+
               <button
                 type="submit"
                 disabled={creating}
@@ -241,6 +283,8 @@ export default function ClassesPage() {
 
                       <p className="text-sm text-muted-foreground">
                         {classItem.level || "Niveau non défini"}
+                        {" — "}
+                        {cycleLabel(classItem.cycle)}
                       </p>
                     </div>
                   </div>

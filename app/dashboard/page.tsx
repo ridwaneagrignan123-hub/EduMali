@@ -305,8 +305,12 @@ export default function DashboardPage() {
       return
     }
 
-    const [enrollmentsResult, classSubjectsResult, attendanceResult] =
-      await Promise.all([
+    const [
+      enrollmentsResult,
+      classSubjectsResult,
+      headTeachersResult,
+      attendanceResult,
+    ] = await Promise.all([
         supabase
           .from("student_class_enrollments")
           .select("student_id")
@@ -315,6 +319,18 @@ export default function DashboardPage() {
 
         supabase
           .from("class_subjects")
+          .select("teacher_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        /*
+         * Les titulaires comptent aussi. Au premier cycle, l'enseignant
+         * est rattaché à la CLASSE, pas aux matières : ne lire que
+         * class_subjects afficherait « 0 enseignant » pour une classe
+         * pourtant tenue.
+         */
+        supabase
+          .from("class_head_teachers")
           .select("teacher_id")
           .eq("school_id", currentSchoolId)
           .in("class_id", classIds),
@@ -340,13 +356,20 @@ export default function DashboardPage() {
       setStudentCount(uniqueStudents.size)
     }
 
-    if (classSubjectsResult.error) {
-      console.error("Erreur enseignants :", classSubjectsResult.error)
+    if (classSubjectsResult.error || headTeachersResult.error) {
+      console.error(
+        "Erreur enseignants :",
+        classSubjectsResult.error ?? headTeachersResult.error
+      )
       dashboardErrors.push("le nombre d'enseignants")
       setTeacherCount(null)
     } else {
+      // Un titulaire également affecté à ses matières ne compte qu'une fois.
       const uniqueTeachers = new Set(
-        (classSubjectsResult.data ?? [])
+        [
+          ...(classSubjectsResult.data ?? []),
+          ...(headTeachersResult.data ?? []),
+        ]
           .map((item) => item.teacher_id)
           .filter(Boolean)
       )

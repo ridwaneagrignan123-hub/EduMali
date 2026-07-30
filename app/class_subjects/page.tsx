@@ -4,17 +4,44 @@ import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { AvertissementDirection } from "@/components/avertissement-direction"
+import {
+  FILIERES,
+  FILIERE_LABELS,
+  Filiere,
+  cycleLabel,
+  estModeTitulaire,
+  hasFiliere,
+  toSchoolType,
+} from "@/src/lib/etablissement"
 
 type ClassItem = {
   id: string
   name: string
   level: string | null
+  cycle: string | null
+}
+
+/*
+ * Titulaire d'une classe. Au premier cycle, un enseignant tient TOUTE la
+ * classe : le rattacher matière par matière dirait la même chose N fois
+ * et laisserait la classe sans titulaire dès qu'une matière manque.
+ *
+ * `filiere` ne sert qu'en école franco-arabe, où la classe a deux
+ * titulaires — un français, un arabe. Ailleurs elle reste nulle.
+ */
+type HeadTeacher = {
+  id: string
+  class_id: string
+  teacher_id: string
+  filiere: string | null
 }
 
 type Subject = {
   id: string
   name: string
   code: string | null
+  /* Programme dont relève la matière. Nul hors école franco-arabe. */
+  filiere: string | null
 }
 
 type Teacher = {
@@ -35,6 +62,7 @@ type ClassSubject = {
   subjects: {
     name: string
     code: string | null
+    filiere: string | null
   } | null
   teachers: {
     first_name: string
@@ -59,6 +87,33 @@ export default function ClassSubjectsPage() {
   const [subjectId, setSubjectId] = useState("")
   const [teacherId, setTeacherId] = useState("")
   const [coefficient, setCoefficient] = useState("1")
+
+  const [headTeachers, setHeadTeachers] = useState<HeadTeacher[]>([])
+  const [schoolType, setSchoolType] = useState("classique")
+  const [savingHead, setSavingHead] = useState(false)
+  const [headMessage, setHeadMessage] = useState<string | null>(null)
+  const [headError, setHeadError] = useState<string | null>(null)
+
+  const classeChoisie = classes.find((item) => item.id === classId) ?? null
+
+  /*
+   * Le cycle décide du mode. Un cycle non défini retombe sur le mode par
+   * matière : c'est le fonctionnement actuel, et le seul qui ne
+   * présuppose rien des classes créées avant la colonne.
+   */
+  const modeTitulaire = estModeTitulaire(classeChoisie?.cycle)
+  const avecFiliere = hasFiliere(schoolType)
+
+  /* Les filières à pourvoir : deux en franco-arabe, une seule sinon. */
+  const filieresAPourvoir: (Filiere | null)[] = avecFiliere
+    ? [...FILIERES]
+    : [null]
+
+  function titulairePour(filiere: Filiere | null) {
+    return headTeachers.find(
+      (head) => head.class_id === classId && head.filiere === filiere
+    )
+  }
 
   useEffect(() => {
     loadData()
@@ -102,16 +157,18 @@ export default function ClassSubjectsPage() {
       subjectsResult,
       teachersResult,
       assignmentsResult,
+      headsResult,
+      schoolResult,
     ] = await Promise.all([
       supabase
         .from("classes")
-        .select("id, name, level")
+        .select("id, name, level, cycle")
         .eq("school_id", profile.school_id)
         .order("name"),
 
       supabase
         .from("subjects")
-        .select("id, name, code")
+        .select("id, name, code, filiere")
         .eq("school_id", profile.school_id)
         .order("name"),
 
@@ -134,7 +191,8 @@ export default function ClassSubjectsPage() {
           ),
           subjects (
             name,
-            code
+            code,
+            filiere
           ),
           teachers (
             first_name,
@@ -145,6 +203,17 @@ export default function ClassSubjectsPage() {
         .order("created_at", {
           ascending: false,
         }),
+
+      supabase
+        .from("class_head_teachers")
+        .select("id, class_id, teacher_id, filiere")
+        .eq("school_id", profile.school_id),
+
+      supabase
+        .from("schools")
+        .select("school_type")
+        .eq("id", profile.school_id)
+        .maybeSingle(),
     ])
 
     const loadErrors: string[] = []
@@ -187,9 +256,16 @@ export default function ClassSubjectsPage() {
       )
     }
 
+    if (headsResult.error) {
+      console.error("Erreur titulaires :", headsResult.error)
+      loadErrors.push("les titulaires")
+    }
+
     setClasses(classesResult.data ?? [])
     setSubjects(subjectsResult.data ?? [])
     setTeachers(teachersResult.data ?? [])
+    setHeadTeachers((headsResult.data as HeadTeacher[]) ?? [])
+    setSchoolType(toSchoolType(schoolResult.data?.school_type))
     setAssignments(
       (assignmentsResult.data as unknown as ClassSubject[]) ?? []
     )
@@ -261,6 +337,115 @@ export default function ClassSubjectsPage() {
     await loadData()
 
     setCreating(false)
+  }
+
+  /*
+   * Nomme — ou remplace — le titulaire d'une classe pour une filière.
+   * Les deux index uniques partiels de class_head_teachers garantissent
+   * un seul titulaire sans filière, et un seul par filière : on supprime
+   * donc l'éventuel titulaire en place avant d'insérer, plutôt que de
+   * laisser la contrainte refuser l'écriture.
+   */
+  async function nommerTitulaire(filiere: Filiere | null, valeur: string) {
+    setSavingHead(true)
+    setHeadError(null)
+    setHeadMessage(null)
+
+    const existant = titulairePour(filiere)
+
+    if (existant) {
+      const { error } = await supabase
+        .from("class_head_teachers")
+        .delete()
+        .eq("id", existant.id)
+
+      if (error) {
+        console.error("Erreur retrait du titulaire :", error)
+        setHeadError(error.message)
+        setSavingHead(false)
+        return
+      }
+    }
+
+    // Chaîne vide : on retire le titulaire sans en nommer d'autre.
+    if (valeur) {
+      const { error } = await supabase.from("class_head_teachers").insert({
+        school_id: schoolId,
+        class_id: classId,
+        teacher_id: valeur,
+        filiere,
+      })
+
+      if (error) {
+        console.error("Erreur nomination du titulaire :", error)
+        setHeadError(error.message)
+        setSavingHead(false)
+        return
+      }
+    }
+
+    await loadData()
+    setSavingHead(false)
+  }
+
+  /*
+   * Étend le titulaire à toutes les matières déjà déclarées pour la
+   * classe — c'est le « sans ressaisie » : au premier cycle il les
+   * enseigne toutes, les saisir une par une n'apprendrait rien.
+   *
+   * En franco-arabe, chaque titulaire ne prend que les matières de SA
+   * filière : appliquer le titulaire arabe aux matières françaises
+   * inverserait les programmes.
+   */
+  async function etendreATouteLaClasse(filiere: Filiere | null) {
+    const titulaire = titulairePour(filiere)
+
+    if (!titulaire) {
+      setHeadError("Nommez d'abord le titulaire.")
+      return
+    }
+
+    setSavingHead(true)
+    setHeadError(null)
+    setHeadMessage(null)
+
+    const concernees = assignments.filter(
+      (assignment) =>
+        assignment.class_id === classId &&
+        (filiere === null || assignment.subjects?.filiere === filiere)
+    )
+
+    if (concernees.length === 0) {
+      setHeadError(
+        filiere === null
+          ? "Aucune matière n'est encore déclarée pour cette classe."
+          : `Aucune matière de la filière ${FILIERE_LABELS[filiere]} n'est déclarée pour cette classe.`
+      )
+      setSavingHead(false)
+      return
+    }
+
+    const { error } = await supabase
+      .from("class_subjects")
+      .update({ teacher_id: titulaire.teacher_id })
+      .in(
+        "id",
+        concernees.map((assignment) => assignment.id)
+      )
+
+    if (error) {
+      console.error("Erreur extension du titulaire :", error)
+      setHeadError(error.message)
+      setSavingHead(false)
+      return
+    }
+
+    setHeadMessage(
+      `Titulaire affecté à ${concernees.length} matière(s) de la classe.`
+    )
+
+    await loadData()
+    setSavingHead(false)
   }
 
   async function deleteAssignment(id: string) {
@@ -368,6 +553,7 @@ export default function ClassSubjectsPage() {
                       {item.level
                         ? ` — ${item.level}`
                         : ""}
+                      {` (${cycleLabel(item.cycle)})`}
                     </option>
                   ))}
                 </select>
@@ -405,34 +591,48 @@ export default function ClassSubjectsPage() {
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <label htmlFor="teacher">
-                  Enseignant
-                </label>
+              {/*
+                Au premier cycle, l'enseignant ne se choisit pas matière
+                par matière : le titulaire les tient toutes. Le champ
+                disparaît donc, et le panneau « Titulaire(s) » ci-dessous
+                prend le relais.
+              */}
+              {!modeTitulaire && (
+                <div className="space-y-2">
+                  <label htmlFor="teacher">
+                    Enseignant
+                  </label>
 
-                <select
-                  id="teacher"
-                  value={teacherId}
-                  onChange={(event) =>
-                    setTeacherId(event.target.value)
-                  }
-                  className="w-full rounded-md border bg-background px-3 py-2"
-                >
-                  <option value="">
-                    Aucun enseignant
-                  </option>
-
-                  {teachers.map((teacher) => (
-                    <option
-                      key={teacher.id}
-                      value={teacher.id}
-                    >
-                      {teacher.first_name}{" "}
-                      {teacher.last_name}
+                  <select
+                    id="teacher"
+                    value={teacherId}
+                    onChange={(event) =>
+                      setTeacherId(event.target.value)
+                    }
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                  >
+                    <option value="">
+                      Aucun enseignant
                     </option>
-                  ))}
-                </select>
-              </div>
+
+                    {teachers.map((teacher) => (
+                      <option
+                        key={teacher.id}
+                        value={teacher.id}
+                      >
+                        {teacher.first_name}{" "}
+                        {teacher.last_name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <p className="text-xs text-muted-foreground">
+                    {classeChoisie
+                      ? `${cycleLabel(classeChoisie.cycle)} : un enseignant par matière.`
+                      : "Un enseignant par matière."}
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <label htmlFor="coefficient">
@@ -463,6 +663,85 @@ export default function ClassSubjectsPage() {
                   : "Affecter la matière"}
               </button>
             </form>
+
+            {/*
+              PREMIER CYCLE : le titulaire se nomme au niveau de la
+              classe, pas matière par matière. En franco-arabe, la classe
+              en a deux — un français, un arabe — et chacun ne s'étend
+              qu'aux matières de sa propre filière.
+            */}
+            {modeTitulaire && classeChoisie && (
+              <div className="mt-8 space-y-4 rounded-lg border p-4">
+                <div>
+                  <h4 className="font-semibold">
+                    {avecFiliere
+                      ? "Titulaires de la classe"
+                      : "Titulaire de la classe"}
+                  </h4>
+
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {cycleLabel(classeChoisie.cycle)} :{" "}
+                    {avecFiliere
+                      ? "un titulaire par filière, chacun tenant les matières de son programme."
+                      : "un seul enseignant tient toutes les matières de la classe."}
+                  </p>
+                </div>
+
+                {filieresAPourvoir.map((filiere) => {
+                  const titulaire = titulairePour(filiere)
+                  const champId = `titulaire-${filiere ?? "unique"}`
+
+                  return (
+                    <div key={filiere ?? "unique"} className="space-y-2">
+                      <label htmlFor={champId}>
+                        {filiere
+                          ? `Titulaire ${FILIERE_LABELS[filiere]}`
+                          : "Titulaire"}
+                      </label>
+
+                      <select
+                        id={champId}
+                        value={titulaire?.teacher_id ?? ""}
+                        disabled={savingHead}
+                        onChange={(event) =>
+                          nommerTitulaire(filiere, event.target.value)
+                        }
+                        className="w-full rounded-md border bg-background px-3 py-2 disabled:opacity-50"
+                      >
+                        <option value="">Aucun titulaire</option>
+
+                        {teachers.map((teacher) => (
+                          <option key={teacher.id} value={teacher.id}>
+                            {teacher.first_name} {teacher.last_name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        disabled={savingHead || !titulaire}
+                        onClick={() => etendreATouteLaClasse(filiere)}
+                        className="w-full rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {filiere
+                          ? `Affecter à toutes les matières du programme ${FILIERE_LABELS[filiere].toLowerCase()}`
+                          : "Affecter à toutes les matières de la classe"}
+                      </button>
+                    </div>
+                  )
+                })}
+
+                {headError && (
+                  <p className="text-sm text-destructive">{headError}</p>
+                )}
+
+                {headMessage && (
+                  <p className="text-sm text-muted-foreground">
+                    {headMessage}
+                  </p>
+                )}
+              </div>
+            )}
 
             {classes.length === 0 && (
               <p className="mt-4 text-sm text-amber-600">
