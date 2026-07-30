@@ -13,10 +13,48 @@ import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
  * laisse passer le service role : c'est donc ici que l'opération a sa
  * place, et nulle part ailleurs.
  *
- * Garde-fou : on ne rattache que si le compte n'a PAS encore d'école.
- * Sans cette condition, la route deviendrait un moyen détourné de changer
- * d'établissement ou de se rendre administrateur d'une école existante.
+ * ---------------------------------------------------------------------
+ * C'EST ICI QUE SE PREND LA DÉCISION, PAS DANS LE NAVIGATEUR
+ *
+ * Le contrôle qui rejetait un compte Google inconnu vivait dans
+ * app/auth/callback/page.tsx, un fichier client. Or l'URL Supabase et la
+ * clé anon sont publiques : on peut lancer l'authentification Google
+ * depuis son propre script, sans jamais charger cette page. Le signOut()
+ * de rejet ne s'exécutait alors jamais, et le porteur du jeton arrivait
+ * ici avec un profil vide — les trois conditions d'alors étaient
+ * réunies, et il devenait administrateur de son propre établissement.
+ *
+ * L'inscription publique étant volontairement reportée, cette route
+ * n'aboutit plus que sur AUTORISATION NOMINATIVE PRÉALABLE, déposée dans
+ * school_creation_grants par le titulaire du projet. Cette table n'a
+ * aucune policy : le RLS en interdit l'accès à tout client, seule la clé
+ * service role la lit. Un jeton valide ne suffit plus.
+ *
+ * Une table plutôt qu'un drapeau de configuration : un drapeau activé
+ * pour intégrer une école puis oublié rouvre le trou en silence, tandis
+ * qu'une autorisation se consomme et laisse une trace de qui l'a
+ * accordée.
+ * ---------------------------------------------------------------------
+ *
+ * Garde-fou conservé : on ne rattache que si le compte n'a PAS encore
+ * d'école. Sans cette condition, la route deviendrait un moyen détourné
+ * de changer d'établissement ou de se rendre administrateur d'une école
+ * existante.
  */
+
+/** Rend une autorisation réclamée mais finalement inutilisée. */
+async function libererAutorisation(grantId: string) {
+  const { error } = await supabaseAdmin
+    .from("school_creation_grants")
+    .update({ used_at: null, used_by: null })
+    .eq("id", grantId)
+
+  if (error) {
+    // Sans gravité immédiate : l'établissement n'existe pas. Mais il
+    // faudra réémettre une autorisation, d'où la trace.
+    console.error("Autorisation non libérée :", error)
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -86,6 +124,52 @@ export async function POST(request: Request) {
       )
     }
 
+    /*
+     * L'autorisation nominative. On compare en minuscules : Google peut
+     * renvoyer une casse différente de celle saisie par le titulaire.
+     */
+    const courriel = (user.email ?? "").trim().toLowerCase()
+
+    /*
+     * On RÉCLAME l'autorisation avant de créer quoi que ce soit, en une
+     * seule écriture conditionnée sur `used_at is null`. Lire puis
+     * écrire laisserait deux appels simultanés consommer la même
+     * autorisation et ouvrir deux établissements.
+     */
+    const { data: grant, error: grantError } = courriel
+      ? await supabaseAdmin
+          .from("school_creation_grants")
+          .update({ used_at: new Date().toISOString(), used_by: user.id })
+          .ilike("email", courriel)
+          .is("used_at", null)
+          .select("id")
+          .maybeSingle()
+      : { data: null, error: null }
+
+    if (grantError) {
+      console.error("Erreur lecture de l'autorisation :", grantError)
+
+      return NextResponse.json(
+        { error: "Impossible de vérifier votre autorisation." },
+        { status: 500 }
+      )
+    }
+
+    if (!courriel || !grant) {
+      /*
+       * Refus par défaut. Un jeton valide ne vaut pas autorisation : il
+       * atteste seulement que Google connaît cette personne, pas que
+       * nous l'attendions.
+       */
+      return NextResponse.json(
+        {
+          error:
+            "La création d'un établissement n'est pas ouverte. Si vous devez ouvrir une école sur Ridwane, contactez l'équipe pour qu'elle autorise votre adresse.",
+        },
+        { status: 403 }
+      )
+    }
+
     const { data: school, error: schoolError } = await supabaseAdmin
       .from("schools")
       .insert({
@@ -99,6 +183,10 @@ export async function POST(request: Request) {
 
     if (schoolError || !school) {
       console.error("Erreur création de l'établissement :", schoolError)
+
+      // L'autorisation n'a pas servi : on la rend, sinon un échec
+      // technique la consommerait et il faudrait en réémettre une.
+      await libererAutorisation(grant.id)
 
       return NextResponse.json(
         { error: "L'établissement n'a pas pu être créé." },
@@ -127,6 +215,7 @@ export async function POST(request: Request) {
        * retire plutôt que de laisser une école orpheline en base.
        */
       await supabaseAdmin.from("schools").delete().eq("id", school.id)
+      await libererAutorisation(grant.id)
 
       return NextResponse.json(
         {
