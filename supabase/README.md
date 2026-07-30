@@ -7,11 +7,12 @@ automatiquement synchronisée.
 > ## ⚠️ Toute modification du schéma régénère `schema.sql` dans le MÊME commit
 >
 > Créer une table, ajouter une colonne, changer une contrainte, poser une
-> policy ou une fonction : le fichier se régénère et part avec le changement.
+> policy, une fonction **ou un droit de colonne** : le fichier se régénère et
+> part avec le changement.
 >
 > **Ce n'est pas une formalité.** Ce fichier existe pour mettre fin aux bugs
 > écrits contre un schéma supposé plutôt que vérifié. Il a déjà divergé
-> **trois fois** — et un fichier de référence périmé est plus dangereux
+> **quatre fois** — et un fichier de référence périmé est plus dangereux
 > qu'un fichier absent, parce qu'on lui fait confiance.
 >
 > La régénération se fait par introspection de `pg_catalog`, jamais en
@@ -21,27 +22,35 @@ automatiquement synchronisée.
 ## Ce que contient ce dossier
 
 **`schema.sql`** — état de référence complet, obtenu par introspection de la
-base de production le **2026-07-29** (lecture de `pg_catalog`).
+base de production le **2026-07-30** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
 | Tables | **24** |
-| Colonnes | 197 |
-| Contraintes | 115 |
+| Colonnes | 207 |
+| Contraintes | 121 |
 | Tables avec RLS active | **24 sur 24** |
-| Policies | 87 |
-| Index | 46 |
-| Fonctions `public` | 9 |
-| Fonctions `private` | 17 |
-| Déclencheurs | 24 |
+| Policies | 86 |
+| Index | 48 |
+| Fonctions `public` | 15 |
+| Fonctions `private` | 19 |
+| Déclencheurs | 26 |
 
-**`rls-roles.sql`** — le cloisonnement par rôle, appliqué le 2026-07-29.
+Il porte désormais une **section 5 : droits par colonne**. Le RLS travaille
+par ligne et ne masque pas une colonne — sans ce bloc, une base recréée
+depuis ce fichier rouvrirait la lecture des salaires à tout le personnel.
 
-**`vie-scolaire-et-statistiques.sql`** — rôle `surveillant`, retards des
-enseignants, thèmes au rang, rappels, fonctions statistiques.
+### Les fichiers de trace
 
-Ces deux derniers sont la **trace** de ce qui a été appliqué, pas la source :
-les rejouer sur la production échouerait. `schema.sql` seul décrit l'état.
+Ils portent le **raisonnement** ; `schema.sql` porte l'**état**. Les rejouer
+sur la production échouerait, les objets existant déjà.
+
+| Fichier | Contenu |
+|---|---|
+| `rls-roles.sql` | cloisonnement par rôle (2026-07-29) |
+| `vie-scolaire-et-statistiques.sql` | rôle `surveillant`, retards, thèmes au rang, rappels, fonctions `stats_*` |
+| `caisse.sql` | numéros de reçu, traçabilité de l'encaissement, annulation, état de caisse (2026-07-30) |
+| `paie.sql` | contrats et tarifs, règles de paie, calcul mensuel, fermeture des colonnes de salaire (2026-07-30) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -124,7 +133,7 @@ La colonne `students.photo_url` stocke l'URL publique résultante.
 
 ## Points connus
 
-Vérifiés en base le 2026-07-29, pas reconduits de mémoire.
+Vérifiés en base le 2026-07-30, pas reconduits de mémoire.
 
 - **`students.matricule`** est une colonne morte : 0 ligne renseignée, aucune
   référence dans le code. L'application utilise `student_number`. Conservée
@@ -138,6 +147,17 @@ Vérifiés en base le 2026-07-29, pas reconduits de mémoire.
   `SECURITY DEFINER` pour que chacun puisse comparer les classes, et ne sont
   sans danger **que** parce qu'elles ne rendent aucune colonne nominative. Y
   ajouter un nom d'élève ouvrirait le carnet de notes de toute l'école.
+- **Les fonctions `cash_report_*`, `payroll_month` et
+  `set_teacher_compensation` contournent aussi le RLS**, pour lire les noms
+  des encaisseurs et croiser des tables que l'appelant ne voit pas entièrement.
+  Chacune **refait donc le contrôle d'accès dans son corps**, sur
+  `private.can_see_money()`. Retirer ce `raise` ouvrirait la caisse et les
+  salaires à tout compte authentifié — le RLS ne rattraperait rien.
+- **Les colonnes `teachers.hourly_rate` et `teachers.monthly_salary` sont
+  fermées au rôle `authenticated`** par des droits de colonne, pas par une
+  policy. Le RLS travaille par ligne et n'aurait pas pu les masquer. Toute
+  nouvelle colonne sensible sur `teachers` doit être omise des `grant` de la
+  section 5 de `schema.sql`, sinon elle sera lisible par toute l'école.
 
 ### Points résolus depuis, à ne pas réintroduire
 

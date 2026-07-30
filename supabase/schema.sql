@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Ridwane — état de référence de la base
 -- =====================================================================
--- OBTENU PAR INTROSPECTION de pg_catalog le 2026-07-29.
+-- OBTENU PAR INTROSPECTION de pg_catalog le 2026-07-30.
 -- Ni écrit de mémoire, ni recopié des scripts du dossier : c'est ce qui
 -- fait sa valeur, et ce qui a manqué les fois où il a divergé.
 --
@@ -10,8 +10,14 @@
 -- reprise après sinistre. Sur une base existante il échouera, les objets
 -- existant déjà, et masquerait un écart réel.
 --
--- ⚠️  TOUT CHANGEMENT DE SCHÉMA DOIT RÉGÉNÉRER CE FICHIER DANS LE MÊME
---     COMMIT. Voir supabase/README.md.
+-- ⚠️  TOUT CHANGEMENT DE SCHÉMA RÉGÉNÈRE CE FICHIER DANS LE MÊME COMMIT.
+--     Voir supabase/README.md. C'est la quatrième fois que cet écart
+--     réapparaît.
+--
+-- La section 5 est nouvelle : les droits par colonne. Le RLS travaille
+-- par ligne et ne masque pas une colonne — sans ce bloc, une base
+-- recréée depuis ce fichier rouvrirait la lecture des salaires à tout
+-- le personnel.
 -- =====================================================================
 
 -- 1. TABLES
@@ -193,10 +199,19 @@ create table fee_payments (
   payment_method text,
   note text,
   created_at timestamp with time zone default now() not null,
+  receipt_number integer not null,
+  recorded_by uuid,
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint fee_payments_receipt_unique UNIQUE (school_id, receipt_number),
   constraint fee_payments_pkey PRIMARY KEY (id),
+  constraint fee_payments_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
   constraint fee_payments_fee_assessment_id_fkey FOREIGN KEY (fee_assessment_id) REFERENCES public.fee_assessments(id) ON DELETE CASCADE,
+  constraint fee_payments_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
   constraint fee_payments_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
   constraint fee_payments_amount_paid_check CHECK ((amount_paid > (0)::numeric)),
+  constraint fee_payments_cancellation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL) AND (cancellation_reason IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL) AND (cancellation_reason IS NOT NULL) AND (length(btrim(cancellation_reason)) >= 3)))),
   constraint fee_payments_payment_method_check CHECK ((payment_method = ANY (ARRAY['cash'::text, 'mobile_money'::text, 'bank_transfer'::text, 'cheque'::text])))
 );
 
@@ -273,6 +288,8 @@ create table schools (
   appreciation_very_good numeric(5,2) default 16 not null,
   appreciation_good numeric(5,2) default 14 not null,
   appreciation_fair numeric(5,2) default 10 not null,
+  payroll_pay_excused_absence boolean default false not null,
+  payroll_deduct_late boolean default false not null,
   constraint schools_pkey PRIMARY KEY (id),
   constraint schools_appreciation_order_check CHECK (((appreciation_excellent > appreciation_very_good) AND (appreciation_very_good > appreciation_good) AND (appreciation_good > appreciation_fair) AND (appreciation_fair >= (0)::numeric) AND (appreciation_excellent <= grading_scale))),
   constraint schools_grading_scale_check CHECK (((grading_scale > (0)::numeric) AND (grading_scale <= (100)::numeric)))
@@ -373,10 +390,15 @@ create table teachers (
   hire_date date,
   status text default 'active'::text not null,
   profile_id uuid,
+  contract_type text,
+  hourly_rate numeric,
+  monthly_salary numeric,
   constraint teachers_profile_id_unique UNIQUE (profile_id),
   constraint teachers_pkey PRIMARY KEY (id),
   constraint teachers_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id) ON DELETE CASCADE,
-  constraint teachers_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE
+  constraint teachers_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  constraint teachers_contract_type_check CHECK (((contract_type IS NULL) OR (contract_type = ANY (ARRAY['permanent'::text, 'vacataire'::text])))),
+  constraint teachers_rates_check CHECK ((((hourly_rate IS NULL) OR (hourly_rate >= (0)::numeric)) AND ((monthly_salary IS NULL) OR (monthly_salary >= (0)::numeric))))
 );
 
 create table timetable_slots (
@@ -406,6 +428,7 @@ create table timetable_slots (
 CREATE INDEX activity_log_school_date_idx ON public.activity_log USING btree (school_id, created_at DESC);
 CREATE INDEX classes_direction_id_idx ON public.classes USING btree (direction_id);
 CREATE INDEX daily_reminders_school_date_idx ON public.daily_reminders USING btree (school_id, reminder_date DESC);
+CREATE INDEX fee_payments_school_date_idx ON public.fee_payments USING btree (school_id, payment_date DESC);
 CREATE INDEX lineup_themes_school_date_idx ON public.lineup_themes USING btree (school_id, scheduled_on);
 CREATE INDEX profiles_direction_id_idx ON public.profiles USING btree (direction_id);
 CREATE INDEX sms_logs_student_event_idx ON public.sms_logs USING btree (student_id, event_type, created_at DESC);
@@ -680,11 +703,6 @@ create policy "Admins can update fee class defaults from their school" on fee_cl
    FROM public.profiles
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
-create policy "Paiements supprimes par l'admin" on fee_payments for delete to {authenticated}
-  using ((private.is_admin() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
-
 create policy "Paiements enregistres par la comptabilite" on fee_payments for insert to {authenticated}
   with check ((private.can_write_money() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
@@ -943,7 +961,52 @@ create policy "Emploi du temps modifie par l'encadrement" on timetable_slots for
   WHERE (profiles.id = auth.uid())))));
 
 
--- 5. FONCTIONS
+-- 5. DROITS PAR COLONNE
+--
+-- Le RLS travaille par ligne : il ne masque pas une colonne. Les
+-- colonnes de remuneration de teachers sont donc fermees ici, en
+-- retirant le droit de TABLE puis en le rendant colonne par
+-- colonne. Un revoke par colonne seul n'aurait aucun effet.
+
+revoke select, insert, update on teachers from authenticated;
+revoke select, insert, update on teachers from anon;
+
+grant insert (contract_type) on teachers to authenticated;
+grant insert (created_at) on teachers to authenticated;
+grant insert (email) on teachers to authenticated;
+grant insert (first_name) on teachers to authenticated;
+grant insert (hire_date) on teachers to authenticated;
+grant insert (id) on teachers to authenticated;
+grant insert (last_name) on teachers to authenticated;
+grant insert (phone) on teachers to authenticated;
+grant insert (profile_id) on teachers to authenticated;
+grant insert (school_id) on teachers to authenticated;
+grant insert (specialty) on teachers to authenticated;
+grant insert (status) on teachers to authenticated;
+grant select (contract_type) on teachers to authenticated;
+grant select (created_at) on teachers to authenticated;
+grant select (email) on teachers to authenticated;
+grant select (first_name) on teachers to authenticated;
+grant select (hire_date) on teachers to authenticated;
+grant select (id) on teachers to authenticated;
+grant select (last_name) on teachers to authenticated;
+grant select (phone) on teachers to authenticated;
+grant select (profile_id) on teachers to authenticated;
+grant select (school_id) on teachers to authenticated;
+grant select (specialty) on teachers to authenticated;
+grant select (status) on teachers to authenticated;
+grant update (contract_type) on teachers to authenticated;
+grant update (email) on teachers to authenticated;
+grant update (first_name) on teachers to authenticated;
+grant update (hire_date) on teachers to authenticated;
+grant update (last_name) on teachers to authenticated;
+grant update (phone) on teachers to authenticated;
+grant update (profile_id) on teachers to authenticated;
+grant update (specialty) on teachers to authenticated;
+grant update (status) on teachers to authenticated;
+
+
+-- 6. FONCTIONS
 
 CREATE OR REPLACE FUNCTION private.assessment_direction_id(target_assessment_id uuid)
  RETURNS uuid
@@ -954,6 +1017,43 @@ AS $function$
   select c.direction_id
   from assessments a join classes c on c.id = a.class_id
   where a.id = target_assessment_id;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.attribuer_numero_recu()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  perform pg_advisory_xact_lock(hashtext('fee_receipt:' || new.school_id::text));
+
+  select coalesce(max(receipt_number), 0) + 1
+    into new.receipt_number
+  from fee_payments
+  where school_id = new.school_id;
+
+  /*
+   * recorded_by est impose ici, jamais accepte du client. Sans cet
+   * ecrasement, un utilisateur attribuerait son encaissement a un
+   * collegue en envoyant simplement un autre identifiant.
+   *
+   * On ne l'ecrase que s'il y a une session : les ecritures en service
+   * role (reprise, migration) n'ont pas d'auth.uid() et doivent pouvoir
+   * renseigner le champ explicitement.
+   */
+  if auth.uid() is not null then
+    new.recorded_by := auth.uid();
+  end if;
+
+  -- Un paiement ne nait jamais annule.
+  new.cancelled_at := null;
+  new.cancelled_by := null;
+  new.cancellation_reason := null;
+
+  return new;
+end;
 $function$
 ;
 
@@ -980,6 +1080,52 @@ CREATE OR REPLACE FUNCTION private.class_direction_id(target_class_id uuid)
  SET search_path TO 'public'
 AS $function$
   select c.direction_id from classes c where c.id = target_class_id;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.controler_annulation_paiement()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  -- Le numero de recu et l'auteur de l'encaissement sont graves.
+  if new.receipt_number is distinct from old.receipt_number then
+    raise exception 'Le numero de recu ne se modifie pas.';
+  end if;
+
+  if new.recorded_by is distinct from old.recorded_by then
+    raise exception 'L''auteur de l''encaissement ne se modifie pas.';
+  end if;
+
+  -- Une annulation ne se leve pas, et une ligne annulee se fige alors
+  -- definitivement : son montant ne bougera plus.
+  if old.cancelled_at is not null then
+    if new.cancelled_at is null then
+      raise exception 'Une annulation ne peut pas etre levee.';
+    end if;
+
+    if new.amount_paid is distinct from old.amount_paid
+       or new.fee_assessment_id is distinct from old.fee_assessment_id
+       or new.payment_date is distinct from old.payment_date
+       or new.payment_method is distinct from old.payment_method then
+      raise exception 'Un paiement annule ne se modifie plus.';
+    end if;
+  end if;
+
+  -- Passage a l'etat annule : l'auteur et l'heure sont imposes, comme a
+  -- l'encaissement. On ne se fie pas a ce que le client envoie.
+  if old.cancelled_at is null and new.cancelled_at is not null then
+    new.cancelled_at := now();
+
+    if auth.uid() is not null then
+      new.cancelled_by := auth.uid();
+    end if;
+  end if;
+
+  return new;
+end;
 $function$
 ;
 
@@ -1067,8 +1213,6 @@ begin
   select p.first_name, p.last_name, p.role, p.school_id into qui
   from profiles p where p.id = auth.uid();
 
-  -- Ecrit hors session applicative (migration, service role) : on ne
-  -- saurait pas au nom de qui journaliser.
   if qui.school_id is null then return ligne; end if;
 
   quand_action := case tg_op
@@ -1083,7 +1227,24 @@ begin
         into libelle from students s where s.id = ligne.student_id;
     when 'fee_payments' then
       quoi := 'paiement';
-      libelle := 'Paiement de ' || coalesce(ligne.amount_paid::text, '0') || ' F';
+      libelle := 'Recu n' || coalesce(ligne.receipt_number::text, '?')
+                 || ' — ' || coalesce(ligne.amount_paid::text, '0') || ' F';
+
+      -- « if » imbrique, pas « and » : sur INSERT, old n'existe pas et
+      -- l'ordre d'evaluation d'un AND n'est pas garanti.
+      if tg_op = 'UPDATE' then
+        if old.cancelled_at is null and new.cancelled_at is not null then
+          quoi := 'annulation';
+          select 'Annulation du recu n' || new.receipt_number
+                 || ' — ' || s.last_name || ' ' || s.first_name
+                 || ' — ' || new.amount_paid || ' F — motif : '
+                 || coalesce(new.cancellation_reason, '')
+            into libelle
+          from fee_assessments fa
+          join students s on s.id = fa.student_id
+          where fa.id = new.fee_assessment_id;
+        end if;
+      end if;
     when 'fee_assessments' then
       quoi := 'frais';
       libelle := 'Frais de ' || coalesce(ligne.amount_due::text, '0') || ' F';
@@ -1216,6 +1377,114 @@ AS $function$
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.cash_report_by_collector(p_date date)
+ RETURNS TABLE(encaisseur text, role_encaisseur text, nombre bigint, total numeric)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not private.can_see_money() then
+    raise exception 'Acces refuse : votre role ne donne pas acces a la caisse.';
+  end if;
+
+  return query
+  select
+    coalesce(nullif(trim(coalesce(pr.first_name,'') || ' ' || coalesce(pr.last_name,'')), ''),
+             'Compte sans nom'),
+    coalesce(pr.role, 'inconnu'),
+    count(*), sum(p.amount_paid)
+  from fee_payments p
+  left join profiles pr on pr.id = p.recorded_by
+  where p.school_id = (select x.school_id from profiles x where x.id = auth.uid())
+    and p.payment_date = p_date
+    and p.cancelled_at is null
+  group by 1, 2
+  order by 4 desc;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.cash_report_by_method(p_date date)
+ RETURNS TABLE(mode text, nombre bigint, total numeric)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not private.can_see_money() then
+    raise exception 'Acces refuse : votre role ne donne pas acces a la caisse.';
+  end if;
+
+  return query
+  select coalesce(p.payment_method, 'non precise'), count(*), sum(p.amount_paid)
+  from fee_payments p
+  where p.school_id = (select pr.school_id from profiles pr where pr.id = auth.uid())
+    and p.payment_date = p_date
+    and p.cancelled_at is null
+  group by coalesce(p.payment_method, 'non precise')
+  order by 3 desc;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.cash_report_payments(p_date date)
+ RETURNS TABLE(recu integer, eleve text, montant numeric, mode text, encaisseur text, annule_le timestamp with time zone, annule_par text, motif text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not private.can_see_money() then
+    raise exception 'Acces refuse : votre role ne donne pas acces a la caisse.';
+  end if;
+
+  return query
+  select
+    p.receipt_number,
+    s.last_name || ' ' || s.first_name,
+    p.amount_paid,
+    coalesce(p.payment_method, 'non precise'),
+    coalesce(nullif(trim(coalesce(pr.first_name,'') || ' ' || coalesce(pr.last_name,'')), ''), 'Compte sans nom'),
+    p.cancelled_at,
+    nullif(trim(coalesce(pa.first_name,'') || ' ' || coalesce(pa.last_name,'')), ''),
+    p.cancellation_reason
+  from fee_payments p
+  join fee_assessments fa on fa.id = p.fee_assessment_id
+  join students s on s.id = fa.student_id
+  left join profiles pr on pr.id = p.recorded_by
+  left join profiles pa on pa.id = p.cancelled_by
+  where p.school_id = (select x.school_id from profiles x where x.id = auth.uid())
+    and p.payment_date = p_date
+  order by p.receipt_number;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.cash_report_totals(p_date date)
+ RETURNS TABLE(encaisse numeric, nombre bigint, annule numeric, nombre_annule bigint)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if not private.can_see_money() then
+    raise exception 'Acces refuse : votre role ne donne pas acces a la caisse.';
+  end if;
+
+  return query
+  select
+    coalesce(sum(p.amount_paid) filter (where p.cancelled_at is null), 0),
+    count(*) filter (where p.cancelled_at is null),
+    coalesce(sum(p.amount_paid) filter (where p.cancelled_at is not null), 0),
+    count(*) filter (where p.cancelled_at is not null)
+  from fee_payments p
+  where p.school_id = (select pr.school_id from profiles pr where pr.id = auth.uid())
+    and p.payment_date = p_date;
+end;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.dump_schema_temporaire()
  RETURNS text
  LANGUAGE sql
@@ -1235,6 +1504,129 @@ begin
   values (new.id);
 
   return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.payroll_month(p_year integer, p_month integer)
+ RETURNS TABLE(enseignant_id uuid, enseignant text, contrat text, statut text, taux_horaire numeric, salaire_mensuel numeric, creneaux integer, heures_planifiees numeric, heures_non_assurees numeric, heures_payees numeric, jours_absence integer, jours_absence_excusee integer, jours_retard integer, minutes_retard integer, montant numeric)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_ecole uuid;
+  v_debut date;
+  v_fin date;
+  v_paye_excusee boolean;
+  v_retient_retard boolean;
+begin
+  if not private.can_see_money() then
+    raise exception 'Acces refuse : votre role ne donne pas acces a la paie.';
+  end if;
+
+  select pr.school_id into v_ecole from profiles pr where pr.id = auth.uid();
+
+  v_debut := make_date(p_year, p_month, 1);
+  v_fin := (v_debut + interval '1 month - 1 day')::date;
+
+  select s.payroll_pay_excused_absence, s.payroll_deduct_late
+    into v_paye_excusee, v_retient_retard
+  from schools s where s.id = v_ecole;
+
+  return query
+  with jours as (
+    /*
+     * PIEGE 2 : on deroule les jours REELS du mois. Multiplier les
+     * creneaux hebdomadaires par un nombre de semaines forfaitaire
+     * donnerait 4 ou 4,33 semaines partout et se tromperait chaque mois.
+     */
+    select d::date as jour
+    from generate_series(v_debut, v_fin, interval '1 day') d
+    where not exists (
+      /*
+       * PIEGE 1 : les vacances et jours feries sortent du decompte.
+       * Sans cette exclusion, les heures planifiees — et donc les
+       * montants — seraient systematiquement surevalues.
+       */
+      select 1 from school_holidays h
+      where h.school_id = v_ecole
+        and d::date between h.start_date and h.end_date
+    )
+  ),
+  planifie as (
+    select
+      t.id as tid,
+      j.jour,
+      sum(extract(epoch from (ts.end_time - ts.start_time)) / 3600.0) as heures
+    from jours j
+    join timetable_slots ts on ts.day_of_week = extract(isodow from j.jour)
+    join academic_years ay on ay.id = ts.academic_year_id
+                          and j.jour between ay.start_date and ay.end_date
+    join teachers t on t.id = ts.teacher_id
+    where ts.school_id = v_ecole
+    group by t.id, j.jour
+  ),
+  releves as (
+    select ta.teacher_id as tid, ta.occurred_on, ta.status,
+           coalesce(ta.minutes_late, 0) as minutes
+    from teacher_attendance ta
+    where ta.school_id = v_ecole
+      and ta.occurred_on between v_debut and v_fin
+  ),
+  agrege as (
+    select
+      p.tid,
+      count(distinct p.jour)::integer as nb_creneaux,
+      sum(p.heures) as h_planifiees,
+      -- Heures perdues : le jour entier quand l'enseignant est absent,
+      -- les minutes de retard seulement si l'ecole les retient.
+      coalesce(sum(
+        case
+          when r.status = 'absence' then p.heures
+          when r.status = 'absence_excusee' and not v_paye_excusee then p.heures
+          when r.status = 'retard' and v_retient_retard then least(r.minutes / 60.0, p.heures)
+          else 0
+        end
+      ), 0) as h_perdues,
+      count(*) filter (where r.status = 'absence')::integer as n_abs,
+      count(*) filter (where r.status = 'absence_excusee')::integer as n_exc,
+      count(*) filter (where r.status = 'retard')::integer as n_ret,
+      coalesce(sum(case when r.status = 'retard' then r.minutes else 0 end), 0)::integer as m_ret
+    from planifie p
+    left join releves r on r.tid = p.tid and r.occurred_on = p.jour
+    group by p.tid
+  )
+  select
+    t.id,
+    t.last_name || ' ' || t.first_name,
+    coalesce(t.contract_type, 'non defini'),
+    t.status,
+    t.hourly_rate,
+    t.monthly_salary,
+    coalesce(a.nb_creneaux, 0),
+    round(coalesce(a.h_planifiees, 0)::numeric, 2),
+    round(coalesce(a.h_perdues, 0)::numeric, 2),
+    round(greatest(coalesce(a.h_planifiees, 0) - coalesce(a.h_perdues, 0), 0)::numeric, 2),
+    coalesce(a.n_abs, 0),
+    coalesce(a.n_exc, 0),
+    coalesce(a.n_ret, 0),
+    coalesce(a.m_ret, 0),
+    /*
+     * PIEGE 3 : un permanent est mensualise. Lui appliquer le calcul
+     * horaire le ferait payer a l'heure, ce qui n'est pas son contrat.
+     */
+    case
+      when t.contract_type = 'permanent' then coalesce(t.monthly_salary, 0)
+      when t.contract_type = 'vacataire' then
+        round(greatest(coalesce(a.h_planifiees, 0) - coalesce(a.h_perdues, 0), 0)::numeric
+              * coalesce(t.hourly_rate, 0), 0)
+      else 0
+    end
+  from teachers t
+  left join agrege a on a.tid = t.id
+  where t.school_id = v_ecole
+  order by t.last_name, t.first_name;
 end;
 $function$
 ;
@@ -1259,6 +1651,41 @@ begin
   end if;
 
   return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.set_teacher_compensation(p_teacher_id uuid, p_contract_type text, p_hourly_rate numeric, p_monthly_salary numeric)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_ecole uuid;
+begin
+  if not private.can_see_money() then
+    raise exception 'Acces refuse : votre role ne permet pas de fixer une remuneration.';
+  end if;
+
+  select pr.school_id into v_ecole from profiles pr where pr.id = auth.uid();
+
+  if p_contract_type is not null
+     and p_contract_type not in ('permanent', 'vacataire') then
+    raise exception 'Type de contrat invalide : % (permanent ou vacataire).', p_contract_type;
+  end if;
+
+  update teachers
+  set contract_type = p_contract_type,
+      hourly_rate = p_hourly_rate,
+      monthly_salary = p_monthly_salary
+  where id = p_teacher_id
+    -- L'ecole de l'appelant est la frontiere : la cle service role du
+    -- SECURITY DEFINER contourne le RLS, ce filtre le remplace.
+    and school_id = v_ecole;
+
+  if not found then
+    raise exception 'Enseignant introuvable dans votre etablissement.';
+  end if;
 end;
 $function$
 ;
@@ -1465,7 +1892,7 @@ $function$
 ;
 
 
--- 6. DECLENCHEURS
+-- 7. DECLENCHEURS
 
 CREATE TRIGGER log_academic_periods AFTER INSERT OR DELETE OR UPDATE ON public.academic_periods FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_academic_years AFTER INSERT OR DELETE OR UPDATE ON public.academic_years FOR EACH ROW EXECUTE FUNCTION private.record_activity();
@@ -1478,6 +1905,8 @@ CREATE TRIGGER directions_set_updated_at BEFORE UPDATE ON public.directions FOR 
 CREATE TRIGGER log_directions AFTER INSERT OR DELETE OR UPDATE ON public.directions FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_fee_assessments AFTER INSERT OR DELETE OR UPDATE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_fee_class_defaults AFTER INSERT OR DELETE OR UPDATE ON public.fee_class_defaults FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER fee_payments_controle_annulation BEFORE UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.controler_annulation_paiement();
+CREATE TRIGGER fee_payments_numero_recu BEFORE INSERT ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.attribuer_numero_recu();
 CREATE TRIGGER log_fee_payments AFTER INSERT OR DELETE OR UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_grades AFTER INSERT OR DELETE OR UPDATE ON public.grades FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER lineup_themes_set_updated_at BEFORE UPDATE ON public.lineup_themes FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
