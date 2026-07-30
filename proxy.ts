@@ -43,11 +43,17 @@ export async function proxy(request: NextRequest) {
   }
 
   /*
-   * /update-password reçoit les liens d'accès envoyés par email : la session
-   * y est établie côté client à partir du jeton présent dans l'URL, donc la
-   * page doit pouvoir se charger sans cookie de session préalable.
+   * Ces pages doivent pouvoir se charger SANS cookie de session, parce que
+   * c'est précisément elles qui l'établissent :
+   *
+   *   /update-password reçoit les liens d'accès, dont le jeton arrive dans
+   *   l'URL et n'est consommé qu'une fois la page chargée ;
+   *
+   *   /auth/callback reçoit le retour de Google avec un code à échanger.
+   *   L'oublier ici renvoyait vers /login avant tout échange — la connexion
+   *   Google semblait alors « retomber sur l'erreur de mot de passe ».
    */
-  const publicPaths = ["/", "/login", "/update-password"]
+  const publicPaths = ["/", "/login", "/update-password", "/auth/callback"]
   const isPublicPath = publicPaths.includes(pathname)
 
   if (!user && !isPublicPath) {

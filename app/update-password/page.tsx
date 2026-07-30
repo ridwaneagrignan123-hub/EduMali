@@ -86,11 +86,65 @@ function UpdatePasswordForm() {
     })
 
     /*
+     * ---------------------------------------------------------------
+     * LE JETON DU FRAGMENT DOIT ÊTRE CONSOMMÉ À LA MAIN
+     *
+     * Un lien de récupération renvoie les jetons dans le FRAGMENT de
+     * l'URL (#access_token=…). Or le client de @supabase/ssr fonctionne
+     * en PKCE : il attend un « code » en paramètre de requête et ignore
+     * ce fragment.
+     *
+     * Résultat, sans ce qui suit : la page ne voyait aucune session et
+     * annonçait « Ce lien n'est plus valide », sur un lien pourtant
+     * fraîchement émis. Le lien n'était pas en cause, le client ne le
+     * lisait simplement pas.
+     * ---------------------------------------------------------------
+     */
+    async function consommerFragment() {
+      if (typeof window === "undefined" || !window.location.hash) {
+        return false
+      }
+
+      const params = new URLSearchParams(window.location.hash.slice(1))
+      const accessToken = params.get("access_token")
+      const refreshToken = params.get("refresh_token")
+
+      if (!accessToken || !refreshToken) {
+        return false
+      }
+
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      })
+
+      if (sessionError) {
+        console.error("Erreur d'ouverture de session :", sessionError)
+        return false
+      }
+
+      /*
+       * On retire le fragment de la barre d'adresse : il porte un jeton
+       * valide, qui n'a pas à rester dans l'historique ni à repartir
+       * dans un lien copié.
+       */
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search
+      )
+
+      return true
+    }
+
+    /*
      * Déclarée dans l'effet plutôt qu'au-dessus : une fonction du corps
      * du composant serait référencée avant sa déclaration, et la
      * référence capturée ne suivrait pas les rendus suivants.
      */
     async function checkSession() {
+      await consommerFragment()
+
       const {
         data: { session },
       } = await supabase.auth.getSession()
