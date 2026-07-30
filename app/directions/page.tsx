@@ -3,6 +3,21 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import {
+  FILIERES,
+  FILIERE_LABELS,
+  hasFiliere,
+  toSchoolType,
+} from "@/src/lib/etablissement"
+
+/* Directeur de direction, avec sa filière en école franco-arabe. */
+type Directeur = {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  direction_id: string | null
+  filiere: string | null
+}
 
 type Direction = {
   id: string
@@ -35,6 +50,10 @@ export default function DirectionsPage() {
 
   const [directions, setDirections] = useState<Direction[]>([])
   const [classes, setClasses] = useState<ClassItem[]>([])
+  const [directeurs, setDirecteurs] = useState<Directeur[]>([])
+
+  const [schoolType, setSchoolType] = useState("classique")
+  const avecFiliere = hasFiliere(schoolType)
 
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -98,7 +117,8 @@ export default function DirectionsPage() {
   }
 
   async function loadDirectionsAndClasses(currentSchoolId: string) {
-    const [directionsResult, classesResult] = await Promise.all([
+    const [directionsResult, classesResult, schoolResult, directeursResult] =
+      await Promise.all([
       supabase
         .from("directions")
         .select("id, name, created_at")
@@ -110,7 +130,27 @@ export default function DirectionsPage() {
         .select("id, name, level, direction_id")
         .eq("school_id", currentSchoolId)
         .order("name"),
+
+      supabase
+        .from("schools")
+        .select("school_type")
+        .eq("id", currentSchoolId)
+        .maybeSingle(),
+
+      supabase
+        .from("profiles")
+        .select("id, first_name, last_name, direction_id, filiere")
+        .eq("school_id", currentSchoolId)
+        .eq("role", "directeur_direction"),
     ])
+
+    setSchoolType(toSchoolType(schoolResult.data?.school_type))
+
+    if (directeursResult.error) {
+      console.error("Erreur directeurs :", directeursResult.error)
+    } else {
+      setDirecteurs((directeursResult.data as Directeur[]) ?? [])
+    }
 
     if (directionsResult.error) {
       console.error("Erreur directions :", directionsResult.error)
@@ -456,6 +496,38 @@ export default function DirectionsPage() {
                         <p className="mt-1 text-sm text-muted-foreground">
                           {attached.length} classe(s) rattachée(s)
                         </p>
+
+                        {/*
+                          ÉCOLE FRANCO-ARABE : la direction est tenue par
+                          deux directeurs, un par filière. On montre ce
+                          qui manque autant que ce qui est pourvu — une
+                          filière sans directeur ne se voit nulle part
+                          ailleurs.
+                        */}
+                        {avecFiliere && (
+                          <div className="mt-2 space-y-1">
+                            {FILIERES.map((valeur) => {
+                              const titulaire = directeurs.find(
+                                (compte) =>
+                                  compte.direction_id === direction.id &&
+                                  compte.filiere === valeur
+                              )
+
+                              return (
+                                <p
+                                  key={valeur}
+                                  className="text-xs text-muted-foreground"
+                                >
+                                  Directeur {FILIERE_LABELS[valeur].toLowerCase()} :{" "}
+                                  {titulaire
+                                    ? `${titulaire.last_name ?? ""} ${titulaire.first_name ?? ""}`.trim() ||
+                                      "nom non renseigné"
+                                    : "non nommé"}
+                                </p>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
 
                       <button

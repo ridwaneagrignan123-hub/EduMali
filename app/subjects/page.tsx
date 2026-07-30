@@ -3,12 +3,21 @@
 import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import {
+  FILIERES,
+  FILIERE_LABELS,
+  filiereLabel,
+  hasFiliere,
+  toSchoolType,
+} from "@/src/lib/etablissement"
 
 type Subject = {
   id: string
   name: string
   code: string | null
   description: string | null
+  /* Programme dont relève la matière. Nul hors école franco-arabe. */
+  filiere: string | null
 }
 
 export default function SubjectsPage() {
@@ -23,6 +32,10 @@ export default function SubjectsPage() {
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
   const [description, setDescription] = useState("")
+  const [filiere, setFiliere] = useState("")
+
+  const [schoolType, setSchoolType] = useState("classique")
+  const avecFiliere = hasFiliere(schoolType)
 
   useEffect(() => {
     loadData()
@@ -64,9 +77,21 @@ export default function SubjectsPage() {
     const { data: subjectsData, error: subjectsError } =
       await supabase
         .from("subjects")
-        .select("id, name, code, description")
+        .select("id, name, code, description, filiere")
         .eq("school_id", profile.school_id)
         .order("name", { ascending: true })
+
+    const { data: schoolData, error: schoolError } = await supabase
+      .from("schools")
+      .select("school_type")
+      .eq("id", profile.school_id)
+      .maybeSingle()
+
+    if (schoolError) {
+      console.error("Erreur type d'établissement :", schoolError)
+    } else {
+      setSchoolType(toSchoolType(schoolData?.school_type))
+    }
 
     if (subjectsError) {
       console.error(
@@ -99,6 +124,8 @@ export default function SubjectsPage() {
         name: name.trim(),
         code: code.trim() || null,
         description: description.trim() || null,
+        // Toujours nulle en école classique : l'axe n'y existe pas.
+        filiere: avecFiliere ? filiere || null : null,
       })
 
     if (error) {
@@ -235,6 +262,38 @@ export default function SubjectsPage() {
                 />
               </div>
 
+              {/*
+                ÉCOLE FRANCO-ARABE : une matière relève du programme
+                français ou du programme arabe. C'est ce qui permet au
+                titulaire de chaque filière de ne prendre que les
+                matières de son programme. Invisible en école classique.
+              */}
+              {avecFiliere && (
+                <div className="space-y-2">
+                  <label htmlFor="filiere">Programme</label>
+
+                  <select
+                    id="filiere"
+                    value={filiere}
+                    onChange={(event) => setFiliere(event.target.value)}
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                  >
+                    <option value="">Non défini</option>
+
+                    {FILIERES.map((value) => (
+                      <option key={value} value={value}>
+                        {FILIERE_LABELS[value]}
+                      </option>
+                    ))}
+                  </select>
+
+                  <p className="text-xs text-muted-foreground">
+                    Une matière sans programme ne sera reprise par aucun
+                    titulaire lors de l&apos;affectation groupée.
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label htmlFor="description">
                   Description
@@ -297,6 +356,12 @@ export default function SubjectsPage() {
                         Code
                       </th>
 
+                      {avecFiliere && (
+                        <th className="px-4 py-3">
+                          Programme
+                        </th>
+                      )}
+
                       <th className="px-4 py-3">
                         Description
                       </th>
@@ -320,6 +385,14 @@ export default function SubjectsPage() {
                         <td className="px-4 py-4">
                           {subject.code || "—"}
                         </td>
+
+                        {avecFiliere && (
+                          <td className="px-4 py-4">
+                            {subject.filiere
+                              ? filiereLabel(subject.filiere)
+                              : "—"}
+                          </td>
+                        )}
 
                         <td className="px-4 py-4">
                           {subject.description || "—"}

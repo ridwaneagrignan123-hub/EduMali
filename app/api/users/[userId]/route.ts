@@ -6,6 +6,7 @@ import {
   requirePermission,
 } from "@/src/lib/apiAuth"
 import { can } from "@/src/lib/roles"
+import { isFiliere } from "@/src/lib/etablissement"
 
 /*
  * Modifie les informations personnelles, le rôle et/ou l'état actif d'un
@@ -61,7 +62,8 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { role, isActive, directionId, firstName, lastName, phone } = body
+    const { role, isActive, directionId, filiere, firstName, lastName, phone } =
+      body
 
     /*
      * Le plafond d'attribution s'applique dès qu'on touche au rôle ou à
@@ -204,6 +206,47 @@ export async function PATCH(
     }
 
     /*
+     * La FILIÈRE d'un directeur de direction — école franco-arabe.
+     *
+     * Elle distingue les DEUX directeurs qui partagent une direction :
+     * un français, un arabe. Rien n'empêchait déjà deux directeurs sur
+     * une même direction ; ce qui manquait, c'était de savoir lequel
+     * répond de quel programme.
+     *
+     * Elle ne restreint AUCUN périmètre RLS — voir la note dans
+     * supabase/franco-arabe.sql. L'index partiel
+     * profiles_directeur_par_filiere empêche seulement deux directeurs
+     * de la même filière sur une même direction.
+     *
+     * En école classique on ne l'envoie pas, et elle reste nulle.
+     */
+    let nextFiliere: string | null | undefined = undefined
+
+    if (filiere !== undefined) {
+      if (filiere !== null && !isFiliere(filiere)) {
+        return NextResponse.json(
+          { error: "Filière inconnue." },
+          { status: 400 }
+        )
+      }
+
+      if (filiere !== null && role !== DIRECTION_SCOPED_ROLE) {
+        return NextResponse.json(
+          {
+            error:
+              "La filière ne s'applique qu'à un directeur de direction.",
+          },
+          { status: 400 }
+        )
+      }
+
+      nextFiliere = filiere
+    } else if (role !== undefined && role !== DIRECTION_SCOPED_ROLE) {
+      // Changement de rôle : on efface une filière résiduelle.
+      nextFiliere = null
+    }
+
+    /*
      * L'opération Auth passe en premier : si elle réussit et que la mise à
      * jour du profil échoue, un compte désactivé reste bloqué à la connexion
      * (échec sûr) plutôt que l'inverse.
@@ -232,6 +275,7 @@ export async function PATCH(
       role?: string
       is_active?: boolean
       direction_id?: string | null
+      filiere?: string | null
       first_name?: string
       last_name?: string
       phone?: string | null
@@ -256,6 +300,10 @@ export async function PATCH(
 
     if (nextDirectionId !== undefined) {
       updates.direction_id = nextDirectionId
+    }
+
+    if (nextFiliere !== undefined) {
+      updates.filiere = nextFiliere
     }
 
     const { error: updateError } = await supabaseAdmin

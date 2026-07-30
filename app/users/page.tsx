@@ -7,6 +7,13 @@ import { matchesSearch } from "@/src/lib/search"
 import { EditDialog } from "@/components/edit-dialog"
 import { AccessLinkNotice } from "@/components/access-link-notice"
 import { ROLE_LABELS, can, canAssignRole } from "@/src/lib/roles"
+import {
+  FILIERES,
+  FILIERE_LABELS,
+  filiereLabel,
+  hasFiliere,
+  toSchoolType,
+} from "@/src/lib/etablissement"
 import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate"
 
 type UserAccount = {
@@ -15,6 +22,8 @@ type UserAccount = {
   lastName: string | null
   role: string | null
   directionId: string | null
+  /* Filière du directeur de direction. Nulle hors école franco-arabe. */
+  filiere: string | null
   phone: string | null
   isActive: boolean
   createdAt: string
@@ -88,6 +97,14 @@ export default function UsersPage() {
   const [pendingDirectionByUserId, setPendingDirectionByUserId] = useState<
     Record<string, string>
   >({})
+
+  /* Filière choisie en attente — école franco-arabe seulement. */
+  const [pendingFiliereByUserId, setPendingFiliereByUserId] = useState<
+    Record<string, string>
+  >({})
+
+  const [schoolType, setSchoolType] = useState("classique")
+  const avecFiliere = hasFiliere(schoolType)
 
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -179,12 +196,29 @@ export default function UsersPage() {
       setDirections((directionsData as Direction[]) ?? [])
     }
 
+    /* L'axe filière n'apparaît qu'en école franco-arabe. */
+    const { data: schoolData, error: schoolError } = await supabase
+      .from("schools")
+      .select("school_type")
+      .maybeSingle()
+
+    if (schoolError) {
+      console.error("Erreur type d'établissement :", schoolError)
+    } else {
+      setSchoolType(toSchoolType(schoolData?.school_type))
+    }
+
     setLoading(false)
   }
 
   async function updateUser(
     userId: string,
-    updates: { role?: string; isActive?: boolean; directionId?: string },
+    updates: {
+      role?: string
+      isActive?: boolean
+      directionId?: string
+      filiere?: string | null
+    },
     successMessage: string
   ) {
     setActionError(null)
@@ -269,9 +303,14 @@ export default function UsersPage() {
   async function applyRole(
     user: UserAccount,
     role: string,
-    directionId: string | null
+    directionId: string | null,
+    filiere: string | null = null
   ) {
-    if (role === user.role && directionId === user.directionId) {
+    if (
+      role === user.role &&
+      directionId === user.directionId &&
+      filiere === user.filiere
+    ) {
       return
     }
 
@@ -281,7 +320,7 @@ export default function UsersPage() {
 
     const confirmed = window.confirm(
       directionId
-        ? `Faire de ${getFullName(user)} le directeur de « ${directionName ?? "cette direction"} » ? Il ne verra plus que les classes de cette direction.`
+        ? `Faire de ${getFullName(user)} le directeur${filiere ? ` ${filiereLabel(filiere).toLowerCase()}` : ""} de « ${directionName ?? "cette direction"} » ? Il ne verra plus que les classes de cette direction.`
         : `Changer le rôle de ${getFullName(user)} en « ${roleLabels[role] ?? role} » ?`
     )
 
@@ -296,7 +335,7 @@ export default function UsersPage() {
 
     await updateUser(
       user.id,
-      directionId ? { role, directionId } : { role },
+      directionId ? { role, directionId, filiere } : { role },
       `Le rôle de ${getFullName(user)} a été mis à jour.`
     )
   }
@@ -594,6 +633,9 @@ export default function UsersPage() {
                     user.directionId ??
                     ""
 
+                  const chosenFiliere =
+                    pendingFiliereByUserId[user.id] ?? user.filiere ?? ""
+
                   const currentDirectionName = directions.find(
                     (item) => item.id === user.directionId
                   )?.name
@@ -664,7 +706,11 @@ export default function UsersPage() {
                           {user.role === DIRECTION_SCOPED_ROLE && (
                             <p className="mt-1 text-xs text-muted-foreground">
                               {currentDirectionName
-                                ? `Périmètre : ${currentDirectionName}`
+                                ? `Périmètre : ${currentDirectionName}${
+                                    avecFiliere
+                                      ? ` — programme ${filiereLabel(user.filiere).toLowerCase()}`
+                                      : ""
+                                  }`
                                 : "Aucune direction affectée — ce compte ne voit aucune donnée."}
                             </p>
                           )}
@@ -759,15 +805,52 @@ export default function UsersPage() {
                                   ))}
                                 </select>
 
+                                {/*
+                                  ÉCOLE FRANCO-ARABE : une direction est
+                                  tenue par deux directeurs, un par
+                                  filière. La filière dit lequel répond de
+                                  quel programme ; elle ne restreint pas
+                                  ce qu'il voit — les deux suivent les
+                                  mêmes élèves, dont le bulletin porte les
+                                  deux programmes.
+                                */}
+                                {avecFiliere && (
+                                  <select
+                                    aria-label={`Filière de ${getFullName(user)}`}
+                                    value={chosenFiliere}
+                                    onChange={(event) =>
+                                      setPendingFiliereByUserId((current) => ({
+                                        ...current,
+                                        [user.id]: event.target.value,
+                                      }))
+                                    }
+                                    disabled={isPending}
+                                    className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    <option value="">Filière...</option>
+
+                                    {FILIERES.map((value) => (
+                                      <option key={value} value={value}>
+                                        {FILIERE_LABELS[value]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+
                                 <button
                                   onClick={() =>
                                     applyRole(
                                       user,
                                       DIRECTION_SCOPED_ROLE,
-                                      chosenDirectionId
+                                      chosenDirectionId,
+                                      chosenFiliere || null
                                     )
                                   }
-                                  disabled={isPending || !chosenDirectionId}
+                                  disabled={
+                                    isPending ||
+                                    !chosenDirectionId ||
+                                    (avecFiliere && !chosenFiliere)
+                                  }
                                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   Valider
