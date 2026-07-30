@@ -3,6 +3,13 @@
 import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import {
+  SCHOOL_TYPES,
+  SCHOOL_TYPE_HINTS,
+  SCHOOL_TYPE_LABELS,
+  SchoolType,
+  toSchoolType,
+} from "@/src/lib/etablissement"
 
 type AcademicYear = {
   id: string
@@ -53,6 +60,7 @@ type School = {
   appreciation_fair: number
   payroll_pay_excused_absence: boolean
   payroll_deduct_late: boolean
+  school_type: string
 }
 
 function formatScore(value: number) {
@@ -79,6 +87,7 @@ export default function SettingsPage() {
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
   const [logoUrl, setLogoUrl] = useState("")
+  const [schoolType, setSchoolType] = useState<SchoolType>("classique")
 
   /* Règles de paie : deux cases, enregistrées à la volée. */
   const [payExcused, setPayExcused] = useState(false)
@@ -223,7 +232,7 @@ export default function SettingsPage() {
     const { data: school, error: schoolError } = await supabase
       .from("schools")
       .select(
-        "id, name, address, phone, email, logo_url, grading_scale, appreciation_excellent, appreciation_very_good, appreciation_good, appreciation_fair, payroll_pay_excused_absence, payroll_deduct_late"
+        "id, name, address, phone, email, logo_url, grading_scale, appreciation_excellent, appreciation_very_good, appreciation_good, appreciation_fair, payroll_pay_excused_absence, payroll_deduct_late, school_type"
       )
       .eq("id", profile.school_id)
       .maybeSingle()
@@ -244,6 +253,7 @@ export default function SettingsPage() {
       setPhone(schoolData.phone ?? "")
       setEmail(schoolData.email ?? "")
       setLogoUrl(schoolData.logo_url ?? "")
+      setSchoolType(toSchoolType(schoolData.school_type))
 
       setGradingScale(String(Number(schoolData.grading_scale)))
       setAppreciationExcellent(
@@ -364,6 +374,7 @@ export default function SettingsPage() {
         phone: phone.trim() || null,
         email: email.trim() || null,
         logo_url: logoUrl.trim() || null,
+        school_type: schoolType,
       })
       .eq("id", schoolId)
 
@@ -810,6 +821,48 @@ export default function SettingsPage() {
                 apparaît sur les bulletins scolaires.
               </p>
             </div>
+
+            {/*
+              Le type d'établissement commande l'affichage de la scolarité :
+              en franco-arabe, l'axe filière apparaît sur les directions et
+              sur les titulaires de premier cycle. En classique, il reste
+              invisible partout.
+            */}
+            <fieldset className="space-y-2">
+              <legend className="mb-2">Type d&apos;établissement</legend>
+
+              <div className="space-y-2">
+                {SCHOOL_TYPES.map((type) => (
+                  <label
+                    key={type}
+                    htmlFor={`settings-school-type-${type}`}
+                    className={`flex cursor-pointer gap-3 rounded-md border p-3 ${
+                      schoolType === type ? "border-primary bg-muted/50" : ""
+                    }`}
+                  >
+                    <input
+                      id={`settings-school-type-${type}`}
+                      type="radio"
+                      name="settingsSchoolType"
+                      value={type}
+                      checked={schoolType === type}
+                      onChange={() => setSchoolType(type)}
+                      className="mt-1"
+                    />
+
+                    <span>
+                      <span className="block font-medium">
+                        {SCHOOL_TYPE_LABELS[type]}
+                      </span>
+
+                      <span className="block text-sm text-muted-foreground">
+                        {SCHOOL_TYPE_HINTS[type]}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             {saveError && (
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">

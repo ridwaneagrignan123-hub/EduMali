@@ -3,6 +3,12 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import {
+  SCHOOL_TYPES,
+  SCHOOL_TYPE_HINTS,
+  SCHOOL_TYPE_LABELS,
+  SchoolType,
+} from "@/src/lib/etablissement"
 
 export default function SetupSchoolPage() {
   const router = useRouter()
@@ -11,6 +17,7 @@ export default function SetupSchoolPage() {
   const [address, setAddress] = useState("")
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
+  const [schoolType, setSchoolType] = useState<SchoolType>("classique")
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -45,7 +52,7 @@ export default function SetupSchoolPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ name, address, phone, email }),
+        body: JSON.stringify({ name, address, phone, email, schoolType }),
       })
 
       const result = await response.json()
@@ -95,6 +102,48 @@ export default function SetupSchoolPage() {
               className="w-full rounded-md border px-3 py-2"
             />
           </div>
+
+          {/*
+            Le type conditionne l'affichage de toute la scolarité — double
+            direction, double titulaire au premier cycle. Il se modifie
+            ensuite dans les paramètres, mais le demander ici évite de
+            reconfigurer une école déjà remplie.
+          */}
+          <fieldset className="space-y-2">
+            <legend className="mb-2">Type d&apos;établissement</legend>
+
+            <div className="space-y-2">
+              {SCHOOL_TYPES.map((type) => (
+                <label
+                  key={type}
+                  htmlFor={`school-type-${type}`}
+                  className={`flex cursor-pointer gap-3 rounded-md border p-3 ${
+                    schoolType === type ? "border-black bg-muted/50" : ""
+                  }`}
+                >
+                  <input
+                    id={`school-type-${type}`}
+                    type="radio"
+                    name="schoolType"
+                    value={type}
+                    checked={schoolType === type}
+                    onChange={() => setSchoolType(type)}
+                    className="mt-1"
+                  />
+
+                  <span>
+                    <span className="block font-medium">
+                      {SCHOOL_TYPE_LABELS[type]}
+                    </span>
+
+                    <span className="block text-sm text-muted-foreground">
+                      {SCHOOL_TYPE_HINTS[type]}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           <div className="space-y-2">
             <label htmlFor="address">Adresse</label>

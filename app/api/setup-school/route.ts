@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
+import { isSchoolType } from "@/src/lib/etablissement"
 
 /*
  * Création de l'établissement et rattachement du compte qui l'ouvre.
@@ -99,6 +100,24 @@ export async function POST(request: Request) {
       )
     }
 
+    /*
+     * Type d'établissement. Absent, on retient `classique` : c'est le
+     * défaut de la colonne et le cas de très loin le plus fréquent. On
+     * refuse en revanche une valeur inconnue plutôt que de la corriger
+     * en silence — se retrouver en `classique` alors qu'on a demandé
+     * franco-arabe ne se remarquerait qu'à l'usage.
+     */
+    if (body.schoolType !== undefined && !isSchoolType(body.schoolType)) {
+      return NextResponse.json(
+        { error: "Type d'établissement inconnu." },
+        { status: 400 }
+      )
+    }
+
+    const schoolType = isSchoolType(body.schoolType)
+      ? body.schoolType
+      : "classique"
+
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("id, school_id")
@@ -174,6 +193,7 @@ export async function POST(request: Request) {
       .from("schools")
       .insert({
         name,
+        school_type: schoolType,
         address: typeof body.address === "string" ? body.address.trim() || null : null,
         phone: typeof body.phone === "string" ? body.phone.trim() || null : null,
         email: typeof body.email === "string" ? body.email.trim() || null : null,
