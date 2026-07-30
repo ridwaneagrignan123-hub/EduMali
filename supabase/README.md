@@ -26,15 +26,25 @@ base de production le **2026-07-30** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
-| Tables | **24** |
-| Colonnes | 207 |
-| Contraintes | 121 |
-| Tables avec RLS active | **24 sur 24** |
+| Tables | **25** |
+| Colonnes | 214 |
+| Contraintes | 124 |
+| Tables avec RLS active | **25 sur 25** |
 | Policies | 86 |
-| Index | 48 |
+| Index | 50 |
 | Fonctions `public` | 15 |
-| Fonctions `private` | 19 |
-| Déclencheurs | 26 |
+| Fonctions `private` | 20 |
+| Déclencheurs | 27 |
+
+Les 27 déclencheurs incluent `on_auth_user_created`, posé sur `auth.users`
+et non sur `public` — le compte précédent (26) l'omettait, d'où l'écart
+apparent.
+
+La régénération a révélé un résidu : `schema.sql` décrivait une fonction
+`public.dump_schema_temporaire` **absente de la base**, oubliée après une
+introspection antérieure. Elle a été retirée. C'est exactement ce que la
+comparaison inventaire-par-inventaire sert à détecter, et la raison pour
+laquelle ce fichier ne se met pas à jour de mémoire.
 
 Il porte désormais une **section 5 : droits par colonne**. Le RLS travaille
 par ligne et ne masque pas une colonne — sans ce bloc, une base recréée
@@ -51,6 +61,8 @@ sur la production échouerait, les objets existant déjà.
 | `vie-scolaire-et-statistiques.sql` | rôle `surveillant`, retards, thèmes au rang, rappels, fonctions `stats_*` |
 | `caisse.sql` | numéros de reçu, traçabilité de l'encaissement, annulation, état de caisse (2026-07-30) |
 | `paie.sql` | contrats et tarifs, règles de paie, calcul mensuel, fermeture des colonnes de salaire (2026-07-30) |
+| `autorisation-creation-ecole.sql` | `school_creation_grants` : l'ouverture d'un établissement passe d'un contrôle client à une autorisation nominative serveur (2026-07-30) |
+| `suppression-frais-payes.sql` | `fee_payments.fee_assessment_id` passe de CASCADE à RESTRICT, plus le refus lisible (2026-07-30) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -158,6 +170,23 @@ Vérifiés en base le 2026-07-30, pas reconduits de mémoire.
   policy. Le RLS travaille par ligne et n'aurait pas pu les masquer. Toute
   nouvelle colonne sensible sur `teachers` doit être omise des `grant` de la
   section 5 de `schema.sql`, sinon elle sera lisible par toute l'école.
+
+- **`fee_payments.fee_assessment_id` est en `ON DELETE RESTRICT`**, pas en
+  CASCADE. Le remettre en CASCADE rendrait à un administrateur le pouvoir
+  d'effacer toute la caisse d'un élève en supprimant un frais — reçus,
+  annulations et motifs compris. Le déclencheur
+  `fee_assessments_refus_suppression` n'est là que pour rendre le refus
+  lisible ; c'est la clé étrangère qui garantit.
+- **Des clés en CASCADE pointent encore vers de la caisse ou de l'audit**,
+  signalées et non corrigées : `activity_log.school_id` et
+  `fee_payments.school_id` vers `schools`, `sms_logs.student_id`,
+  `teacher_attendance.teacher_id` vers `teachers`. Les deux `school_id`
+  relèvent sans doute d'un choix assumé ; les deux autres méritent une
+  décision explicite. Détail dans `suppression-frais-payes.sql`.
+- **`school_creation_grants` n'a aucune policy, volontairement.** RLS active
+  et zéro policy ferme la table à tout client ; seule la clé service role y
+  accède, ce qui en fait la voie de confiance de `/api/setup-school`. Lui
+  ajouter une policy de lecture révélerait qui est attendu.
 
 ### Points résolus depuis, à ne pas réintroduire
 

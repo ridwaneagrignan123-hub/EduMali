@@ -207,7 +207,10 @@ create table fee_payments (
   constraint fee_payments_receipt_unique UNIQUE (school_id, receipt_number),
   constraint fee_payments_pkey PRIMARY KEY (id),
   constraint fee_payments_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
-  constraint fee_payments_fee_assessment_id_fkey FOREIGN KEY (fee_assessment_id) REFERENCES public.fee_assessments(id) ON DELETE CASCADE,
+  -- RESTRICT et non CASCADE : supprimer un frais effacait sinon tous les
+  -- paiements portes, recus et annulations compris. Voir
+  -- supabase/suppression-frais-payes.sql.
+  constraint fee_payments_fee_assessment_id_fkey FOREIGN KEY (fee_assessment_id) REFERENCES public.fee_assessments(id) ON DELETE RESTRICT,
   constraint fee_payments_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
   constraint fee_payments_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
   constraint fee_payments_amount_paid_check CHECK ((amount_paid > (0)::numeric)),
@@ -261,6 +264,21 @@ create table profiles (
   constraint profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE,
   constraint profiles_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id),
   constraint profiles_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'teacher'::text, 'promoteur'::text, 'directeur_general'::text, 'directeur_direction'::text, 'comptable'::text, 'surveillant'::text])))
+);
+
+-- Autorisation nominative d'ouvrir un etablissement. Consommee par
+-- /api/setup-school. RLS active et AUCUNE policy : voir section 3.
+create table school_creation_grants (
+  id uuid default gen_random_uuid() not null,
+  email text not null,
+  note text,
+  granted_by uuid,
+  created_at timestamp with time zone default now() not null,
+  used_at timestamp with time zone,
+  used_by uuid,
+  constraint school_creation_grants_pkey PRIMARY KEY (id),
+  constraint school_creation_grants_granted_by_fkey FOREIGN KEY (granted_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint school_creation_grants_used_by_fkey FOREIGN KEY (used_by) REFERENCES public.profiles(id) ON DELETE SET NULL
 );
 
 create table school_holidays (
@@ -431,6 +449,8 @@ CREATE INDEX daily_reminders_school_date_idx ON public.daily_reminders USING btr
 CREATE INDEX fee_payments_school_date_idx ON public.fee_payments USING btree (school_id, payment_date DESC);
 CREATE INDEX lineup_themes_school_date_idx ON public.lineup_themes USING btree (school_id, scheduled_on);
 CREATE INDEX profiles_direction_id_idx ON public.profiles USING btree (direction_id);
+-- Une seule autorisation EN ATTENTE par adresse ; les consommees restent.
+CREATE UNIQUE INDEX school_creation_grants_email_en_attente ON public.school_creation_grants USING btree (lower(email)) WHERE (used_at IS NULL);
 CREATE INDEX sms_logs_student_event_idx ON public.sms_logs USING btree (student_id, event_type, created_at DESC);
 CREATE INDEX teacher_attendance_school_date_idx ON public.teacher_attendance USING btree (school_id, occurred_on DESC);
 CREATE INDEX timetable_slots_academic_year_idx ON public.timetable_slots USING btree (academic_year_id);
@@ -455,6 +475,11 @@ alter table fee_payments enable row level security;
 alter table grades enable row level security;
 alter table lineup_themes enable row level security;
 alter table profiles enable row level security;
+-- ⚠️ school_creation_grants n'a AUCUNE policy, deliberement : RLS active
+-- et zero policy ferme la table a `authenticated` depuis tout client.
+-- Seule la cle service role y accede, ce qui en fait une voie de
+-- confiance. Lui ajouter une policy de lecture revelerait qui est attendu.
+alter table school_creation_grants enable row level security;
 alter table school_holidays enable row level security;
 alter table schools enable row level security;
 alter table sms_logs enable row level security;
@@ -1200,6 +1225,33 @@ CREATE OR REPLACE FUNCTION private.is_teacher()
 AS $function$ select coalesce((select p.role = 'teacher' from profiles p where p.id = auth.uid()), false); $function$
 ;
 
+-- Rend LISIBLE le refus pose structurellement par la cle etrangere
+-- fee_payments_fee_assessment_id_fkey (RESTRICT). Sans elle, l'interface
+-- afficherait une violation de contrainte brute.
+CREATE OR REPLACE FUNCTION private.refuser_suppression_frais_paye()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare n_paiements integer; n_annules integer;
+begin
+  select count(*), count(*) filter (where cancelled_at is not null)
+    into n_paiements, n_annules
+  from fee_payments where fee_assessment_id = old.id;
+
+  if n_paiements > 0 then
+    raise exception
+      'Ce frais porte % paiement(s), dont % annule(s) : il ne peut pas etre supprime. Annulez les paiements avec un motif, ils resteront visibles dans l''etat de caisse.',
+      n_paiements, n_annules
+      using errcode = 'P0001';
+  end if;
+
+  return old;
+end;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION private.record_activity()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1483,14 +1535,6 @@ begin
     and p.payment_date = p_date;
 end;
 $function$
-;
-
-CREATE OR REPLACE FUNCTION public.dump_schema_temporaire()
- RETURNS text
- LANGUAGE sql
- SECURITY DEFINER
- SET search_path TO 'private, public'
-AS $function$ select contenu from private.schema_dump; $function$
 ;
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -1903,6 +1947,7 @@ CREATE TRIGGER log_classes AFTER INSERT OR DELETE OR UPDATE ON public.classes FO
 CREATE TRIGGER log_daily_reminders AFTER INSERT OR DELETE OR UPDATE ON public.daily_reminders FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER directions_set_updated_at BEFORE UPDATE ON public.directions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 CREATE TRIGGER log_directions AFTER INSERT OR DELETE OR UPDATE ON public.directions FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER fee_assessments_refus_suppression BEFORE DELETE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.refuser_suppression_frais_paye();
 CREATE TRIGGER log_fee_assessments AFTER INSERT OR DELETE OR UPDATE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_fee_class_defaults AFTER INSERT OR DELETE OR UPDATE ON public.fee_class_defaults FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER fee_payments_controle_annulation BEFORE UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.controler_annulation_paiement();
