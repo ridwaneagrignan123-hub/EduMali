@@ -51,6 +51,8 @@ type School = {
   appreciation_very_good: number
   appreciation_good: number
   appreciation_fair: number
+  payroll_pay_excused_absence: boolean
+  payroll_deduct_late: boolean
 }
 
 function formatScore(value: number) {
@@ -77,6 +79,12 @@ export default function SettingsPage() {
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
   const [logoUrl, setLogoUrl] = useState("")
+
+  /* Règles de paie : deux cases, enregistrées à la volée. */
+  const [payExcused, setPayExcused] = useState(false)
+  const [deductLate, setDeductLate] = useState(false)
+  const [payrollMessage, setPayrollMessage] = useState<string | null>(null)
+  const [payrollError, setPayrollError] = useState<string | null>(null)
 
   // Paramètres pédagogiques : saisis en texte, convertis en nombre à l'enregistrement.
   const [gradingScale, setGradingScale] = useState("20")
@@ -116,6 +124,45 @@ export default function SettingsPage() {
   const [holidayMessage, setHolidayMessage] = useState<string | null>(null)
 
   const isAdmin = role === "admin"
+
+  /*
+   * Les deux règles de paie s'enregistrent à la volée, sans bouton
+   * « Enregistrer » : une case cochée qui ne serait pas prise en compte
+   * ferait croire à un réglage appliqué. On remonte l'état optimiste
+   * puis on le corrige si la base refuse.
+   */
+  async function savePayrollRule(
+    changement: { payExcused?: boolean; deductLate?: boolean }
+  ) {
+    const avant = { payExcused, deductLate }
+
+    if (changement.payExcused !== undefined) setPayExcused(changement.payExcused)
+    if (changement.deductLate !== undefined) setDeductLate(changement.deductLate)
+
+    setPayrollError(null)
+    setPayrollMessage(null)
+
+    const { error } = await supabase
+      .from("schools")
+      .update({
+        payroll_pay_excused_absence:
+          changement.payExcused ?? avant.payExcused,
+        payroll_deduct_late: changement.deductLate ?? avant.deductLate,
+      })
+      .eq("id", schoolId)
+
+    if (error) {
+      console.error("Erreur règles de paie :", error)
+      setPayExcused(avant.payExcused)
+      setDeductLate(avant.deductLate)
+      setPayrollError(
+        "Impossible d'enregistrer cette règle. Réservé aux administrateurs."
+      )
+      return
+    }
+
+    setPayrollMessage("Règle enregistrée. Elle s'applique au prochain calcul.")
+  }
 
   useEffect(() => {
     loadSchool()
@@ -176,7 +223,7 @@ export default function SettingsPage() {
     const { data: school, error: schoolError } = await supabase
       .from("schools")
       .select(
-        "id, name, address, phone, email, logo_url, grading_scale, appreciation_excellent, appreciation_very_good, appreciation_good, appreciation_fair"
+        "id, name, address, phone, email, logo_url, grading_scale, appreciation_excellent, appreciation_very_good, appreciation_good, appreciation_fair, payroll_pay_excused_absence, payroll_deduct_late"
       )
       .eq("id", profile.school_id)
       .maybeSingle()
@@ -207,6 +254,8 @@ export default function SettingsPage() {
       )
       setAppreciationGood(String(Number(schoolData.appreciation_good)))
       setAppreciationFair(String(Number(schoolData.appreciation_fair)))
+      setPayExcused(Boolean(schoolData.payroll_pay_excused_absence))
+      setDeductLate(Boolean(schoolData.payroll_deduct_late))
     }
 
     const [yearsResult, classesResult, defaultsResult, holidaysResult] =
@@ -780,6 +829,79 @@ export default function SettingsPage() {
               {saving ? "Enregistrement..." : "Enregistrer les modifications"}
             </button>
           </form>
+        </div>
+
+        {/*
+          Deux décisions métier de la paie. Elles ne sont pas codées en
+          dur : une école paie les absences excusées, une autre non, et
+          les deux ont raison chez elles. Par défaut, l'absence excusée
+          n'est pas payée et le retard n'entraîne pas de retenue — les
+          usages les plus répandus dans le privé malien.
+        */}
+        <div className="rounded-xl border bg-background p-6">
+          <h3 className="font-heading text-xl font-bold">
+            Règles de paie des enseignants
+          </h3>
+
+          <p className="mt-2 text-sm text-muted-foreground">
+            Elles s&apos;appliquent au calcul de la paie des vacataires,
+            payés sur les heures réellement assurées. Un permanent est
+            mensualisé et n&apos;en dépend pas.
+          </p>
+
+          {!isAdmin ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Réservé à l&apos;administrateur.
+            </p>
+          ) : (
+            <div className="mt-6 space-y-3">
+              <label className="flex items-start gap-3 rounded-lg border p-4">
+                <input
+                  type="checkbox"
+                  checked={payExcused}
+                  onChange={(event) => savePayrollRule({ payExcused: event.target.checked })}
+                  className="mt-0.5"
+                />
+
+                <span className="text-sm">
+                  <strong>Payer les absences excusées</strong>
+                  <br />
+                  <span className="text-muted-foreground">
+                    Décoché, une absence excusée retire ses heures de la
+                    paie comme une absence ordinaire.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 rounded-lg border p-4">
+                <input
+                  type="checkbox"
+                  checked={deductLate}
+                  onChange={(event) => savePayrollRule({ deductLate: event.target.checked })}
+                  className="mt-0.5"
+                />
+
+                <span className="text-sm">
+                  <strong>Retenir les retards</strong>
+                  <br />
+                  <span className="text-muted-foreground">
+                    Coché, les minutes de retard relevées sont déduites
+                    des heures payées.
+                  </span>
+                </span>
+              </label>
+
+              {payrollMessage && (
+                <p className="text-sm" style={{ color: "oklch(0.45 0.13 155)" }}>
+                  {payrollMessage}
+                </p>
+              )}
+
+              {payrollError && (
+                <p className="text-sm text-destructive">{payrollError}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border bg-background p-6">

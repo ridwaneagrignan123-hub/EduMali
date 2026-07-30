@@ -199,6 +199,13 @@ export const NAV_ITEMS: NavItem[] = [
    * revérifient en base, cette entrée ne fait que ne pas la proposer.
    */
   { label: "État de caisse", path: "/cash-report", roles: ["admin", "promoteur", "comptable"] },
+  /*
+   * Les salaires sont sensibles : mêmes rôles que la caisse, donc sans
+   * les directeurs. payroll_month() le revérifie en base, et les
+   * colonnes de rémunération de `teachers` sont fermées au rôle
+   * `authenticated` — le RLS seul ne saurait pas masquer une colonne.
+   */
+  { label: "Paie", path: "/payroll", roles: ["admin", "promoteur", "comptable"] },
   { label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
   { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
   { label: "Paramètres", path: "/settings", roles: ["admin"] },

@@ -175,9 +175,14 @@ export default function DashboardPage() {
         .select("*", { count: "exact", head: true })
         .eq("school_id", schoolId),
 
+      /*
+       * Compté sur « id » et non sur « * » : les colonnes de
+       * rémunération de teachers sont révoquées au rôle authenticated,
+       * et une étoile réclamerait un droit qu'il n'a plus.
+       */
       supabase
         .from("teachers")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("school_id", schoolId),
 
       // Présences du jour : suppose que la table attendance
