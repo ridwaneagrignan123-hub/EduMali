@@ -193,6 +193,12 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
   { label: "Présences", path: "/attendance", roles: PEDAGOGIE },
   { label: "Frais scolaires", path: "/fees", roles: ["admin", "promoteur", "comptable"] },
+  /*
+   * L'état de caisse relève de « finances.voir », comme la page Frais :
+   * le directeur général en est exclu. Les fonctions cash_report_* le
+   * revérifient en base, cette entrée ne fait que ne pas la proposer.
+   */
+  { label: "État de caisse", path: "/cash-report", roles: ["admin", "promoteur", "comptable"] },
   { label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
   { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
   { label: "Paramètres", path: "/settings", roles: ["admin"] },

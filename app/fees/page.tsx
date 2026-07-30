@@ -50,6 +50,9 @@ type FeePayment = {
   amount_paid: number
   payment_date: string
   payment_method: string | null
+  receipt_number: number
+  cancelled_at: string | null
+  cancellation_reason: string | null
 }
 
 const paymentMethods: { value: string; label: string }[] = [
@@ -283,7 +286,9 @@ export default function FeesPage() {
 
     const { data: paymentsData, error: paymentsError } = await supabase
       .from("fee_payments")
-      .select("id, fee_assessment_id, amount_paid, payment_date, payment_method")
+      .select(
+        "id, fee_assessment_id, amount_paid, payment_date, payment_method, receipt_number, cancelled_at, cancellation_reason"
+      )
       .eq("school_id", schoolId)
       .in("fee_assessment_id", assessmentIds)
       .order("payment_date", { ascending: false })
@@ -301,10 +306,63 @@ export default function FeesPage() {
     setLoadingFees(false)
   }
 
+  /*
+   * Un paiement annulé n'a jamais été encaissé : l'inclure ici gonflerait
+   * le règlement de l'élève et masquerait un impayé.
+   */
   function getTotalPaid(assessmentId: string) {
     return payments
-      .filter((payment) => payment.fee_assessment_id === assessmentId)
+      .filter(
+        (payment) =>
+          payment.fee_assessment_id === assessmentId && !payment.cancelled_at
+      )
       .reduce((total, payment) => total + Number(payment.amount_paid), 0)
+  }
+
+  /*
+   * Annulation d'un encaissement. Le motif est obligatoire, et la base le
+   * vérifie aussi : la contrainte exige trois caractères au moins, sinon
+   * un espace suffirait à contourner l'obligation.
+   */
+  async function cancelPayment(payment: FeePayment) {
+    const motif = window.prompt(
+      `Annuler le reçu n° ${payment.receipt_number} de ${formatAmount(
+        Number(payment.amount_paid)
+      )} ?\n\nLe reçu restera visible dans l'état de caisse avec ce motif.\nMotif de l'annulation :`
+    )
+
+    if (motif === null) {
+      return
+    }
+
+    if (motif.trim().length < 3) {
+      setFeesError("Le motif d'annulation doit être renseigné.")
+      return
+    }
+
+    const { error } = await supabase
+      .from("fee_payments")
+      .update({
+        // cancelled_at et cancelled_by sont imposés par un déclencheur :
+        // ce qu'on envoie ici ne fait que déclencher la transition.
+        cancelled_at: new Date().toISOString(),
+        cancellation_reason: motif.trim(),
+      })
+      .eq("id", payment.id)
+
+    if (error) {
+      console.error("Erreur annulation :", error)
+      setFeesError(
+        error.message || "L'annulation n'a pas pu être enregistrée."
+      )
+      return
+    }
+
+    setFeesError(null)
+
+    if (selectedYearId) {
+      await loadFeesForYear(selectedYearId)
+    }
   }
 
   async function createOrUpdateAssessment(event: FormEvent<HTMLFormElement>) {
@@ -576,10 +634,10 @@ export default function FeesPage() {
     0
   )
 
-  const totalPaid = payments.reduce(
-    (total, payment) => total + Number(payment.amount_paid),
-    0
-  )
+  // Les annulations sortent du total encaissé, ici comme en caisse.
+  const totalPaid = payments
+    .filter((payment) => !payment.cancelled_at)
+    .reduce((total, payment) => total + Number(payment.amount_paid), 0)
 
   const totalRemaining = totalDue - totalPaid
 
@@ -1121,11 +1179,13 @@ export default function FeesPage() {
                       <table className="w-full text-left text-sm">
                         <thead className="border-b">
                           <tr>
+                            <th className="px-4 py-3">N° reçu</th>
                             <th className="px-4 py-3">Élève</th>
                             <th className="px-4 py-3">Classe</th>
                             <th className="px-4 py-3">Date</th>
                             <th className="px-4 py-3">Montant</th>
                             <th className="px-4 py-3">Méthode</th>
+                            <th className="px-4 py-3" />
                           </tr>
                         </thead>
 
@@ -1139,10 +1199,40 @@ export default function FeesPage() {
                               <tr
                                 key={payment.id}
                                 className="border-b last:border-0"
+                                style={
+                                  payment.cancelled_at
+                                    ? { opacity: 0.6 }
+                                    : undefined
+                                }
                               >
+                                <td className="px-4 py-4 tabular-nums">
+                                  {payment.receipt_number}
+                                </td>
+
                                 <td className="px-4 py-4 font-medium">
-                                  {assessment?.students?.last_name ?? "—"}{" "}
-                                  {assessment?.students?.first_name ?? ""}
+                                  <span
+                                    style={
+                                      payment.cancelled_at
+                                        ? { textDecoration: "line-through" }
+                                        : undefined
+                                    }
+                                  >
+                                    {assessment?.students?.last_name ?? "—"}{" "}
+                                    {assessment?.students?.first_name ?? ""}
+                                  </span>
+
+                                  {payment.cancelled_at && (
+                                    <span
+                                      className="ml-2 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                      style={{
+                                        color: "oklch(0.5 0.19 25)",
+                                        background: "oklch(0.55 0.19 25 / 0.13)",
+                                      }}
+                                      title={payment.cancellation_reason ?? ""}
+                                    >
+                                      Annulé
+                                    </span>
+                                  )}
                                 </td>
 
                                 <td className="px-4 py-4 text-muted-foreground">
@@ -1163,6 +1253,26 @@ export default function FeesPage() {
 
                                 <td className="px-4 py-4">
                                   {getMethodLabel(payment.payment_method)}
+                                </td>
+
+                                <td className="px-4 py-4 text-right">
+                                  {payment.cancelled_at ? (
+                                    <span
+                                      className="text-xs text-muted-foreground"
+                                      title={payment.cancellation_reason ?? ""}
+                                    >
+                                      {payment.cancellation_reason}
+                                    </span>
+                                  ) : (
+                                    peutSaisir && (
+                                      <button
+                                        onClick={() => cancelPayment(payment)}
+                                        className="text-xs font-medium text-destructive hover:underline"
+                                      >
+                                        Annuler
+                                      </button>
+                                    )
+                                  )}
                                 </td>
                               </tr>
                             )
