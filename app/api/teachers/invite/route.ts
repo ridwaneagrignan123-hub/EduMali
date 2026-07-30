@@ -3,7 +3,24 @@ import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { requirePermission } from "@/src/lib/apiAuth"
 
 /*
- * Création d'un compte enseignant.
+ * « Inviter à se connecter » — ouvre un compte pour une fiche EXISTANTE.
+ *
+ * ---------------------------------------------------------------------
+ * CE N'EST PLUS LE CHEMIN D'ENREGISTREMENT
+ *
+ * Cette route créait autrefois le compte, le profil ET la fiche
+ * enseignant d'un seul geste. Créer un compte impose un email unique au
+ * monde : un enseignant déjà enregistré dans une autre école était donc
+ * refusé, et l'email devenait obligatoire pour tous — y compris pour les
+ * vacataires qui ne se connecteront jamais.
+ *
+ * L'enregistrement vit désormais dans POST /api/teachers, qui ne touche
+ * pas à l'authentification. Cette route-ci ne sert plus qu'au cas
+ * particulier de l'enseignant qui doit SAISIR SES NOTES : elle rattache
+ * un compte à une fiche déjà là. C'est le seul endroit de l'application
+ * où l'authentification intervient pour un enseignant, et le seul où un
+ * email est exigé.
+ * ---------------------------------------------------------------------
  *
  * ---------------------------------------------------------------------
  * POURQUOI CETTE ROUTE RENVOIE UN LIEN
@@ -75,12 +92,60 @@ export async function POST(request: Request) {
     const { schoolId } = guard.context
 
     const body = await request.json()
-    const { email, firstName, lastName, phone, specialty, hireDate } = body
+    const { email, teacherId } = body
 
-    if (!email || !firstName || !lastName) {
+    if (!teacherId) {
       return NextResponse.json(
-        { error: "Le prénom, le nom et l'email sont obligatoires." },
+        { error: "Enseignant cible manquant." },
         { status: 400 }
+      )
+    }
+
+    if (!email) {
+      return NextResponse.json(
+        {
+          error:
+            "L'email est obligatoire pour ouvrir un accès : c'est l'identifiant de connexion.",
+        },
+        { status: 400 }
+      )
+    }
+
+    /*
+     * La fiche doit exister et appartenir à l'école de l'appelant. Le
+     * filtre sur school_id est la seule frontière : la clé service role
+     * contourne le RLS.
+     */
+    const { data: teacher, error: teacherError } = await supabaseAdmin
+      .from("teachers")
+      .select("id, first_name, last_name, phone, profile_id")
+      .eq("id", teacherId)
+      .eq("school_id", schoolId)
+      .maybeSingle()
+
+    if (teacherError) {
+      console.error("Erreur lecture de l'enseignant :", teacherError)
+
+      return NextResponse.json(
+        { error: "Impossible de lire la fiche de cet enseignant." },
+        { status: 500 }
+      )
+    }
+
+    if (!teacher) {
+      return NextResponse.json(
+        { error: "Cet enseignant n'appartient pas à votre établissement." },
+        { status: 404 }
+      )
+    }
+
+    if (teacher.profile_id) {
+      return NextResponse.json(
+        {
+          error:
+            "Cet enseignant a déjà un accès. Renvoyez-lui un lien depuis la page Comptes utilisateurs.",
+        },
+        { status: 409 }
       )
     }
 
@@ -88,8 +153,8 @@ export async function POST(request: Request) {
     const redirectTo = `${resolveSiteOrigin(request)}/update-password`
 
     const metadata = {
-      first_name: String(firstName).trim(),
-      last_name: String(lastName).trim(),
+      first_name: teacher.first_name,
+      last_name: teacher.last_name,
       role: "teacher",
     }
 
@@ -180,7 +245,7 @@ export async function POST(request: Request) {
         first_name: metadata.first_name,
         last_name: metadata.last_name,
         role: "teacher",
-        phone: phone?.trim() || null,
+        phone: teacher.phone,
       })
 
     if (profileInsertError) {
@@ -198,27 +263,27 @@ export async function POST(request: Request) {
       )
     }
 
-    const { error: teacherInsertError } = await supabaseAdmin
+    /*
+     * On RATTACHE le compte à la fiche existante — on n'en crée plus.
+     * L'email est reporté sur la fiche : c'est l'identifiant de
+     * connexion, et l'y voir évite de chercher dans les comptes.
+     */
+    const { error: teacherLinkError } = await supabaseAdmin
       .from("teachers")
-      .insert({
-        school_id: schoolId,
+      .update({
         profile_id: teacherUserId,
-        first_name: metadata.first_name,
-        last_name: metadata.last_name,
         email: normalizedEmail,
-        phone: phone?.trim() || null,
-        specialty: specialty?.trim() || null,
-        hire_date: hireDate || null,
-        status: "active",
       })
+      .eq("id", teacher.id)
+      .eq("school_id", schoolId)
 
-    if (teacherInsertError) {
-      console.error("Erreur création enseignant :", teacherInsertError)
+    if (teacherLinkError) {
+      console.error("Erreur rattachement de la fiche :", teacherLinkError)
 
       return NextResponse.json(
         {
           error:
-            "Le compte a été créé, mais la fiche enseignant n'a pas pu être créée.",
+            "Le compte a été créé, mais il n'a pas pu être rattaché à la fiche enseignant.",
         },
         { status: 500 }
       )

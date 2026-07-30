@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
+import { can } from "@/src/lib/roles"
 import { EditDialog } from "@/components/edit-dialog"
 import { AccessLinkNotice } from "@/components/access-link-notice"
 import {
@@ -30,11 +31,16 @@ const TEACHER_IMPORT_FIELDS = [
   {
     key: "email",
     label: "Email",
-    required: true,
-    hint: "L'invitation est envoyée à cette adresse.",
+    hint: "Facultatif : utile seulement pour ouvrir un accès à la saisie des notes.",
     aliases: ["adresse email", "courriel", "mail", "e-mail"],
   },
-  { key: "phone", label: "Téléphone", aliases: ["tel", "contact", "numero"] },
+  {
+    key: "phone",
+    label: "WhatsApp",
+    required: true,
+    hint: "Le numéro de contact de l'enseignant.",
+    aliases: ["tel", "telephone", "contact", "numero", "whatsapp"],
+  },
   {
     key: "specialty",
     label: "Spécialité",
@@ -51,6 +57,13 @@ const TEACHER_IMPORT_FIELDS = [
 // Contrôle volontairement permissif : le serveur reste l'autorité.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+/** Même seuil que la route serveur, pour dire non avant l'aller-retour. */
+const MIN_WHATSAPP_DIGITS = 8
+
+function countDigits(value: string) {
+  return value.replace(/\D/g, "").length
+}
+
 type Teacher = {
   id: string
   first_name: string
@@ -60,6 +73,9 @@ type Teacher = {
   specialty: string | null
   hire_date: string | null
   status: string
+  contract_type: string | null
+  /* Nul tant que l'enseignant n'a pas été invité à se connecter. */
+  profile_id: string | null
 }
 
 /*
@@ -107,6 +123,23 @@ export default function TeachersPage() {
   const [phone, setPhone] = useState("")
   const [specialty, setSpecialty] = useState("")
   const [hireDate, setHireDate] = useState("")
+  const [contractType, setContractType] = useState("")
+  const [rate, setRate] = useState("")
+
+  /*
+   * Le rôle décide si les taux sont proposés. « enseignants.gerer »
+   * appartient à tout l'encadrement, directeur général compris, qui est
+   * écarté des finances : lui montrer un champ de rémunération qu'il ne
+   * peut pas enregistrer n'aurait aucun sens.
+   */
+  const [role, setRole] = useState("")
+  const peutSaisirLesTaux = can(role, "finances.voir")
+
+  /* Enseignant en cours d'invitation à se connecter, null sinon. */
+  const [invitingTeacher, setInvitingTeacher] = useState<Teacher | null>(null)
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [sendingInvite, setSendingInvite] = useState(false)
 
   // Enseignant en cours de modification, null quand la boîte est fermée.
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null)
@@ -134,7 +167,7 @@ export default function TeachersPage() {
     const { data: profile, error: profileError } =
       await supabase
         .from("profiles")
-        .select("school_id")
+        .select("school_id, role")
         .eq("id", user.id)
         .maybeSingle()
 
@@ -150,12 +183,13 @@ export default function TeachersPage() {
     }
 
     setSchoolId(profile.school_id)
+    setRole(profile.role ?? "")
 
     const { data: teachersData, error: teachersError } =
       await supabase
         .from("teachers")
         .select(
-          "id, first_name, last_name, email, phone, specialty, hire_date, status"
+          "id, first_name, last_name, email, phone, specialty, hire_date, status, contract_type, profile_id"
         )
         .eq("school_id", profile.school_id)
         .order("last_name", { ascending: true })
@@ -172,129 +206,198 @@ export default function TeachersPage() {
     setLoading(false)
   }
 
- async function createTeacher(
-  event: FormEvent<HTMLFormElement>
-) {
-  event.preventDefault()
+  /*
+   * Enregistrement d'une fiche enseignant. Aucun compte de connexion
+   * n'est créé : la plupart des vacataires ne se connecteront jamais, et
+   * exiger un compte imposait un email unique au monde — ce qui
+   * interdisait d'enregistrer quelqu'un déjà présent dans une autre
+   * école. Ouvrir un accès est un geste distinct, plus bas.
+   */
+  async function createTeacher(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
 
-  if (
-    !firstName.trim() ||
-    !lastName.trim() ||
-    !email.trim()
-  ) {
-    alert(
-      "Le prénom, le nom et l'email sont obligatoires."
-    )
-
-    return
-  }
-
-  setCreating(true)
-
-  try {
-    const {
-      data: {
-        session,
-      },
-    } =
-      await supabase.auth.getSession()
-
-    if (
-      !session?.access_token
-    ) {
-      alert(
-        "Votre session a expiré. Veuillez vous reconnecter."
-      )
-
-      router.push("/login")
-
+    if (!firstName.trim() || !lastName.trim()) {
+      alert("Le prénom et le nom sont obligatoires.")
       return
     }
 
-    const response =
-      await fetch(
-        "/api/teachers/invite",
-        {
-          method: "POST",
+    if (!phone.trim()) {
+      alert("Le numéro WhatsApp est obligatoire.")
+      return
+    }
 
-          headers: {
-            "Content-Type":
-              "application/json",
+    if (countDigits(phone) < MIN_WHATSAPP_DIGITS) {
+      alert(
+        `Le numéro WhatsApp doit comporter au moins ${MIN_WHATSAPP_DIGITS} chiffres.`
+      )
+      return
+    }
 
-            Authorization:
-              `Bearer ${session.access_token}`,
-          },
+    if (email.trim() && !EMAIL_PATTERN.test(email.trim().toLowerCase())) {
+      alert("L'adresse email saisie n'est pas valide.")
+      return
+    }
 
-          body: JSON.stringify({
-            firstName:
-              firstName.trim(),
+    setCreating(true)
 
-            lastName:
-              lastName.trim(),
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
 
-            email:
-              email.trim(),
+      if (!session?.access_token) {
+        alert("Votre session a expiré. Veuillez vous reconnecter.")
+        router.push("/login")
+        return
+      }
 
-            phone:
-              phone.trim(),
+      const response = await fetch("/api/teachers", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim() || null,
+          phone: phone.trim(),
+          specialty: specialty.trim(),
+          contractType: contractType || null,
+          hireDate: hireDate || null,
+        }),
+      })
 
-            specialty:
-              specialty.trim(),
+      const result = await response.json()
 
-            hireDate:
-              hireDate ||
-              null,
-          }),
+      if (!response.ok) {
+        alert(result.error || "Impossible d'enregistrer l'enseignant.")
+        return
+      }
+
+      /*
+       * Les taux vivent dans des colonnes fermées au rôle
+       * `authenticated` : seule set_teacher_compensation() peut les
+       * écrire, et elle revérifie la permission financière en base. La
+       * fiche est déjà enregistrée si cet appel échoue — on le dit
+       * plutôt que de faire croire à un échec complet.
+       */
+      if (peutSaisirLesTaux && contractType && rate.trim()) {
+        const { error: rateError } = await supabase.rpc(
+          "set_teacher_compensation",
+          {
+            p_teacher_id: result.teacher.id,
+            p_contract_type: contractType,
+            p_hourly_rate:
+              contractType === "vacataire" ? Number(rate) : null,
+            p_monthly_salary:
+              contractType === "permanent" ? Number(rate) : null,
+          }
+        )
+
+        if (rateError) {
+          console.error("Erreur rémunération :", rateError)
+
+          alert(
+            "L'enseignant est enregistré, mais sa rémunération n'a pas pu être définie. Reprenez-la depuis la page Paie."
+          )
         }
-      )
+      }
 
-    const result =
-      await response.json()
+      setFirstName("")
+      setLastName("")
+      setEmail("")
+      setPhone("")
+      setSpecialty("")
+      setHireDate("")
+      setContractType("")
+      setRate("")
 
-    if (
-      !response.ok
-    ) {
-      alert(
-        result.error ||
-          "Impossible d'envoyer l'invitation."
-      )
+      await loadData()
+    } catch (error) {
+      console.error("Erreur enregistrement enseignant :", error)
 
+      alert("Une erreur est survenue lors de l'enregistrement.")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  /*
+   * « Inviter à se connecter » — le SEUL endroit où l'authentification
+   * entre en jeu, et le seul qui exige un email. Il crée le compte et le
+   * rattache à la fiche déjà enregistrée.
+   */
+  async function sendInvite() {
+    if (!invitingTeacher) {
       return
     }
 
-    /*
-     * Pas d'alert « Invitation envoyée » : la messagerie intégrée de
-     * Supabase ne dessert que les membres de l'organisation, si bien que
-     * l'enseignant ne recevait rien pendant que l'écran annonçait un
-     * succès. On montre le lien, qui lui fonctionne toujours.
-     */
-    setAccessNotice({
-      email: result.email ?? email.trim().toLowerCase(),
-      emailAttempted: result.emailAttempted !== false,
-      accessLink: result.accessLink ?? null,
-    })
+    const adresse = inviteEmail.trim().toLowerCase()
 
-    setFirstName("")
-    setLastName("")
-    setEmail("")
-    setPhone("")
-    setSpecialty("")
-    setHireDate("")
+    if (!adresse || !EMAIL_PATTERN.test(adresse)) {
+      setInviteError("Saisissez une adresse email valide.")
+      return
+    }
 
-    await loadData()
-  } catch (error) {
-    console.error(
-      "Erreur invitation enseignant :",
-      error
-    )
+    setSendingInvite(true)
+    setInviteError(null)
 
-    alert(
-      "Une erreur est survenue lors de l'envoi de l'invitation."
-    )
-  } finally {
-    setCreating(false)
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        setInviteError("Votre session a expiré. Reconnectez-vous.")
+        setSendingInvite(false)
+        return
+      }
+
+      const response = await fetch("/api/teachers/invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          teacherId: invitingTeacher.id,
+          email: adresse,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        setInviteError(result.error ?? "L'accès n'a pas pu être ouvert.")
+        setSendingInvite(false)
+        return
+      }
+
+      /*
+       * Pas d'annonce « invitation envoyée » : la messagerie intégrée de
+       * Supabase ne dessert que les membres de l'organisation, si bien
+       * que l'enseignant ne recevait rien pendant que l'écran affichait
+       * un succès. On montre le lien, qui lui fonctionne toujours.
+       */
+      setAccessNotice({
+        email: result.email ?? adresse,
+        emailAttempted: result.emailAttempted !== false,
+        accessLink: result.accessLink ?? null,
+      })
+
+      setInvitingTeacher(null)
+      setInviteEmail("")
+
+      await loadData()
+    } catch (error) {
+      console.error("Erreur invitation enseignant :", error)
+
+      setInviteError("Le serveur n'a pas répondu. Réessayez.")
+    } finally {
+      setSendingInvite(false)
+    }
   }
-}
 
   function startEditTeacher(teacher: Teacher) {
     setEditError(null)
@@ -381,8 +484,12 @@ export default function TeachersPage() {
   }
 
   function validateTeacherRows(rawRows: RawRow[]): ImportRow[] {
-    // Email normalisé -> première ligne du fichier où il apparaît.
-    const seenEmails = new Map<string, number>()
+    /*
+     * Le doublon se contrôle sur le WhatsApp, plus sur l'email : c'est
+     * lui qui est désormais obligatoire, et c'est lui que la base refuse
+     * en double dans une même école.
+     */
+    const seenPhones = new Map<string, number>()
 
     return rawRows.map((raw) => {
       const errors: string[] = []
@@ -391,6 +498,7 @@ export default function TeachersPage() {
       const lastName = raw.values.last_name?.trim() ?? ""
       const firstName = raw.values.first_name?.trim() ?? ""
       const email = raw.values.email?.trim().toLowerCase() ?? ""
+      const phone = raw.values.phone?.trim() ?? ""
 
       if (!lastName) {
         errors.push("Le nom est obligatoire.")
@@ -400,35 +508,43 @@ export default function TeachersPage() {
         errors.push("Le prénom est obligatoire.")
       }
 
-      if (!email) {
-        errors.push("L'email est obligatoire : il sert à envoyer l'invitation.")
-      } else if (!EMAIL_PATTERN.test(email)) {
+      // L'email n'ouvre plus de compte : il est facultatif, mais s'il
+      // est là il doit être exploitable.
+      if (email && !EMAIL_PATTERN.test(email)) {
         errors.push(`L'email « ${email} » n'est pas une adresse valide.`)
+      }
+
+      if (!phone) {
+        errors.push("Le numéro WhatsApp est obligatoire.")
+      } else if (countDigits(phone) < MIN_WHATSAPP_DIGITS) {
+        errors.push(
+          `Le numéro « ${phone} » compte moins de ${MIN_WHATSAPP_DIGITS} chiffres.`
+        )
       } else {
-        const firstSeen = seenEmails.get(email)
+        const normalise = phone.replace(/\D/g, "")
+        const firstSeen = seenPhones.get(normalise)
 
         if (firstSeen !== undefined) {
           errors.push(
-            `Email déjà utilisé à la ligne ${firstSeen} du fichier : un compte ne peut être créé qu'une fois.`
+            `Numéro WhatsApp déjà utilisé à la ligne ${firstSeen} du fichier.`
           )
         } else {
-          seenEmails.set(email, raw.lineNumber)
+          seenPhones.set(normalise, raw.lineNumber)
         }
 
         /*
-         * Un email déjà rattaché à un enseignant de l'école échouerait
-         * côté serveur : autant le dire tout de suite plutôt que de
-         * consommer un appel d'invitation pour rien.
+         * Un numéro déjà pris dans l'école serait refusé par la base :
+         * autant le dire tout de suite plutôt que de consommer un appel
+         * pour rien.
          */
         const existing = teachers.find(
           (teacher) =>
-            teacher.email &&
-            normalizeSearchText(teacher.email) === normalizeSearchText(email)
+            teacher.phone && teacher.phone.replace(/\D/g, "") === normalise
         )
 
         if (existing) {
           errors.push(
-            `Un enseignant utilise déjà cet email (${existing.last_name} ${existing.first_name}).`
+            `Ce numéro est déjà celui de ${existing.last_name} ${existing.first_name}.`
           )
         }
       }
@@ -441,7 +557,7 @@ export default function TeachersPage() {
         )
       }
 
-      // Homonyme sans email identique : probablement une autre personne.
+      // Homonyme avec un autre numéro : probablement une autre personne.
       const sameName = teachers.some(
         (teacher) =>
           normalizeSearchText(`${teacher.last_name} ${teacher.first_name}`) ===
@@ -464,8 +580,8 @@ export default function TeachersPage() {
         payload: {
           firstName,
           lastName,
-          email,
-          phone: raw.values.phone?.trim() ?? "",
+          email: email || null,
+          phone,
           specialty: raw.values.specialty?.trim() ?? "",
           hireDate: hireDate || null,
         },
@@ -476,11 +592,12 @@ export default function TeachersPage() {
   /*
    * Import strictement séquentiel.
    *
-   * Chaque ligne passe par /api/teachers/invite, la même route que la
-   * création manuelle : création du compte Auth, du profil et de la fiche
-   * enseignant, puis envoi de l'invitation. On n'appelle jamais deux
-   * invitations en parallèle — cela surchargerait l'API d'authentification
-   * et rendrait impossible d'imputer un échec à une ligne précise.
+   * Chaque ligne passe par POST /api/teachers, la même route que
+   * l'enregistrement manuel : une fiche, sans compte de connexion.
+   * L'import ne crée donc plus aucun compte d'authentification, ce qui
+   * lui retire du même coup la limite d'envoi de courriels qui le
+   * bridait. On garde le séquentiel pour pouvoir imputer un échec à une
+   * ligne précise.
    */
   async function importTeacherRows(
     rows: ImportRow[],
@@ -508,7 +625,7 @@ export default function TeachersPage() {
       const payload = row.payload as Record<string, unknown>
 
       try {
-        const response = await fetch("/api/teachers/invite", {
+        const response = await fetch("/api/teachers", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -522,7 +639,7 @@ export default function TeachersPage() {
         if (!response.ok) {
           failures.push({
             lineNumber: row.lineNumber,
-            message: result.error ?? "L'invitation a échoué.",
+            message: result.error ?? "L'enregistrement a échoué.",
           })
         } else {
           imported++
@@ -533,7 +650,7 @@ export default function TeachersPage() {
         failures.push({
           lineNumber: row.lineNumber,
           message:
-            "Le serveur n'a pas répondu. Cet enseignant n'a probablement pas été créé — vérifiez avant de relancer.",
+            "Le serveur n'a pas répondu. Cet enseignant n'a probablement pas été enregistré — vérifiez avant de relancer.",
         })
       }
 
@@ -595,7 +712,7 @@ export default function TeachersPage() {
         {showImport && (
           <ImportWizard
             title="Importer des enseignants"
-            description="Chaque ligne crée un compte, une fiche enseignant et envoie une invitation par email. Les lignes sont traitées une par une."
+            description="Chaque ligne enregistre une fiche enseignant. Aucun compte de connexion n'est créé : le numéro WhatsApp est obligatoire, l'email non."
             fields={TEACHER_IMPORT_FIELDS}
             validateRows={validateTeacherRows}
             importRows={importTeacherRows}
@@ -660,6 +777,30 @@ export default function TeachersPage() {
               </div>
 
               <div className="space-y-2">
+                <label htmlFor="phone">
+                  Numéro WhatsApp *
+                </label>
+
+                <input
+                  id="phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(event) =>
+                    setPhone(event.target.value)
+                  }
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                  autoComplete="tel"
+                  required
+                />
+
+                <p className="text-xs text-muted-foreground">
+                  C&apos;est par là que l&apos;établissement joindra
+                  l&apos;enseignant. Un même numéro ne peut servir qu&apos;à une
+                  personne dans l&apos;établissement.
+                </p>
+              </div>
+
+              <div className="space-y-2">
                 <label htmlFor="email">
                   Email
                 </label>
@@ -674,23 +815,11 @@ export default function TeachersPage() {
                   className="w-full rounded-md border bg-background px-3 py-2"
                   autoComplete="email"
                 />
-              </div>
 
-              <div className="space-y-2">
-                <label htmlFor="phone">
-                  Téléphone
-                </label>
-
-                <input
-                  id="phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(event) =>
-                    setPhone(event.target.value)
-                  }
-                  className="w-full rounded-md border bg-background px-3 py-2"
-                  autoComplete="tel"
-                />
+                <p className="text-xs text-muted-foreground">
+                  Facultatif. Il ne sert qu&apos;à ouvrir un accès au logiciel,
+                  ce qui se fait ensuite depuis la liste.
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -725,6 +854,53 @@ export default function TeachersPage() {
                   className="w-full rounded-md border bg-background px-3 py-2"
                 />
               </div>
+
+              <div className="space-y-2">
+                <label htmlFor="contractType">Type de contrat</label>
+
+                <select
+                  id="contractType"
+                  value={contractType}
+                  onChange={(event) => setContractType(event.target.value)}
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                >
+                  <option value="">Non défini</option>
+                  <option value="permanent">Permanent</option>
+                  <option value="vacataire">Vacataire</option>
+                </select>
+              </div>
+
+              {/*
+                Les taux ne sont proposés qu'aux rôles qui voient les
+                finances. Ils ne partent pas avec le formulaire : les
+                colonnes de rémunération sont fermées au rôle
+                `authenticated`, et seule set_teacher_compensation() —
+                appelée juste après l'enregistrement — peut les écrire.
+              */}
+              {peutSaisirLesTaux && contractType && (
+                <div className="space-y-2">
+                  <label htmlFor="rate">
+                    {contractType === "vacataire"
+                      ? "Taux horaire (FCFA)"
+                      : "Salaire mensuel (FCFA)"}
+                  </label>
+
+                  <input
+                    id="rate"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rate}
+                    onChange={(event) => setRate(event.target.value)}
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                  />
+
+                  <p className="text-xs text-muted-foreground">
+                    Propre à cet établissement : le même vacataire peut
+                    avoir un autre tarif ailleurs.
+                  </p>
+                </div>
+              )}
 
               <button
                 type="submit"
@@ -769,11 +945,7 @@ export default function TeachersPage() {
                       </th>
 
                       <th className="px-4 py-3">
-                        Email
-                      </th>
-
-                      <th className="px-4 py-3">
-                        Téléphone
+                        WhatsApp
                       </th>
 
                       <th className="px-4 py-3">
@@ -781,7 +953,7 @@ export default function TeachersPage() {
                       </th>
 
                       <th className="px-4 py-3">
-                        Statut
+                        Accès au logiciel
                       </th>
 
                       <th className="px-4 py-3 text-right">
@@ -802,10 +974,6 @@ export default function TeachersPage() {
                         </td>
 
                         <td className="px-4 py-4">
-                          {teacher.email || "—"}
-                        </td>
-
-                        <td className="px-4 py-4">
                           {teacher.phone || "—"}
                         </td>
 
@@ -813,21 +981,45 @@ export default function TeachersPage() {
                           {teacher.specialty || "—"}
                         </td>
 
+                        {/*
+                          Une fiche sans compte est le cas normal, pas une
+                          anomalie : la plupart des vacataires ne se
+                          connecteront jamais.
+                        */}
                         <td className="px-4 py-4">
-                          <span className="rounded-full bg-green-100 px-3 py-1 text-xs text-green-700">
-                            {teacher.status === "active"
-                              ? "Actif"
-                              : "Inactif"}
-                          </span>
+                          {teacher.profile_id ? (
+                            <span className="rounded-full bg-green-100 px-3 py-1 text-xs text-green-700">
+                              Compte ouvert
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              Sans compte
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-4 py-4 text-right">
-                          <button
-                            onClick={() => startEditTeacher(teacher)}
-                            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-                          >
-                            Modifier
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            {!teacher.profile_id && (
+                              <button
+                                onClick={() => {
+                                  setInviteError(null)
+                                  setInvitingTeacher(teacher)
+                                  setInviteEmail(teacher.email ?? "")
+                                }}
+                                className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                              >
+                                Inviter à se connecter
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => startEditTeacher(teacher)}
+                              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                            >
+                              Modifier
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -893,13 +1085,14 @@ export default function TeachersPage() {
             />
 
             <p className="text-xs text-muted-foreground">
-              L'email est l'identifiant de connexion du compte : il ne se
-              change pas depuis cette fiche.
+              {editingTeacher.profile_id
+                ? "L'email est l'identifiant de connexion du compte : il ne se change pas depuis cette fiche."
+                : "Aucun email n'est nécessaire tant que l'enseignant n'a pas d'accès au logiciel."}
             </p>
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="edit-phone">Téléphone</label>
+            <label htmlFor="edit-phone">Numéro WhatsApp *</label>
 
             <input
               id="edit-phone"
@@ -909,6 +1102,7 @@ export default function TeachersPage() {
                 setEditForm({ ...editForm, phone: event.target.value })
               }
               className="w-full rounded-md border bg-background px-3 py-2"
+              required
             />
           </div>
 
@@ -939,6 +1133,45 @@ export default function TeachersPage() {
               }
               className="w-full rounded-md border bg-background px-3 py-2"
             />
+          </div>
+        </EditDialog>
+      )}
+
+      {invitingTeacher && (
+        <EditDialog
+          title="Inviter à se connecter"
+          description={`${invitingTeacher.first_name} ${invitingTeacher.last_name}`}
+          error={inviteError}
+          saving={sendingInvite}
+          onSubmit={sendInvite}
+          onClose={() => {
+            setInvitingTeacher(null)
+            setInviteError(null)
+          }}
+        >
+          <p className="text-sm text-muted-foreground">
+            Ouvrir un accès crée un compte permettant à cet enseignant de
+            saisir ses notes. C&apos;est le seul cas où une adresse email est
+            nécessaire — la fiche, elle, s&apos;en passe.
+          </p>
+
+          <div className="space-y-2">
+            <label htmlFor="invite-email">Email de connexion *</label>
+
+            <input
+              id="invite-email"
+              type="email"
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2"
+              autoComplete="email"
+              required
+            />
+
+            <p className="text-xs text-muted-foreground">
+              Cette adresse devient son identifiant. Elle doit lui être
+              propre : elle ne peut pas déjà servir à un autre compte.
+            </p>
           </div>
         </EditDialog>
       )}
