@@ -124,6 +124,23 @@ create table class_subjects (
   constraint class_subjects_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE SET NULL
 );
 
+-- Titulaire d'une classe de premier cycle. `filiere` ne sert qu'en ecole
+-- franco-arabe, ou la classe a DEUX titulaires. Voir
+-- supabase/cycles-et-titulaires.sql.
+create table class_head_teachers (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_id uuid not null,
+  class_id uuid not null,
+  teacher_id uuid not null,
+  filiere text,
+  constraint class_head_teachers_pkey PRIMARY KEY (id),
+  constraint class_head_teachers_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE CASCADE,
+  constraint class_head_teachers_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  constraint class_head_teachers_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE CASCADE,
+  constraint class_head_teachers_filiere_check CHECK (((filiere IS NULL) OR (filiere = ANY (ARRAY['francais'::text, 'arabe'::text]))))
+);
+
 create table classes (
   id uuid default gen_random_uuid() not null,
   created_at timestamp with time zone default now() not null,
@@ -132,6 +149,10 @@ create table classes (
   level text,
   academic_year text,
   direction_id uuid,
+  -- Colonne structuree, et NON `level` qui est un texte libre : c'est
+  -- elle qui decide du mode d'affectation des enseignants.
+  cycle text,
+  constraint classes_cycle_check CHECK (((cycle IS NULL) OR (cycle = ANY (ARRAY['premier_cycle'::text, 'second_cycle'::text, 'lycee'::text])))),
   constraint classes_pkey PRIMARY KEY (id),
   constraint classes_direction_id_fkey FOREIGN KEY (direction_id) REFERENCES public.directions(id) ON DELETE SET NULL,
   constraint classes_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE
@@ -259,6 +280,11 @@ create table profiles (
   phone text,
   is_active boolean default true not null,
   direction_id uuid,
+  -- Filiere d'un directeur de direction, ecole franco-arabe. Elle NOMME
+  -- la responsabilite et ne restreint AUCUN perimetre RLS : voir la note
+  -- de supabase/franco-arabe.sql.
+  filiere text,
+  constraint profiles_filiere_check CHECK (((filiere IS NULL) OR (filiere = ANY (ARRAY['francais'::text, 'arabe'::text])))),
   constraint profiles_pkey PRIMARY KEY (id),
   constraint profiles_direction_id_fkey FOREIGN KEY (direction_id) REFERENCES public.directions(id) ON DELETE SET NULL,
   constraint profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -308,6 +334,9 @@ create table schools (
   appreciation_fair numeric(5,2) default 10 not null,
   payroll_pay_excused_absence boolean default false not null,
   payroll_deduct_late boolean default false not null,
+  -- Pilote l'affichage : `franco_arabe` debloque l'axe filiere.
+  school_type text default 'classique'::text not null,
+  constraint schools_school_type_check CHECK ((school_type = ANY (ARRAY['classique'::text, 'franco_arabe'::text]))),
   constraint schools_pkey PRIMARY KEY (id),
   constraint schools_appreciation_order_check CHECK (((appreciation_excellent > appreciation_very_good) AND (appreciation_very_good > appreciation_good) AND (appreciation_good > appreciation_fair) AND (appreciation_fair >= (0)::numeric) AND (appreciation_excellent <= grading_scale))),
   constraint schools_grading_scale_check CHECK (((grading_scale > (0)::numeric) AND (grading_scale <= (100)::numeric)))
@@ -373,6 +402,9 @@ create table subjects (
   code text,
   description text,
   coefficient numeric default 1 not null,
+  -- Programme dont releve la matiere. Nulle hors ecole franco-arabe.
+  filiere text,
+  constraint subjects_filiere_check CHECK (((filiere IS NULL) OR (filiere = ANY (ARRAY['francais'::text, 'arabe'::text])))),
   constraint subjects_pkey PRIMARY KEY (id),
   constraint subjects_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE
 );
@@ -444,11 +476,18 @@ create table timetable_slots (
 -- 2. INDEX
 
 CREATE INDEX activity_log_school_date_idx ON public.activity_log USING btree (school_id, created_at DESC);
+-- Un seul titulaire sans filiere (ecole classique)...
+CREATE UNIQUE INDEX class_head_teachers_sans_filiere ON public.class_head_teachers USING btree (class_id) WHERE (filiere IS NULL);
+-- ...et un seul par filiere (ecole franco-arabe).
+CREATE UNIQUE INDEX class_head_teachers_par_filiere ON public.class_head_teachers USING btree (class_id, filiere) WHERE (filiere IS NOT NULL);
 CREATE INDEX classes_direction_id_idx ON public.classes USING btree (direction_id);
 CREATE INDEX daily_reminders_school_date_idx ON public.daily_reminders USING btree (school_id, reminder_date DESC);
 CREATE INDEX fee_payments_school_date_idx ON public.fee_payments USING btree (school_id, payment_date DESC);
 CREATE INDEX lineup_themes_school_date_idx ON public.lineup_themes USING btree (school_id, scheduled_on);
 CREATE INDEX profiles_direction_id_idx ON public.profiles USING btree (direction_id);
+-- Empeche DEUX directeurs de la MEME filiere sur une direction. Rien
+-- n'interdisait deja deux directeurs : cet index n'ouvre rien, il ferme.
+CREATE UNIQUE INDEX profiles_directeur_par_filiere ON public.profiles USING btree (direction_id, filiere) WHERE ((role = 'directeur_direction'::text) AND (direction_id IS NOT NULL) AND (filiere IS NOT NULL));
 -- Une seule autorisation EN ATTENTE par adresse ; les consommees restent.
 CREATE UNIQUE INDEX school_creation_grants_email_en_attente ON public.school_creation_grants USING btree (lower(email)) WHERE (used_at IS NULL);
 CREATE INDEX sms_logs_student_event_idx ON public.sms_logs USING btree (student_id, event_type, created_at DESC);
@@ -465,6 +504,7 @@ alter table academic_years enable row level security;
 alter table activity_log enable row level security;
 alter table assessments enable row level security;
 alter table attendance enable row level security;
+alter table class_head_teachers enable row level security;
 alter table class_subjects enable row level security;
 alter table classes enable row level security;
 alter table daily_reminders enable row level security;
@@ -590,6 +630,25 @@ create policy "Presences corrigees par l'enseignant ou l'encadrement" on attenda
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
+create policy "Encadrement change les titulaires" on class_head_teachers for update to {authenticated}
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))))
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Encadrement nomme les titulaires" on class_head_teachers for insert to {authenticated}
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
+create policy "Encadrement retire les titulaires" on class_head_teachers for delete to {authenticated}
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
+create policy "Titulaires lus dans son ecole" on class_head_teachers for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 create policy "Encadrement retire les affectations" on class_subjects for delete to {authenticated}
   using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
@@ -1223,6 +1282,44 @@ CREATE OR REPLACE FUNCTION private.is_teacher()
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$ select coalesce((select p.role = 'teacher' from profiles p where p.id = auth.uid()), false); $function$
+;
+
+-- Le numero WhatsApp est obligatoire et unique PAR ECOLE. Declencheur
+-- et non index unique : deux fiches existantes partagent deja un numero
+-- (deux personnes distinctes), et un index ne pourrait pas se creer sans
+-- detruire cette donnee. Voir supabase/enseignants-sans-compte.sql.
+CREATE OR REPLACE FUNCTION private.refuser_whatsapp_deja_pris()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_normalise text; v_autre text;
+begin
+  v_normalise := regexp_replace(coalesce(new.phone, ''), '\D', '', 'g');
+
+  if v_normalise = '' then
+    raise exception
+      'Le numero WhatsApp est obligatoire pour enregistrer un enseignant.'
+      using errcode = 'P0001';
+  end if;
+
+  select t.first_name || ' ' || t.last_name into v_autre
+  from teachers t
+  where t.school_id = new.school_id
+    and t.id is distinct from new.id
+    and regexp_replace(coalesce(t.phone, ''), '\D', '', 'g') = v_normalise
+  limit 1;
+
+  if v_autre is not null then
+    raise exception
+      'Le numero WhatsApp % est deja celui de % dans cet etablissement.',
+      new.phone, v_autre using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$function$
 ;
 
 -- Rend LISIBLE le refus pose structurellement par la cle etrangere
@@ -1963,5 +2060,6 @@ CREATE TRIGGER log_students AFTER INSERT OR DELETE OR UPDATE ON public.students 
 CREATE TRIGGER log_subjects AFTER INSERT OR DELETE OR UPDATE ON public.subjects FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_teacher_attendance AFTER INSERT OR DELETE OR UPDATE ON public.teacher_attendance FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_teachers AFTER INSERT OR DELETE OR UPDATE ON public.teachers FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER teachers_whatsapp_unique BEFORE INSERT OR UPDATE OF phone ON public.teachers FOR EACH ROW EXECUTE FUNCTION private.refuser_whatsapp_deja_pris();
 CREATE TRIGGER log_timetable_slots AFTER INSERT OR DELETE OR UPDATE ON public.timetable_slots FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

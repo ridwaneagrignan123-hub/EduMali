@@ -26,15 +26,15 @@ base de production le **2026-07-30** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
-| Tables | **25** |
-| Colonnes | 214 |
-| Contraintes | 124 |
-| Tables avec RLS active | **25 sur 25** |
-| Policies | 86 |
-| Index | 50 |
+| Tables | **26** |
+| Colonnes | 224 |
+| Contraintes | 133 |
+| Tables avec RLS active | **26 sur 26** |
+| Policies | 90 |
+| Index | 54 |
 | Fonctions `public` | 15 |
-| Fonctions `private` | 20 |
-| Déclencheurs | 27 |
+| Fonctions `private` | 21 |
+| Déclencheurs | 28 |
 
 Les 27 déclencheurs incluent `on_auth_user_created`, posé sur `auth.users`
 et non sur `public` — le compte précédent (26) l'omettait, d'où l'écart
@@ -63,6 +63,9 @@ sur la production échouerait, les objets existant déjà.
 | `paie.sql` | contrats et tarifs, règles de paie, calcul mensuel, fermeture des colonnes de salaire (2026-07-30) |
 | `autorisation-creation-ecole.sql` | `school_creation_grants` : l'ouverture d'un établissement passe d'un contrôle client à une autorisation nominative serveur (2026-07-30) |
 | `suppression-frais-payes.sql` | `fee_payments.fee_assessment_id` passe de CASCADE à RESTRICT, plus le refus lisible (2026-07-30) |
+| `enseignants-sans-compte.sql` | la fiche enseignant se découple du compte de connexion ; WhatsApp obligatoire et unique par école (2026-07-30) |
+| `cycles-et-titulaires.sql` | `classes.cycle`, table `class_head_teachers`, `subjects.filiere` (2026-07-30) |
+| `franco-arabe.sql` | `profiles.filiere` et la décision sur le périmètre RLS d'une direction à deux directeurs (2026-07-30) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -187,6 +190,28 @@ Vérifiés en base le 2026-07-30, pas reconduits de mémoire.
   et zéro policy ferme la table à tout client ; seule la clé service role y
   accède, ce qui en fait la voie de confiance de `/api/setup-school`. Lui
   ajouter une policy de lecture révélerait qui est attendu.
+
+- **`teachers.phone` EST le numéro WhatsApp.** Ce n'est pas une simple
+  coordonnée : `app/supervision` construit `https://wa.me/…` à partir d'elle,
+  la route d'enregistrement l'exige, et le déclencheur
+  `teachers_whatsapp_unique` la refuse en double dans une même école. Ne pas
+  créer de colonne `whatsapp` à côté : il y aurait alors deux numéros pour un
+  seul usage.
+- **`teachers.profile_id` est nul le plus souvent, et c'est normal.**
+  Enregistrer un enseignant ne crée plus de compte ; la plupart des vacataires
+  n'en auront jamais. Tout code qui lit cette colonne doit tolérer l'absence.
+  `private.teaches_class` et `teaches_student` le font par construction, leur
+  jointure sur `profile_id` excluant les nuls.
+- **`schools.school_type` pilote l'affichage, pas les droits.** Aucune policy
+  ne le lit. En `classique`, l'axe filière doit rester invisible partout.
+- **La filière ne restreint aucun périmètre RLS.** Deux `directeur_direction`
+  peuvent partager une direction et voient exactement la même chose ; leur
+  filière dit de quel programme chacun répond. Le raisonnement complet est
+  dans `franco-arabe.sql` — cloisonner un jour supposerait de porter la
+  filière sur l'élève, pas sur le directeur.
+- **`classes.cycle` décide du mode d'affectation**, pas `classes.level` qui
+  reste un texte libre. Un cycle nul retombe sur le mode par matière, c'est-à-
+  dire le comportement d'avant.
 
 ### Points résolus depuis, à ne pas réintroduire
 
