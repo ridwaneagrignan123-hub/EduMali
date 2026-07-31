@@ -1118,10 +1118,21 @@ export default function StudentsPage() {
                               className="border-b last:border-0"
                             >
                               <td className="px-4 py-4">
-                                <p className="font-medium">
+                                {/*
+                                  Le nom ouvre l'historique : c'est le
+                                  geste naturel quand on cherche « que
+                                  s'est-il passé avec cet élève ».
+                                */}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    router.push(`/students/${student.id}`)
+                                  }
+                                  className="text-left font-medium text-primary hover:underline"
+                                >
                                   {student.first_name}{" "}
                                   {student.last_name}
-                                </p>
+                                </button>
 
                                 {student.student_number && (
                                   <p className="text-xs text-muted-foreground">
