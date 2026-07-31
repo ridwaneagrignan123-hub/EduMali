@@ -197,20 +197,22 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Moyennes", path: "/averages", roles: PEDAGOGIE },
   { label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
   { label: "Présences", path: "/attendance", roles: PEDAGOGIE },
-  { label: "Frais scolaires", path: "/fees", roles: ["admin", "promoteur", "comptable"] },
   /*
-   * L'état de caisse relève de « finances.voir », comme la page Frais :
-   * le directeur général en est exclu. Les fonctions cash_report_* le
-   * revérifient en base, cette entrée ne fait que ne pas la proposer.
+   * UNE SEULE ENTRÉE FINANCIÈRE.
+   *
+   * Frais scolaires, État de caisse et Paie relevaient du même métier et
+   * des mêmes rôles, mais occupaient trois lignes du menu. Elles sont
+   * regroupées sous « Comptabilité », qui n'est qu'un point d'entrée :
+   * les trois écrans existent tels quels et gardent chacun leur propre
+   * garde de rôle.
+   *
+   * Les directeurs en sont exclus, comme partout sur l'argent — le
+   * directeur général voit l'établissement entier sauf les finances. Ce
+   * retrait du menu ne protège rien par lui-même : cash_report_* et
+   * payroll_month() revérifient can_see_money() en base, et les colonnes
+   * de rémunération de `teachers` sont fermées au rôle `authenticated`.
    */
-  { label: "État de caisse", path: "/cash-report", roles: ["admin", "promoteur", "comptable"] },
-  /*
-   * Les salaires sont sensibles : mêmes rôles que la caisse, donc sans
-   * les directeurs. payroll_month() le revérifie en base, et les
-   * colonnes de rémunération de `teachers` sont fermées au rôle
-   * `authenticated` — le RLS seul ne saurait pas masquer une colonne.
-   */
-  { label: "Paie", path: "/payroll", roles: ["admin", "promoteur", "comptable"] },
+  { label: "Comptabilité", path: "/accounting", roles: ["admin", "promoteur", "comptable"] },
   /*
    * L'enseignant y voit ce que l'école lui doit. Ouvert à tous les rôles
    * susceptibles d'avoir une fiche enseignant rattachée : la fonction

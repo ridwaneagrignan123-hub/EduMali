@@ -352,10 +352,17 @@ export default function AveragesPage() {
 
     const premierCycle = estPremierCycle(classeData?.cycle)
 
-    const matieresDeLaClasse = (classSubjectsData ?? []).map((item: any) => ({
-      id: item.subject_id as string,
-      nom: (item.subjects?.name as string) ?? "—",
-    }))
+    const matieresDeLaClasse = (classSubjectsData ?? []).map((item) => {
+      const ligne = item as unknown as {
+        subject_id: string
+        subjects: { name: string } | null
+      }
+
+      return {
+        id: ligne.subject_id,
+        nom: ligne.subjects?.name ?? "—",
+      }
+    })
 
     /*
      * 3. Récupérer les notes des élèves.
