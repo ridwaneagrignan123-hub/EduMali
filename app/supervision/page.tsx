@@ -88,7 +88,23 @@ type CreneauAPointer = {
   mois_cloture: boolean
 }
 
-type Onglet = "retards" | "pointage" | "themes" | "rappels"
+/* Un élève de l'établissement, pour la saisie disciplinaire. */
+type EleveSimple = {
+  id: string
+  first_name: string
+  last_name: string
+  parent_phone: string | null
+}
+
+type Retenue = {
+  id: string
+  student_id: string
+  detention_date: string
+  reason: string
+  students: { first_name: string; last_name: string } | null
+}
+
+type Onglet = "retards" | "pointage" | "retenues" | "themes" | "rappels"
 
 export default function SupervisionPage() {
   const router = useRouter()
@@ -103,6 +119,17 @@ export default function SupervisionPage() {
   const [releves, setReleves] = useState<Releve[]>([])
   const [themes, setThemes] = useState<Theme[]>([])
   const [rappels, setRappels] = useState<Rappel[]>([])
+
+  /* Retenues : la saisie et l'historique récent. */
+  const [eleves, setEleves] = useState<EleveSimple[]>([])
+  const [retenues, setRetenues] = useState<Retenue[]>([])
+  const [retenueEleveId, setRetenueEleveId] = useState("")
+  const [retenueDate, setRetenueDate] = useState(versDateISO(new Date()))
+  const [retenueMotif, setRetenueMotif] = useState("")
+  const [retenueEnCours, setRetenueEnCours] = useState(false)
+  const [retenueErreur, setRetenueErreur] = useState<string | null>(null)
+  const [retenueMessage, setRetenueMessage] = useState<string | null>(null)
+  const [signalementEnCours, setSignalementEnCours] = useState<string | null>(null)
 
   /* Pointage : la journée examinée et ses créneaux programmés. */
   const [datePointage, setDatePointage] = useState(versDateISO(new Date()))
@@ -213,6 +240,135 @@ export default function SupervisionPage() {
    * déjà les jours fériés, les dates hors année scolaire et les jours
    * où le créneau n'a pas lieu : la liste ne contient que du pointable.
    */
+  /* Les élèves de l'école et les retenues récentes. */
+  const chargerDiscipline = useCallback(async () => {
+    const [elevesResultat, retenuesResultat] = await Promise.all([
+      supabase
+        .from("students")
+        .select("id, first_name, last_name, parent_phone")
+        .order("last_name"),
+      supabase
+        .from("detentions")
+        .select("id, student_id, detention_date, reason, students ( first_name, last_name )")
+        .order("detention_date", { ascending: false })
+        .limit(50),
+    ])
+
+    if (elevesResultat.error || retenuesResultat.error) {
+      console.error(
+        "Erreur discipline :",
+        elevesResultat.error ?? retenuesResultat.error
+      )
+      setRetenueErreur("Les élèves ou les retenues n'ont pas pu être lus.")
+      return
+    }
+
+    setEleves((elevesResultat.data as EleveSimple[]) ?? [])
+    setRetenues((retenuesResultat.data as unknown as Retenue[]) ?? [])
+  }, [])
+
+  useEffect(() => {
+    if (gate.statut !== "autorise" || onglet !== "retenues") {
+      return
+    }
+
+    async function lancer() {
+      await chargerDiscipline()
+    }
+
+    lancer()
+  }, [gate, onglet, chargerDiscipline])
+
+  async function enregistrerRetenue(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (gate.statut !== "autorise" || !retenueEleveId) {
+      return
+    }
+
+    if (retenueMotif.trim().length < 3) {
+      setRetenueErreur("Le motif de la retenue est obligatoire.")
+      return
+    }
+
+    setRetenueEnCours(true)
+    setRetenueErreur(null)
+    setRetenueMessage(null)
+
+    const { error } = await supabase.from("detentions").insert({
+      school_id: gate.schoolId,
+      student_id: retenueEleveId,
+      detention_date: retenueDate,
+      reason: retenueMotif.trim(),
+    })
+
+    setRetenueEnCours(false)
+
+    if (error) {
+      console.error("Erreur retenue :", error)
+      setRetenueErreur(error.message)
+      return
+    }
+
+    setRetenueMotif("")
+    setRetenueMessage("Retenue enregistrée.")
+    await chargerDiscipline()
+  }
+
+  /*
+   * « Signaler aux parents » — un clic, un message dans la file. Comme
+   * partout, le geste est délibéré : enregistrer une retenue ne prévient
+   * pas la famille tout seul.
+   */
+  async function signalerRetenue(retenue: Retenue) {
+    setSignalementEnCours(retenue.id)
+    setRetenueErreur(null)
+    setRetenueMessage(null)
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        setRetenueErreur("Votre session a expiré. Reconnectez-vous.")
+        return
+      }
+
+      const response = await fetch("/api/parent-messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          studentId: retenue.student_id,
+          eventType: "retenue",
+          relatedId: retenue.id,
+          details: { date: retenue.detention_date, motif: retenue.reason },
+        }),
+      })
+
+      const resultat = await response.json()
+
+      if (!response.ok) {
+        setRetenueErreur(resultat.error ?? "Le message n'a pas pu être créé.")
+        return
+      }
+
+      setRetenueMessage(
+        resultat.statut === "sent"
+          ? "Message envoyé au parent."
+          : `Message enregistré. ${resultat.raison ?? ""}`
+      )
+    } catch (error) {
+      console.error("Erreur signalement :", error)
+      setRetenueErreur("Le serveur n'a pas répondu.")
+    } finally {
+      setSignalementEnCours(null)
+    }
+  }
+
   const chargerCreneaux = useCallback(async (jour: string) => {
     setChargementCreneaux(true)
     setErreurPointage(null)
@@ -571,6 +727,7 @@ export default function SupervisionPage() {
             [
               ["retards", "Retards et absences"],
               ["pointage", "Pointage des cours"],
+              ["retenues", "Retenues"],
               ["themes", "Thèmes au rang"],
               ["rappels", "Rappels"],
             ] as [Onglet, string][]
@@ -1087,6 +1244,143 @@ export default function SupervisionPage() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ============ RETENUES ============ */}
+        {onglet === "retenues" && (
+          <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
+            <div className="rounded-xl border bg-background p-6">
+              <h2 className="text-lg font-semibold">Enregistrer une retenue</h2>
+
+              <form onSubmit={enregistrerRetenue} className="mt-6 space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="retenue-eleve">Élève *</label>
+
+                  <select
+                    id="retenue-eleve"
+                    value={retenueEleveId}
+                    onChange={(event) => setRetenueEleveId(event.target.value)}
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                    required
+                  >
+                    <option value="">Choisir un élève</option>
+
+                    {eleves.map((eleve) => (
+                      <option key={eleve.id} value={eleve.id}>
+                        {eleve.last_name} {eleve.first_name}
+                        {eleve.parent_phone ? "" : " — sans numéro parent"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="retenue-date">Date *</label>
+
+                  <input
+                    id="retenue-date"
+                    type="date"
+                    value={retenueDate}
+                    onChange={(event) => setRetenueDate(event.target.value)}
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="retenue-motif">Motif *</label>
+
+                  <textarea
+                    id="retenue-motif"
+                    value={retenueMotif}
+                    onChange={(event) => setRetenueMotif(event.target.value)}
+                    rows={3}
+                    placeholder="Ex : bavardages répétés en classe"
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                    required
+                  />
+
+                  <p className="text-xs text-muted-foreground">
+                    Le motif figure dans le message aux parents : écrivez-le
+                    comme la famille doit le lire.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={retenueEnCours}
+                  className="w-full rounded-md bg-primary px-4 py-3 font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  {retenueEnCours ? "Enregistrement..." : "Enregistrer la retenue"}
+                </button>
+              </form>
+            </div>
+
+            <div className="rounded-xl border bg-background p-6">
+              <h2 className="text-lg font-semibold">Retenues récentes</h2>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                Enregistrer une retenue ne prévient pas la famille : le
+                signalement est un geste à part, pour qu&apos;il reste
+                délibéré.
+              </p>
+
+              {retenueErreur && (
+                <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {retenueErreur}
+                </div>
+              )}
+
+              {retenueMessage && (
+                <p className="mt-4 rounded-lg border p-3 text-sm">
+                  {retenueMessage}
+                </p>
+              )}
+
+              {retenues.length === 0 ? (
+                <p className="mt-6 text-sm text-muted-foreground">
+                  Aucune retenue enregistrée.
+                </p>
+              ) : (
+                <div className="mt-6 space-y-3">
+                  {retenues.map((retenue) => (
+                    <div
+                      key={retenue.id}
+                      className="flex flex-wrap items-center gap-4 rounded-lg border p-4"
+                    >
+                      <span className="w-24 shrink-0 tabular-nums text-sm text-muted-foreground">
+                        {new Date(
+                          `${retenue.detention_date}T00:00:00`
+                        ).toLocaleDateString("fr-FR")}
+                      </span>
+
+                      <div className="min-w-[200px] flex-1">
+                        <p className="font-medium">
+                          {retenue.students?.last_name}{" "}
+                          {retenue.students?.first_name}
+                        </p>
+
+                        <p className="text-sm text-muted-foreground">
+                          {retenue.reason}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => signalerRetenue(retenue)}
+                        disabled={signalementEnCours === retenue.id}
+                        className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                      >
+                        {signalementEnCours === retenue.id
+                          ? "..."
+                          : "Signaler aux parents"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
