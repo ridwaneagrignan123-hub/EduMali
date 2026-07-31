@@ -104,7 +104,25 @@ type Retenue = {
   students: { first_name: string; last_name: string } | null
 }
 
-type Onglet = "retards" | "pointage" | "retenues" | "themes" | "rappels"
+/* Une règle du règlement intérieur de l'école. */
+type Regle = {
+  id: string
+  label: string
+  rule_text: string
+  is_active: boolean
+}
+
+type Violation = {
+  id: string
+  student_id: string
+  rule_id: string
+  violation_date: string
+  note: string | null
+  students: { first_name: string; last_name: string } | null
+  school_rules: { label: string } | null
+}
+
+type Onglet = "retards" | "pointage" | "discipline" | "themes" | "rappels"
 
 export default function SupervisionPage() {
   const router = useRouter()
@@ -130,6 +148,15 @@ export default function SupervisionPage() {
   const [retenueErreur, setRetenueErreur] = useState<string | null>(null)
   const [retenueMessage, setRetenueMessage] = useState<string | null>(null)
   const [signalementEnCours, setSignalementEnCours] = useState<string | null>(null)
+
+  /* Violations du règlement intérieur. */
+  const [regles, setRegles] = useState<Regle[]>([])
+  const [violations, setViolations] = useState<Violation[]>([])
+  const [violationEleveId, setViolationEleveId] = useState("")
+  const [violationRegleId, setViolationRegleId] = useState("")
+  const [violationDate, setViolationDate] = useState(versDateISO(new Date()))
+  const [violationNote, setViolationNote] = useState("")
+  const [violationEnCours, setViolationEnCours] = useState(false)
 
   /* Pointage : la journée examinée et ses créneaux programmés. */
   const [datePointage, setDatePointage] = useState(versDateISO(new Date()))
@@ -242,7 +269,12 @@ export default function SupervisionPage() {
    */
   /* Les élèves de l'école et les retenues récentes. */
   const chargerDiscipline = useCallback(async () => {
-    const [elevesResultat, retenuesResultat] = await Promise.all([
+    const [
+      elevesResultat,
+      retenuesResultat,
+      reglesResultat,
+      violationsResultat,
+    ] = await Promise.all([
       supabase
         .from("students")
         .select("id, first_name, last_name, parent_phone")
@@ -251,6 +283,17 @@ export default function SupervisionPage() {
         .from("detentions")
         .select("id, student_id, detention_date, reason, students ( first_name, last_name )")
         .order("detention_date", { ascending: false })
+        .limit(50),
+      supabase
+        .from("school_rules")
+        .select("id, label, rule_text, is_active")
+        .order("label"),
+      supabase
+        .from("rule_violations")
+        .select(
+          "id, student_id, rule_id, violation_date, note, students ( first_name, last_name ), school_rules ( label )"
+        )
+        .order("violation_date", { ascending: false })
         .limit(50),
     ])
 
@@ -265,10 +308,12 @@ export default function SupervisionPage() {
 
     setEleves((elevesResultat.data as EleveSimple[]) ?? [])
     setRetenues((retenuesResultat.data as unknown as Retenue[]) ?? [])
+    setRegles((reglesResultat.data as Regle[]) ?? [])
+    setViolations((violationsResultat.data as unknown as Violation[]) ?? [])
   }, [])
 
   useEffect(() => {
-    if (gate.statut !== "autorise" || onglet !== "retenues") {
+    if (gate.statut !== "autorise" || onglet !== "discipline") {
       return
     }
 
@@ -346,6 +391,91 @@ export default function SupervisionPage() {
           eventType: "retenue",
           relatedId: retenue.id,
           details: { date: retenue.detention_date, motif: retenue.reason },
+        }),
+      })
+
+      const resultat = await response.json()
+
+      if (!response.ok) {
+        setRetenueErreur(resultat.error ?? "Le message n'a pas pu être créé.")
+        return
+      }
+
+      setRetenueMessage(
+        resultat.statut === "sent"
+          ? "Message envoyé au parent."
+          : `Message enregistré. ${resultat.raison ?? ""}`
+      )
+    } catch (error) {
+      console.error("Erreur signalement :", error)
+      setRetenueErreur("Le serveur n'a pas répondu.")
+    } finally {
+      setSignalementEnCours(null)
+    }
+  }
+
+  async function enregistrerViolation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (gate.statut !== "autorise" || !violationEleveId || !violationRegleId) {
+      return
+    }
+
+    setViolationEnCours(true)
+    setRetenueErreur(null)
+    setRetenueMessage(null)
+
+    const { error } = await supabase.from("rule_violations").insert({
+      school_id: gate.schoolId,
+      student_id: violationEleveId,
+      rule_id: violationRegleId,
+      violation_date: violationDate,
+      note: violationNote.trim() || null,
+    })
+
+    setViolationEnCours(false)
+
+    if (error) {
+      console.error("Erreur violation :", error)
+      setRetenueErreur(error.message)
+      return
+    }
+
+    setViolationNote("")
+    setRetenueMessage("Manquement au règlement enregistré.")
+    await chargerDiscipline()
+  }
+
+  async function signalerViolation(violation: Violation) {
+    setSignalementEnCours(violation.id)
+    setRetenueErreur(null)
+    setRetenueMessage(null)
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        setRetenueErreur("Votre session a expiré. Reconnectez-vous.")
+        return
+      }
+
+      const response = await fetch("/api/parent-messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          studentId: violation.student_id,
+          eventType: "violation_reglement",
+          relatedId: violation.id,
+          details: {
+            date: violation.violation_date,
+            regle: violation.school_rules?.label,
+            note: violation.note,
+          },
         }),
       })
 
@@ -727,7 +857,7 @@ export default function SupervisionPage() {
             [
               ["retards", "Retards et absences"],
               ["pointage", "Pointage des cours"],
-              ["retenues", "Retenues"],
+              ["discipline", "Retenues et règlement"],
               ["themes", "Thèmes au rang"],
               ["rappels", "Rappels"],
             ] as [Onglet, string][]
@@ -1248,7 +1378,7 @@ export default function SupervisionPage() {
         )}
 
         {/* ============ RETENUES ============ */}
-        {onglet === "retenues" && (
+        {onglet === "discipline" && (
           <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
             <div className="rounded-xl border bg-background p-6">
               <h2 className="text-lg font-semibold">Enregistrer une retenue</h2>
@@ -1373,6 +1503,165 @@ export default function SupervisionPage() {
                         className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
                       >
                         {signalementEnCours === retenue.id
+                          ? "..."
+                          : "Signaler aux parents"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ============ VIOLATIONS DU REGLEMENT ============ */}
+        {onglet === "discipline" && (
+          <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
+            <div className="rounded-xl border bg-background p-6">
+              <h2 className="text-lg font-semibold">
+                Constater un manquement
+              </h2>
+
+              {regles.filter((regle) => regle.is_active).length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Le règlement intérieur est vide. L&apos;administrateur le
+                  saisit dans les Paramètres — sans règle écrite, aucun
+                  manquement ne peut être constaté.
+                </p>
+              ) : (
+                <form onSubmit={enregistrerViolation} className="mt-6 space-y-4">
+                  <div className="space-y-2">
+                    <label htmlFor="violation-eleve">Élève *</label>
+
+                    <select
+                      id="violation-eleve"
+                      value={violationEleveId}
+                      onChange={(event) =>
+                        setViolationEleveId(event.target.value)
+                      }
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      required
+                    >
+                      <option value="">Choisir un élève</option>
+
+                      {eleves.map((eleve) => (
+                        <option key={eleve.id} value={eleve.id}>
+                          {eleve.last_name} {eleve.first_name}
+                          {eleve.parent_phone ? "" : " — sans numéro parent"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="violation-regle">Règle enfreinte *</label>
+
+                    <select
+                      id="violation-regle"
+                      value={violationRegleId}
+                      onChange={(event) =>
+                        setViolationRegleId(event.target.value)
+                      }
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      required
+                    >
+                      <option value="">Choisir une règle</option>
+
+                      {/* Une règle désactivée ne se constate plus. */}
+                      {regles
+                        .filter((regle) => regle.is_active)
+                        .map((regle) => (
+                          <option key={regle.id} value={regle.id}>
+                            {regle.label}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="violation-date">Date *</label>
+
+                    <input
+                      id="violation-date"
+                      type="date"
+                      value={violationDate}
+                      onChange={(event) =>
+                        setViolationDate(event.target.value)
+                      }
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="violation-note">Précision</label>
+
+                    <textarea
+                      id="violation-note"
+                      value={violationNote}
+                      onChange={(event) =>
+                        setViolationNote(event.target.value)
+                      }
+                      rows={2}
+                      placeholder="Facultatif — ce que la famille doit savoir."
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={violationEnCours}
+                    className="w-full rounded-md bg-primary px-4 py-3 font-medium text-primary-foreground disabled:opacity-50"
+                  >
+                    {violationEnCours
+                      ? "Enregistrement..."
+                      : "Enregistrer le manquement"}
+                  </button>
+                </form>
+              )}
+            </div>
+
+            <div className="rounded-xl border bg-background p-6">
+              <h2 className="text-lg font-semibold">
+                Manquements récents
+              </h2>
+
+              {violations.length === 0 ? (
+                <p className="mt-6 text-sm text-muted-foreground">
+                  Aucun manquement enregistré.
+                </p>
+              ) : (
+                <div className="mt-6 space-y-3">
+                  {violations.map((violation) => (
+                    <div
+                      key={violation.id}
+                      className="flex flex-wrap items-center gap-4 rounded-lg border p-4"
+                    >
+                      <span className="w-24 shrink-0 tabular-nums text-sm text-muted-foreground">
+                        {new Date(
+                          `${violation.violation_date}T00:00:00`
+                        ).toLocaleDateString("fr-FR")}
+                      </span>
+
+                      <div className="min-w-[200px] flex-1">
+                        <p className="font-medium">
+                          {violation.students?.last_name}{" "}
+                          {violation.students?.first_name}
+                        </p>
+
+                        <p className="text-sm text-muted-foreground">
+                          {violation.school_rules?.label ?? "règle supprimée"}
+                          {violation.note ? ` — ${violation.note}` : ""}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => signalerViolation(violation)}
+                        disabled={signalementEnCours === violation.id}
+                        className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                      >
+                        {signalementEnCours === violation.id
                           ? "..."
                           : "Signaler aux parents"}
                       </button>

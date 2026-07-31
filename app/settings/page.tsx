@@ -30,6 +30,13 @@ type FeeClassDefault = {
   default_amount: number
 }
 
+type SchoolRule = {
+  id: string
+  label: string
+  rule_text: string
+  is_active: boolean
+}
+
 type SchoolHoliday = {
   id: string
   name: string
@@ -109,6 +116,18 @@ export default function SettingsPage() {
   const [savingFees, setSavingFees] = useState(false)
   const [feesError, setFeesError] = useState<string | null>(null)
   const [feesMessage, setFeesMessage] = useState<string | null>(null)
+
+  /*
+   * Règlement intérieur. Chaque école écrit le sien : il n'y a pas de
+   * règlement générique qui vaudrait partout, et les violations
+   * enregistrées renvoient à CES règles-là.
+   */
+  const [rules, setRules] = useState<SchoolRule[]>([])
+  const [ruleLabel, setRuleLabel] = useState("")
+  const [ruleText, setRuleText] = useState("")
+  const [savingRule, setSavingRule] = useState(false)
+  const [ruleError, setRuleError] = useState<string | null>(null)
+  const [ruleMessage, setRuleMessage] = useState<string | null>(null)
 
   // Calendrier scolaire : vacances et jours fériés.
   const [holidays, setHolidays] = useState<SchoolHoliday[]>([])
@@ -219,8 +238,13 @@ export default function SettingsPage() {
       setAppreciationFair(String(Number(schoolData.appreciation_fair)))
     }
 
-    const [yearsResult, classesResult, defaultsResult, holidaysResult] =
-      await Promise.all([
+    const [
+      yearsResult,
+      classesResult,
+      defaultsResult,
+      holidaysResult,
+      rulesResult,
+    ] = await Promise.all([
       supabase
         .from("academic_years")
         .select("id, name, is_active")
@@ -243,6 +267,12 @@ export default function SettingsPage() {
         .select("id, name, start_date, end_date")
         .eq("school_id", profile.school_id)
         .order("start_date", { ascending: true }),
+
+      supabase
+        .from("school_rules")
+        .select("id, label, rule_text, is_active")
+        .eq("school_id", profile.school_id)
+        .order("label"),
     ])
 
     if (yearsResult.error) {
@@ -265,6 +295,12 @@ export default function SettingsPage() {
       console.error("Erreur montants par défaut :", defaultsResult.error)
     } else {
       setFeeDefaults((defaultsResult.data as FeeClassDefault[]) ?? [])
+    }
+
+    if (rulesResult.error) {
+      console.error("Erreur règlement intérieur :", rulesResult.error)
+    } else {
+      setRules((rulesResult.data as SchoolRule[]) ?? [])
     }
 
     if (holidaysResult.error) {
@@ -303,6 +339,87 @@ export default function SettingsPage() {
     }
 
     setFeeDefaults((data as FeeClassDefault[]) ?? [])
+  }
+
+  async function ajouterRegle(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (ruleLabel.trim().length < 2 || !ruleText.trim()) {
+      setRuleError("Le libellé et le texte de la règle sont obligatoires.")
+      return
+    }
+
+    setSavingRule(true)
+    setRuleError(null)
+    setRuleMessage(null)
+
+    const { error } = await supabase.from("school_rules").insert({
+      school_id: schoolId,
+      label: ruleLabel.trim(),
+      rule_text: ruleText.trim(),
+    })
+
+    setSavingRule(false)
+
+    if (error) {
+      console.error("Erreur règle :", error)
+
+      setRuleError(
+        error.code === "23505"
+          ? `Une règle nommée « ${ruleLabel.trim()} » existe déjà.`
+          : error.message
+      )
+      return
+    }
+
+    setRuleLabel("")
+    setRuleText("")
+    setRuleMessage("Règle ajoutée au règlement intérieur.")
+    await rechargerRegles()
+  }
+
+  async function rechargerRegles() {
+    const { data, error } = await supabase
+      .from("school_rules")
+      .select("id, label, rule_text, is_active")
+      .eq("school_id", schoolId)
+      .order("label")
+
+    if (error) {
+      console.error("Erreur règlement :", error)
+      return
+    }
+
+    setRules((data as SchoolRule[]) ?? [])
+  }
+
+  /*
+   * On DÉSACTIVE une règle, on ne la supprime pas : une règle abrogée
+   * reste celle qui fondait les violations déjà enregistrées. La clé de
+   * rule_violations est d'ailleurs en RESTRICT pour cette raison.
+   */
+  async function basculerRegle(regle: SchoolRule) {
+    setRuleError(null)
+    setRuleMessage(null)
+
+    const { error } = await supabase
+      .from("school_rules")
+      .update({ is_active: !regle.is_active })
+      .eq("id", regle.id)
+
+    if (error) {
+      console.error("Erreur règle :", error)
+      setRuleError(error.message)
+      return
+    }
+
+    setRuleMessage(
+      regle.is_active
+        ? `« ${regle.label} » est désactivée : elle ne sera plus proposée, les violations passées restent.`
+        : `« ${regle.label} » est de nouveau active.`
+    )
+
+    await rechargerRegles()
   }
 
   async function saveSchool(event: FormEvent<HTMLFormElement>) {
@@ -1214,6 +1331,118 @@ export default function SettingsPage() {
                   : "Enregistrer les montants par défaut"}
               </button>
             </form>
+          )}
+        </div>
+
+        {/*
+          Le règlement intérieur de CETTE école. Il n'y a pas de règlement
+          générique qui vaudrait partout, et les violations enregistrées
+          renvoient à ces règles-là — c'est pourquoi on les désactive au
+          lieu de les supprimer.
+        */}
+        <div className="rounded-xl border bg-background p-6">
+          <h3 className="font-heading text-xl font-bold">
+            Règlement intérieur
+          </h3>
+
+          <p className="mt-2 text-sm text-muted-foreground">
+            Les règles que l&apos;établissement fait respecter. Elles sont
+            proposées en Vie scolaire au moment de constater un manquement,
+            et reprises dans le message envoyé à la famille.
+          </p>
+
+          {!isAdmin ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Réservé à l&apos;administrateur.
+            </p>
+          ) : (
+            <form onSubmit={ajouterRegle} className="mt-6 space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="rule-label">Libellé court *</label>
+
+                <input
+                  id="rule-label"
+                  value={ruleLabel}
+                  onChange={(event) => setRuleLabel(event.target.value)}
+                  placeholder="Ex : Tenue scolaire"
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="rule-text">Texte de la règle *</label>
+
+                <textarea
+                  id="rule-text"
+                  value={ruleText}
+                  onChange={(event) => setRuleText(event.target.value)}
+                  rows={3}
+                  placeholder="Ex : la tenue de l'établissement est obligatoire du lundi au vendredi."
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                  required
+                />
+              </div>
+
+              {ruleError && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {ruleError}
+                </div>
+              )}
+
+              {ruleMessage && (
+                <p className="text-sm text-muted-foreground">{ruleMessage}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingRule}
+                className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingRule ? "Enregistrement..." : "Ajouter la règle"}
+              </button>
+            </form>
+          )}
+
+          {rules.length === 0 ? (
+            <p className="mt-6 text-sm text-muted-foreground">
+              Aucune règle enregistrée. Tant que le règlement est vide,
+              aucun manquement ne peut être constaté.
+            </p>
+          ) : (
+            <div className="mt-6 space-y-3">
+              {rules.map((regle) => (
+                <div
+                  key={regle.id}
+                  className="flex flex-wrap items-start justify-between gap-4 rounded-lg border p-4"
+                >
+                  <div className="min-w-[220px] flex-1">
+                    <p className="font-medium">
+                      {regle.label}
+                      {!regle.is_active && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          (désactivée)
+                        </span>
+                      )}
+                    </p>
+
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {regle.rule_text}
+                    </p>
+                  </div>
+
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => basculerRegle(regle)}
+                      className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                    >
+                      {regle.is_active ? "Désactiver" : "Réactiver"}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
