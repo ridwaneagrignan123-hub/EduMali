@@ -148,16 +148,27 @@ export default function PromotionPage() {
 
   /* L'effectif de la classe source, et ce qui existe déjà côté cible. */
   useEffect(() => {
-    if (gate.statut !== "autorise" || !sourceClassId || !sourceYearId) {
-      setStudents([])
-      setDecisions({})
+    if (gate.statut !== "autorise") {
       return
     }
 
     const schoolId = gate.schoolId
+    const classeId = sourceClassId
+    const anneeId = sourceYearId
     let annule = false
 
+    /*
+     * La remise à zéro se fait DANS la fonction asynchrone, pas dans le
+     * corps de l'effet : un setState synchrone y déclencherait un rendu
+     * en cascade.
+     */
     async function chargerEffectif() {
+      if (!classeId || !anneeId) {
+        setStudents([])
+        setDecisions({})
+        return
+      }
+
       setChargementEffectif(true)
       setErreur(null)
       setBilan(null)
@@ -168,8 +179,8 @@ export default function PromotionPage() {
           "student_id, students ( id, first_name, last_name, student_number )"
         )
         .eq("school_id", schoolId)
-        .eq("class_id", sourceClassId)
-        .eq("academic_year_id", sourceYearId)
+        .eq("class_id", classeId)
+        .eq("academic_year_id", anneeId)
 
       if (annule) {
         return
@@ -214,23 +225,29 @@ export default function PromotionPage() {
    * la moitié de sa liste n'a rien fait.
    */
   useEffect(() => {
-    if (gate.statut !== "autorise" || !targetYearId || students.length === 0) {
-      setDejaInscrits({})
+    if (gate.statut !== "autorise") {
       return
     }
 
     const schoolId = gate.schoolId
+    const anneeCible = targetYearId
+    const liste = students
     let annule = false
 
     async function chargerCible() {
+      if (!anneeCible || liste.length === 0) {
+        setDejaInscrits({})
+        return
+      }
+
       const { data, error } = await supabase
         .from("student_class_enrollments")
         .select("student_id, classes ( name )")
         .eq("school_id", schoolId)
-        .eq("academic_year_id", targetYearId)
+        .eq("academic_year_id", anneeCible)
         .in(
           "student_id",
-          students.map((eleve) => eleve.id)
+          liste.map((eleve) => eleve.id)
         )
 
       if (annule) {

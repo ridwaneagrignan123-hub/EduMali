@@ -270,6 +270,23 @@ create table lineup_themes (
   constraint lineup_themes_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE CASCADE
 );
 
+-- Cloture mensuelle de la paie : fige les pointages d'un mois, comme
+-- l'etat de caisse fige la journee. Voir supabase/paie-au-pointage.sql.
+create table payroll_closings (
+  id uuid default gen_random_uuid() not null,
+  school_id uuid not null,
+  year integer not null,
+  month integer not null,
+  closed_at timestamp with time zone default now() not null,
+  closed_by uuid,
+  constraint payroll_closings_unique UNIQUE (school_id, year, month),
+  constraint payroll_closings_pkey PRIMARY KEY (id),
+  constraint payroll_closings_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint payroll_closings_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  constraint payroll_closings_month_check CHECK (((month >= 1) AND (month <= 12))),
+  constraint payroll_closings_year_check CHECK (((year >= 2000) AND (year <= 2200)))
+);
+
 create table profiles (
   id uuid default auth.uid() not null,
   created_at timestamp with time zone default now() not null,
@@ -332,8 +349,9 @@ create table schools (
   appreciation_very_good numeric(5,2) default 16 not null,
   appreciation_good numeric(5,2) default 14 not null,
   appreciation_fair numeric(5,2) default 10 not null,
-  payroll_pay_excused_absence boolean default false not null,
-  payroll_deduct_late boolean default false not null,
+  -- Les deux reglages payroll_* ont ete SUPPRIMES avec la paie au
+  -- pointage : ils reglaient ce qu'on retire d'un planning paye
+  -- d'avance, or plus rien n'est paye d'avance. Voir paie-au-pointage.sql.
   -- Pilote l'affichage : `franco_arabe` debloque l'axe filiere.
   school_type text default 'classique'::text not null,
   constraint schools_school_type_check CHECK ((school_type = ANY (ARRAY['classique'::text, 'franco_arabe'::text]))),
@@ -451,6 +469,39 @@ create table teachers (
   constraint teachers_rates_check CHECK ((((hourly_rate IS NULL) OR (hourly_rate >= (0)::numeric)) AND ((monthly_salary IS NULL) OR (monthly_salary >= (0)::numeric))))
 );
 
+-- Pointage d'un creneau reellement assure. C'est ce qui fait entrer une
+-- heure dans la paie d'un vacataire. Controle comme un recu de caisse :
+-- auteur impose en base, pas de suppression, annulation motivee.
+--
+-- teacher_id est DENORMALISE depuis le creneau : celui-ci peut changer
+-- de titulaire, la dette reste envers qui a assure l'heure.
+create table timetable_checkins (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_id uuid not null,
+  slot_id uuid not null,
+  teacher_id uuid not null,
+  occurred_on date not null,
+  hours numeric not null,
+  recorded_by uuid default auth.uid() not null,
+  -- Distinct de occurred_on : c'est ce qui rend un pointage retroactif
+  -- visible.
+  recorded_at timestamp with time zone default now() not null,
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint timetable_checkins_unique UNIQUE (slot_id, occurred_on),
+  constraint timetable_checkins_pkey PRIMARY KEY (id),
+  constraint timetable_checkins_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint timetable_checkins_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id),
+  constraint timetable_checkins_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  -- RESTRICT : supprimer un creneau effacerait sinon des heures dues.
+  constraint timetable_checkins_slot_id_fkey FOREIGN KEY (slot_id) REFERENCES public.timetable_slots(id) ON DELETE RESTRICT,
+  constraint timetable_checkins_teacher_id_fkey FOREIGN KEY (teacher_id) REFERENCES public.teachers(id) ON DELETE RESTRICT,
+  constraint timetable_checkins_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL) AND (cancellation_reason IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL) AND (cancellation_reason IS NOT NULL) AND (length(btrim(cancellation_reason)) >= 3)))),
+  constraint timetable_checkins_hours_check CHECK ((hours > (0)::numeric))
+);
+
 create table timetable_slots (
   id uuid default gen_random_uuid() not null,
   school_id uuid not null,
@@ -492,6 +543,8 @@ CREATE UNIQUE INDEX profiles_directeur_par_filiere ON public.profiles USING btre
 CREATE UNIQUE INDEX school_creation_grants_email_en_attente ON public.school_creation_grants USING btree (lower(email)) WHERE (used_at IS NULL);
 CREATE INDEX sms_logs_student_event_idx ON public.sms_logs USING btree (student_id, event_type, created_at DESC);
 CREATE INDEX teacher_attendance_school_date_idx ON public.teacher_attendance USING btree (school_id, occurred_on DESC);
+CREATE INDEX timetable_checkins_school_date_idx ON public.timetable_checkins USING btree (school_id, occurred_on DESC);
+CREATE INDEX timetable_checkins_teacher_date_idx ON public.timetable_checkins USING btree (teacher_id, occurred_on DESC);
 CREATE INDEX timetable_slots_academic_year_idx ON public.timetable_slots USING btree (academic_year_id);
 CREATE INDEX timetable_slots_class_day_idx ON public.timetable_slots USING btree (class_id, day_of_week);
 CREATE INDEX timetable_slots_teacher_day_idx ON public.timetable_slots USING btree (teacher_id, day_of_week);
@@ -514,6 +567,7 @@ alter table fee_class_defaults enable row level security;
 alter table fee_payments enable row level security;
 alter table grades enable row level security;
 alter table lineup_themes enable row level security;
+alter table payroll_closings enable row level security;
 alter table profiles enable row level security;
 -- ⚠️ school_creation_grants n'a AUCUNE policy, deliberement : RLS active
 -- et zero policy ferme la table a `authenticated` depuis tout client.
@@ -528,6 +582,7 @@ alter table students enable row level security;
 alter table subjects enable row level security;
 alter table teacher_attendance enable row level security;
 alter table teachers enable row level security;
+alter table timetable_checkins enable row level security;
 alter table timetable_slots enable row level security;
 
 
@@ -584,28 +639,9 @@ create policy "Journal d'activite lu par la direction" on activity_log for selec
    FROM public.profiles
   WHERE (profiles.id = auth.uid()))) AND (private.is_promoteur() OR private.is_admin() OR (private.is_direction_generale() AND (entity <> ALL (ARRAY['paiement'::text, 'frais'::text, 'montant_reference'::text]))))));
 
-create policy "Evaluations supprimees par l'enseignant ou l'encadrement" on assessments for delete to {authenticated}
-  using (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 
-create policy "Evaluations creees par l'enseignant ou l'encadrement" on assessments for insert to {authenticated}
-  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 
-create policy "Evaluations visibles selon le role" on assessments for select to {authenticated}
-  using (((school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR (private.is_direction_scoped() AND (private.class_direction_id(class_id) = private.current_direction_id())) OR private.teaches_class(class_id))));
 
-create policy "Evaluations modifiees par l'enseignant ou l'encadrement" on assessments for update to {authenticated}
-  using (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))))
-  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
 
 create policy "Presences supprimees par l'encadrement" on attendance for delete to {authenticated}
   using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
@@ -630,47 +666,9 @@ create policy "Presences corrigees par l'enseignant ou l'encadrement" on attenda
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
-create policy "Encadrement change les titulaires" on class_head_teachers for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid())))));
-create policy "Encadrement nomme les titulaires" on class_head_teachers for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
-create policy "Encadrement retire les titulaires" on class_head_teachers for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
-create policy "Titulaires lus dans son ecole" on class_head_teachers for select to {authenticated}
-  using (((school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
-create policy "Encadrement retire les affectations" on class_subjects for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 
-create policy "Encadrement affecte les matieres aux classes" on class_subjects for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 
-create policy "Users can view class subjects from their school" on class_subjects for select to {authenticated}
-  using (((school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 
-create policy "Encadrement modifie les affectations" on class_subjects for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale supprime les classes" on classes for delete to {authenticated}
   using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
@@ -805,28 +803,9 @@ create policy "Paiements corriges par la comptabilite" on fee_payments for updat
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
-create policy "Notes supprimees par l'enseignant de la classe" on grades for delete to {authenticated}
-  using (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
 
-create policy "Notes saisies par l'enseignant de la classe" on grades for insert to {authenticated}
-  with check (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
 
-create policy "Notes visibles selon le role" on grades for select to {authenticated}
-  using (((school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR (private.is_direction_scoped() AND (private.assessment_direction_id(assessment_id) = private.current_direction_id())) OR private.teaches_assessment(assessment_id))));
 
-create policy "Notes corrigees par l'enseignant de la classe" on grades for update to {authenticated}
-  using (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))))
-  with check (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
 
 create policy "Themes au rang effaces par la vie scolaire" on lineup_themes for delete to {authenticated}
   using (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
@@ -1021,28 +1000,130 @@ create policy "Encadrement modifie les enseignants" on teachers for update to {a
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
+
+
+
+
+create policy "Evaluations creees par l'enseignant ou l'encadrement" on assessments for insert to {authenticated}
+  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
+create policy "Evaluations modifiees par l'enseignant ou l'encadrement" on assessments for update to {authenticated}
+  using (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))))
+  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid())))));
+create policy "Evaluations supprimees par l'enseignant ou l'encadrement" on assessments for delete to {authenticated}
+  using (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
+create policy "Evaluations visibles selon le role" on assessments for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_direction_generale() OR (private.is_direction_scoped() AND (private.class_direction_id(class_id) = private.current_direction_id()) AND private.mon_programme(subject_id)) OR private.teaches_class(class_id))));
+create policy "Encadrement change les titulaires" on class_head_teachers for update to {authenticated}
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))))
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))));
+create policy "Encadrement nomme les titulaires" on class_head_teachers for insert to {authenticated}
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))));
+create policy "Encadrement retire les titulaires" on class_head_teachers for delete to {authenticated}
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))));
+create policy "Titulaires lus dans son ecole" on class_head_teachers for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
+create policy "Encadrement affecte les matieres aux classes" on class_subjects for insert to {authenticated}
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
+create policy "Encadrement modifie les affectations" on class_subjects for update to {authenticated}
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)))
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND private.mon_programme(subject_id)));
+create policy "Encadrement retire les affectations" on class_subjects for delete to {authenticated}
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
+create policy "Users can view class subjects from their school" on class_subjects for select to {authenticated}
+  using (((school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
+create policy "Notes corrigees par l'enseignant de la classe" on grades for update to {authenticated}
+  using (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid())))))
+  with check (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid())))));
+create policy "Notes saisies par l'enseignant de la classe" on grades for insert to {authenticated}
+  with check (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid())))));
+create policy "Notes supprimees par l'enseignant de la classe" on grades for delete to {authenticated}
+  using (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid())))));
+create policy "Notes visibles selon le role" on grades for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_direction_generale() OR (private.is_direction_scoped() AND (private.assessment_direction_id(assessment_id) = private.current_direction_id()) AND private.mon_programme_evaluation(assessment_id)) OR private.teaches_assessment(assessment_id))));
+create policy "Cloture lue par les roles financiers" on payroll_closings for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.can_see_money() OR private.is_encadrement() OR private.is_surveillant())));
+create policy "Cloture posee par l'admin" on payroll_closings for insert to {authenticated}
+  with check ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Pointage annule par la vie scolaire" on timetable_checkins for update to {authenticated}
+  using (((private.is_encadrement() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))))
+  with check (((private.is_encadrement() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Pointage pose par la vie scolaire" on timetable_checkins for insert to {authenticated}
+  with check (((private.is_encadrement() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Pointages lus par l'encadrement, la vie scolaire et la paie" on timetable_checkins for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.can_see_money() OR (EXISTS ( SELECT 1
+   FROM teachers t
+  WHERE ((t.id = timetable_checkins.teacher_id) AND (t.profile_id = auth.uid())))))));
 create policy "Emploi du temps allege par l'encadrement" on timetable_slots for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
-
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
 create policy "Emploi du temps compose par l'encadrement" on timetable_slots for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
-
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
 create policy "Emploi du temps lu dans son ecole" on timetable_slots for select to {authenticated}
   using ((school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
+   FROM profiles
   WHERE (profiles.id = auth.uid()))));
-
 create policy "Emploi du temps modifie par l'encadrement" on timetable_slots for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
+  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)))
+  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND private.mon_programme(subject_id)));
 
 
 -- 5. DROITS PAR COLONNE
@@ -1091,6 +1172,344 @@ grant update (status) on teachers to authenticated;
 
 
 -- 6. FONCTIONS
+
+CREATE OR REPLACE FUNCTION private.controler_annulation_pointage()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if private.mois_est_cloture(old.school_id, old.occurred_on) then
+    raise exception 'Le mois de % est cloture : ce pointage ne peut plus etre modifie.',
+      to_char(old.occurred_on, 'MM/YYYY') using errcode = 'P0001';
+  end if;
+
+  -- Ce qui atteste de l'heure due est grave.
+  if new.slot_id is distinct from old.slot_id
+     or new.occurred_on is distinct from old.occurred_on
+     or new.teacher_id is distinct from old.teacher_id
+     or new.recorded_by is distinct from old.recorded_by
+     or new.recorded_at is distinct from old.recorded_at then
+    raise exception 'Le creneau, la date et l''auteur d''un pointage ne se modifient pas. Annulez-le et repointez.'
+      using errcode = 'P0001';
+  end if;
+
+  if old.cancelled_at is not null then
+    if new.cancelled_at is null then
+      raise exception 'Une annulation ne peut pas etre levee.' using errcode = 'P0001';
+    end if;
+
+    if new.hours is distinct from old.hours then
+      raise exception 'Un pointage annule ne se modifie plus.' using errcode = 'P0001';
+    end if;
+  end if;
+
+  if old.cancelled_at is null and new.cancelled_at is not null then
+    new.cancelled_at := now();
+
+    if auth.uid() is not null then
+      new.cancelled_by := auth.uid();
+    end if;
+  end if;
+
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.controler_bascule_franco_arabe()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare n integer;
+begin
+  if new.school_type = 'franco_arabe' and old.school_type is distinct from 'franco_arabe' then
+    select count(*) into n from subjects s
+    where s.school_id = new.id and s.filiere is null;
+
+    if n > 0 then
+      raise exception
+        '% matiere(s) n''ont pas de programme. Attribuez a chacune le programme francais ou arabe avant de basculer l''etablissement.', n
+        using errcode = 'P0001';
+    end if;
+  end if;
+
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.controler_pointage()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v record; v_duree numeric;
+begin
+  select ts.school_id, ts.teacher_id, ts.day_of_week, ts.start_time, ts.end_time,
+         ts.academic_year_id, ay.start_date, ay.end_date
+    into v
+  from timetable_slots ts
+  join academic_years ay on ay.id = ts.academic_year_id
+  where ts.id = new.slot_id;
+
+  if not found then
+    raise exception 'Ce creneau n''existe pas ou n''a pas d''annee scolaire.'
+      using errcode = 'P0001';
+  end if;
+
+  if v.school_id is distinct from new.school_id then
+    raise exception 'Ce creneau appartient a un autre etablissement.'
+      using errcode = 'P0001';
+  end if;
+
+  -- On ne pointe pas dans le futur : le pointage atteste d'une heure
+  -- FAITE. Le retroactif reste possible, mais recorded_at le montre.
+  if new.occurred_on > current_date then
+    raise exception 'On ne peut pas pointer un creneau a venir (%).', new.occurred_on
+      using errcode = 'P0001';
+  end if;
+
+  -- Le jour doit correspondre au jour de la semaine du creneau.
+  if extract(isodow from new.occurred_on)::int is distinct from v.day_of_week then
+    raise exception 'Ce creneau n''a pas lieu ce jour-la.'
+      using errcode = 'P0001';
+  end if;
+
+  if new.occurred_on < v.start_date or new.occurred_on > v.end_date then
+    raise exception 'Cette date est hors de l''annee scolaire du creneau.'
+      using errcode = 'P0001';
+  end if;
+
+  if exists (select 1 from school_holidays h
+             where h.school_id = new.school_id
+               and new.occurred_on between h.start_date and h.end_date) then
+    raise exception 'Ce jour est ferie ou en vacances : il n''y a pas cours.'
+      using errcode = 'P0001';
+  end if;
+
+  if private.mois_est_cloture(new.school_id, new.occurred_on) then
+    raise exception 'Le mois de % est cloture : aucun pointage ne peut plus y etre ajoute.',
+      to_char(new.occurred_on, 'MM/YYYY') using errcode = 'P0001';
+  end if;
+
+  if v.teacher_id is null then
+    raise exception 'Ce creneau n''a pas d''enseignant : rien a pointer.'
+      using errcode = 'P0001';
+  end if;
+
+  -- L'enseignant vient du creneau, jamais du client.
+  new.teacher_id := v.teacher_id;
+
+  -- Duree du creneau : plafond de ce qui peut etre credite. Un creneau
+  -- partiellement assure se pointe pour moins, jamais pour plus.
+  v_duree := round(extract(epoch from (v.end_time - v.start_time)) / 3600.0, 2);
+
+  if new.hours is null then
+    new.hours := v_duree;
+  end if;
+
+  if new.hours > v_duree then
+    raise exception 'Ce creneau dure % h : on ne peut pas en pointer %.', v_duree, new.hours
+      using errcode = 'P0001';
+  end if;
+
+  -- Auteur et horodatage imposes, comme pour un recu de caisse.
+  if auth.uid() is not null then
+    new.recorded_by := auth.uid();
+  end if;
+
+  new.recorded_at := now();
+
+  -- Un pointage ne nait jamais annule.
+  new.cancelled_at := null;
+  new.cancelled_by := null;
+  new.cancellation_reason := null;
+
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.exiger_filiere_matiere()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if new.filiere is null
+     and (select s.school_type from schools s where s.id = new.school_id) = 'franco_arabe' then
+    raise exception
+      'En ecole franco-arabe, chaque matiere doit relever du programme francais ou du programme arabe.'
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.imposer_titulaire_premier_cycle()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_cycle text; v_filiere text; v_titulaire uuid; v_classe text; v_type text;
+begin
+  select s.school_type into v_type from schools s where s.id = new.school_id;
+
+  if v_type is distinct from 'franco_arabe' then
+    return new;
+  end if;
+
+  select c.cycle, c.name into v_cycle, v_classe from classes c where c.id = new.class_id;
+
+  if v_cycle is distinct from 'premier_cycle' then
+    return new;
+  end if;
+
+  select s.filiere into v_filiere from subjects s where s.id = new.subject_id;
+
+  select h.teacher_id into v_titulaire
+  from class_head_teachers h
+  where h.class_id = new.class_id
+    and h.filiere is not distinct from v_filiere;
+
+  if v_titulaire is null then
+    raise exception
+      'La classe % est en premier cycle : nommez d''abord son titulaire % avant de lui composer un emploi du temps.',
+      v_classe, coalesce(v_filiere, '(unique)')
+      using errcode = 'P0001';
+  end if;
+
+  new.teacher_id := v_titulaire;
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.ma_filiere()
+ RETURNS text
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$ select p.filiere from profiles p where p.id = auth.uid(); $function$
+;
+
+CREATE OR REPLACE FUNCTION private.mois_est_cloture(p_school uuid, p_jour date)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1 from payroll_closings c
+    where c.school_id = p_school
+      and c.year = extract(year from p_jour)::int
+      and c.month = extract(month from p_jour)::int);
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.mon_programme(target_subject_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select case
+    when not private.is_direction_scoped() then true
+    when private.ma_filiere() is null then true
+    else coalesce(
+      (select s.filiere from subjects s where s.id = target_subject_id) = private.ma_filiere(),
+      false)
+  end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.mon_programme_evaluation(target_assessment_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select private.mon_programme(
+    (select a.subject_id from assessments a where a.id = target_assessment_id));
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.my_payroll_month(p_year integer, p_month integer)
+ RETURNS TABLE(enseignant_id uuid, enseignant text, contrat text, taux_horaire numeric, salaire_mensuel numeric, heures_pointees numeric, nb_pointages integer, montant numeric, mois_cloture boolean)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_debut date; v_fin date;
+begin
+  v_debut := make_date(p_year, p_month, 1);
+  v_fin := (v_debut + interval '1 month - 1 day')::date;
+
+  return query
+  select
+    t.id, t.last_name || ' ' || t.first_name, coalesce(t.contract_type, 'non defini'),
+    t.hourly_rate, t.monthly_salary,
+    round(coalesce(sum(c.hours), 0)::numeric, 2),
+    count(c.id)::integer,
+    case
+      when t.contract_type = 'permanent' then coalesce(t.monthly_salary, 0)
+      when t.contract_type = 'vacataire' then
+        round(coalesce(sum(c.hours), 0)::numeric * coalesce(t.hourly_rate, 0), 0)
+      else 0
+    end,
+    private.mois_est_cloture(t.school_id, v_debut)
+  from teachers t
+  left join timetable_checkins c on c.teacher_id = t.id
+        and c.occurred_on between v_debut and v_fin
+        and c.cancelled_at is null
+  -- La borne : ses fiches a lui, dans toutes les ecoles ou il enseigne.
+  where t.profile_id = auth.uid()
+  group by t.id, t.last_name, t.first_name, t.contract_type,
+           t.hourly_rate, t.monthly_salary, t.school_id;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.slots_a_pointer(p_date date)
+ RETURNS TABLE(slot_id uuid, class_id uuid, classe text, matiere text, filiere text, teacher_id uuid, enseignant text, start_time time without time zone, end_time time without time zone, duree numeric, checkin_id uuid, heures_pointees numeric, pointe_par text, pointe_le timestamp with time zone, annule boolean, motif_annulation text, mois_cloture boolean)
+ LANGUAGE sql
+ STABLE
+AS $function$
+  select
+    ts.id, ts.class_id, c.name, s.name, s.filiere,
+    ts.teacher_id, t.last_name || ' ' || t.first_name,
+    ts.start_time, ts.end_time,
+    round(extract(epoch from (ts.end_time - ts.start_time)) / 3600.0, 2),
+    ch.id, ch.hours,
+    nullif(trim(coalesce(p.first_name, '') || ' ' || coalesce(p.last_name, '')), ''),
+    ch.recorded_at,
+    ch.cancelled_at is not null, ch.cancellation_reason,
+    private.mois_est_cloture(ts.school_id, p_date)
+  from timetable_slots ts
+  join classes c on c.id = ts.class_id
+  join subjects s on s.id = ts.subject_id
+  left join teachers t on t.id = ts.teacher_id
+  join academic_years ay on ay.id = ts.academic_year_id
+  left join timetable_checkins ch on ch.slot_id = ts.id and ch.occurred_on = p_date
+  left join profiles p on p.id = ch.recorded_by
+  where ts.day_of_week = extract(isodow from p_date)::int
+    and p_date between ay.start_date and ay.end_date
+    -- Un jour ferie ou de vacances ne propose aucun creneau.
+    and not exists (select 1 from school_holidays h
+                    where h.school_id = ts.school_id
+                      and p_date between h.start_date and h.end_date)
+  order by ts.start_time, c.name;
+$function$
+;
 
 CREATE OR REPLACE FUNCTION private.assessment_direction_id(target_assessment_id uuid)
  RETURNS uuid
@@ -1650,7 +2069,7 @@ $function$
 ;
 
 CREATE OR REPLACE FUNCTION public.payroll_month(p_year integer, p_month integer)
- RETURNS TABLE(enseignant_id uuid, enseignant text, contrat text, statut text, taux_horaire numeric, salaire_mensuel numeric, creneaux integer, heures_planifiees numeric, heures_non_assurees numeric, heures_payees numeric, jours_absence integer, jours_absence_excusee integer, jours_retard integer, minutes_retard integer, montant numeric)
+ RETURNS TABLE(enseignant_id uuid, enseignant text, contrat text, statut text, taux_horaire numeric, salaire_mensuel numeric, creneaux integer, heures_planifiees numeric, heures_pointees numeric, heures_non_assurees numeric, heures_payees numeric, jours_absence integer, jours_absence_excusee integer, jours_retard integer, minutes_retard integer, montant numeric, mois_cloture boolean)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
@@ -1659,8 +2078,7 @@ declare
   v_ecole uuid;
   v_debut date;
   v_fin date;
-  v_paye_excusee boolean;
-  v_retient_retard boolean;
+  v_cloture boolean;
 begin
   if not private.can_see_money() then
     raise exception 'Acces refuse : votre role ne donne pas acces a la paie.';
@@ -1670,36 +2088,23 @@ begin
 
   v_debut := make_date(p_year, p_month, 1);
   v_fin := (v_debut + interval '1 month - 1 day')::date;
-
-  select s.payroll_pay_excused_absence, s.payroll_deduct_late
-    into v_paye_excusee, v_retient_retard
-  from schools s where s.id = v_ecole;
+  v_cloture := private.mois_est_cloture(v_ecole, v_debut);
 
   return query
   with jours as (
-    /*
-     * PIEGE 2 : on deroule les jours REELS du mois. Multiplier les
-     * creneaux hebdomadaires par un nombre de semaines forfaitaire
-     * donnerait 4 ou 4,33 semaines partout et se tromperait chaque mois.
-     */
+    -- On deroule les jours REELS du mois : un forfait de 4 ou 4,33
+    -- semaines se tromperait chaque mois. Vacances et feries exclus,
+    -- sans quoi les heures planifiees seraient surevaluees.
     select d::date as jour
     from generate_series(v_debut, v_fin, interval '1 day') d
     where not exists (
-      /*
-       * PIEGE 1 : les vacances et jours feries sortent du decompte.
-       * Sans cette exclusion, les heures planifiees — et donc les
-       * montants — seraient systematiquement surevalues.
-       */
       select 1 from school_holidays h
       where h.school_id = v_ecole
-        and d::date between h.start_date and h.end_date
-    )
+        and d::date between h.start_date and h.end_date)
   ),
   planifie as (
-    select
-      t.id as tid,
-      j.jour,
-      sum(extract(epoch from (ts.end_time - ts.start_time)) / 3600.0) as heures
+    select t.id as tid, j.jour,
+           sum(extract(epoch from (ts.end_time - ts.start_time)) / 3600.0) as heures
     from jours j
     join timetable_slots ts on ts.day_of_week = extract(isodow from j.jour)
     join academic_years ay on ay.id = ts.academic_year_id
@@ -1708,35 +2113,36 @@ begin
     where ts.school_id = v_ecole
     group by t.id, j.jour
   ),
+  /*
+   * LE POINTAGE EST LA SOURCE UNIQUE DES HEURES PAYEES D'UN VACATAIRE.
+   * Les annules sont exclus ici, et nulle part ailleurs : le total
+   * decoule de cette seule ligne.
+   */
+  pointe as (
+    select c.teacher_id as tid, sum(c.hours) as heures, count(*)::integer as nb
+    from timetable_checkins c
+    where c.school_id = v_ecole
+      and c.occurred_on between v_debut and v_fin
+      and c.cancelled_at is null
+    group by c.teacher_id
+  ),
+  -- teacher_attendance garde son role DISCIPLINAIRE : il informe, il ne
+  -- pilote plus la paie. Une absence est desormais l'absence de pointage.
   releves as (
-    select ta.teacher_id as tid, ta.occurred_on, ta.status,
-           coalesce(ta.minutes_late, 0) as minutes
+    select ta.teacher_id as tid,
+           count(*) filter (where ta.status = 'absence')::integer as n_abs,
+           count(*) filter (where ta.status = 'absence_excusee')::integer as n_exc,
+           count(*) filter (where ta.status = 'retard')::integer as n_ret,
+           coalesce(sum(case when ta.status = 'retard'
+                        then coalesce(ta.minutes_late, 0) else 0 end), 0)::integer as m_ret
     from teacher_attendance ta
-    where ta.school_id = v_ecole
-      and ta.occurred_on between v_debut and v_fin
+    where ta.school_id = v_ecole and ta.occurred_on between v_debut and v_fin
+    group by ta.teacher_id
   ),
   agrege as (
-    select
-      p.tid,
-      count(distinct p.jour)::integer as nb_creneaux,
-      sum(p.heures) as h_planifiees,
-      -- Heures perdues : le jour entier quand l'enseignant est absent,
-      -- les minutes de retard seulement si l'ecole les retient.
-      coalesce(sum(
-        case
-          when r.status = 'absence' then p.heures
-          when r.status = 'absence_excusee' and not v_paye_excusee then p.heures
-          when r.status = 'retard' and v_retient_retard then least(r.minutes / 60.0, p.heures)
-          else 0
-        end
-      ), 0) as h_perdues,
-      count(*) filter (where r.status = 'absence')::integer as n_abs,
-      count(*) filter (where r.status = 'absence_excusee')::integer as n_exc,
-      count(*) filter (where r.status = 'retard')::integer as n_ret,
-      coalesce(sum(case when r.status = 'retard' then r.minutes else 0 end), 0)::integer as m_ret
-    from planifie p
-    left join releves r on r.tid = p.tid and r.occurred_on = p.jour
-    group by p.tid
+    select p.tid, count(distinct p.jour)::integer as nb_creneaux,
+           sum(p.heures) as h_planifiees
+    from planifie p group by p.tid
   )
   select
     t.id,
@@ -1747,25 +2153,30 @@ begin
     t.monthly_salary,
     coalesce(a.nb_creneaux, 0),
     round(coalesce(a.h_planifiees, 0)::numeric, 2),
-    round(coalesce(a.h_perdues, 0)::numeric, 2),
-    round(greatest(coalesce(a.h_planifiees, 0) - coalesce(a.h_perdues, 0), 0)::numeric, 2),
-    coalesce(a.n_abs, 0),
-    coalesce(a.n_exc, 0),
-    coalesce(a.n_ret, 0),
-    coalesce(a.m_ret, 0),
+    round(coalesce(po.heures, 0)::numeric, 2),
+    -- L'ECART entre planifie et pointe : ce que le promoteur surveille.
+    round(greatest(coalesce(a.h_planifiees, 0) - coalesce(po.heures, 0), 0)::numeric, 2),
+    case
+      when t.contract_type = 'vacataire' then round(coalesce(po.heures, 0)::numeric, 2)
+      else round(coalesce(a.h_planifiees, 0)::numeric, 2)
+    end,
+    coalesce(r.n_abs, 0), coalesce(r.n_exc, 0), coalesce(r.n_ret, 0), coalesce(r.m_ret, 0),
     /*
-     * PIEGE 3 : un permanent est mensualise. Lui appliquer le calcul
-     * horaire le ferait payer a l'heure, ce qui n'est pas son contrat.
+     * Un permanent est mensualise : lui appliquer le calcul horaire le
+     * ferait payer a l'heure, ce qui n'est pas son contrat. Un vacataire
+     * est paye sur ses heures CONFIRMEES, jamais sur son planning.
      */
     case
       when t.contract_type = 'permanent' then coalesce(t.monthly_salary, 0)
       when t.contract_type = 'vacataire' then
-        round(greatest(coalesce(a.h_planifiees, 0) - coalesce(a.h_perdues, 0), 0)::numeric
-              * coalesce(t.hourly_rate, 0), 0)
+        round(coalesce(po.heures, 0)::numeric * coalesce(t.hourly_rate, 0), 0)
       else 0
-    end
+    end,
+    v_cloture
   from teachers t
   left join agrege a on a.tid = t.id
+  left join pointe po on po.tid = t.id
+  left join releves r on r.tid = t.id
   where t.school_id = v_ecole
   order by t.last_name, t.first_name;
 end;
@@ -2053,13 +2464,21 @@ CREATE TRIGGER log_fee_payments AFTER INSERT OR DELETE OR UPDATE ON public.fee_p
 CREATE TRIGGER log_grades AFTER INSERT OR DELETE OR UPDATE ON public.grades FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER lineup_themes_set_updated_at BEFORE UPDATE ON public.lineup_themes FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 CREATE TRIGGER log_lineup_themes AFTER INSERT OR DELETE OR UPDATE ON public.lineup_themes FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER log_payroll_closings AFTER INSERT OR DELETE OR UPDATE ON public.payroll_closings FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_profiles AFTER INSERT OR DELETE OR UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER schools_controle_bascule BEFORE UPDATE ON public.schools FOR EACH ROW EXECUTE FUNCTION private.controler_bascule_franco_arabe();
 CREATE TRIGGER profiles_prevent_privilege_escalation BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.prevent_profile_privilege_escalation();
 CREATE TRIGGER log_enrollments AFTER INSERT OR DELETE OR UPDATE ON public.student_class_enrollments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_students AFTER INSERT OR DELETE OR UPDATE ON public.students FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER subjects_exiger_filiere BEFORE INSERT OR UPDATE ON public.subjects FOR EACH ROW EXECUTE FUNCTION private.exiger_filiere_matiere();
 CREATE TRIGGER log_subjects AFTER INSERT OR DELETE OR UPDATE ON public.subjects FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_teacher_attendance AFTER INSERT OR DELETE OR UPDATE ON public.teacher_attendance FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER log_class_head_teachers AFTER INSERT OR DELETE OR UPDATE ON public.class_head_teachers FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_teachers AFTER INSERT OR DELETE OR UPDATE ON public.teachers FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER teachers_whatsapp_unique BEFORE INSERT OR UPDATE OF phone ON public.teachers FOR EACH ROW EXECUTE FUNCTION private.refuser_whatsapp_deja_pris();
+CREATE TRIGGER timetable_checkins_controle BEFORE INSERT ON public.timetable_checkins FOR EACH ROW EXECUTE FUNCTION private.controler_pointage();
+CREATE TRIGGER timetable_checkins_controle_annulation BEFORE UPDATE ON public.timetable_checkins FOR EACH ROW EXECUTE FUNCTION private.controler_annulation_pointage();
+CREATE TRIGGER log_timetable_checkins AFTER INSERT OR DELETE OR UPDATE ON public.timetable_checkins FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER timetable_slots_titulaire BEFORE INSERT OR UPDATE ON public.timetable_slots FOR EACH ROW EXECUTE FUNCTION private.imposer_titulaire_premier_cycle();
 CREATE TRIGGER log_timetable_slots AFTER INSERT OR DELETE OR UPDATE ON public.timetable_slots FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

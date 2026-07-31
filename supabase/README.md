@@ -22,29 +22,27 @@ automatiquement synchronisée.
 ## Ce que contient ce dossier
 
 **`schema.sql`** — état de référence complet, obtenu par introspection de la
-base de production le **2026-07-30** (lecture de `pg_catalog`).
+base de production le **2026-07-31** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
-| Tables | **26** |
-| Colonnes | 224 |
-| Contraintes | 133 |
-| Tables avec RLS active | **26 sur 26** |
-| Policies | 90 |
-| Index | 54 |
-| Fonctions `public` | 15 |
-| Fonctions `private` | 21 |
-| Déclencheurs | 28 |
+| Tables | **28** |
+| Colonnes | 240 |
+| Contraintes | 148 |
+| Tables avec RLS active | **28 sur 28** |
+| Policies | 95 |
+| Index | 60 |
+| Fonctions `public` | 17 |
+| Fonctions `private` | 30 |
+| Déclencheurs | 36 |
 
-Les 27 déclencheurs incluent `on_auth_user_created`, posé sur `auth.users`
-et non sur `public` — le compte précédent (26) l'omettait, d'où l'écart
-apparent.
+Les déclencheurs incluent `on_auth_user_created`, posé sur `auth.users` et
+non sur `public`.
 
-La régénération a révélé un résidu : `schema.sql` décrivait une fonction
-`public.dump_schema_temporaire` **absente de la base**, oubliée après une
-introspection antérieure. Elle a été retirée. C'est exactement ce que la
-comparaison inventaire-par-inventaire sert à détecter, et la raison pour
-laquelle ce fichier ne se met pas à jour de mémoire.
+Chaque régénération se contrôle **inventaire par inventaire, dans les deux
+sens** : aucun objet de la base absent du fichier, aucun objet du fichier
+absent de la base. C'est ce contrôle qui avait révélé, le 30 juillet, une
+fonction décrite dans le fichier mais absente de la base.
 
 Il porte désormais une **section 5 : droits par colonne**. Le RLS travaille
 par ligne et ne masque pas une colonne — sans ce bloc, une base recréée
@@ -66,6 +64,8 @@ sur la production échouerait, les objets existant déjà.
 | `enseignants-sans-compte.sql` | la fiche enseignant se découple du compte de connexion ; WhatsApp obligatoire et unique par école (2026-07-30) |
 | `cycles-et-titulaires.sql` | `classes.cycle`, table `class_head_teachers`, `subjects.filiere` (2026-07-30) |
 | `franco-arabe.sql` | `profiles.filiere` et la décision sur le périmètre RLS d'une direction à deux directeurs (2026-07-30) |
+| `paie-au-pointage.sql` | `timetable_checkins`, `payroll_closings` : la paie des vacataires se confirme au lieu de se déduire (2026-07-31) |
+| `programme-par-filiere.sql` | le programme se partitionne par filière, l'élève reste entier ; filière obligatoire en franco-arabe (2026-07-31) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -148,16 +148,19 @@ La colonne `students.photo_url` stocke l'URL publique résultante.
 
 ## Points connus
 
-Vérifiés en base le 2026-07-30, pas reconduits de mémoire.
+Vérifiés en base le 2026-07-31, pas reconduits de mémoire.
 
 - **`students.matricule`** est une colonne morte : 0 ligne renseignée, aucune
   référence dans le code. L'application utilise `student_number`. Conservée
   ici pour rester fidèle au réel.
 - **`classes.academic_year`** (texte) coexiste avec la table `academic_years`.
   Héritage de la première version, remplacé mais jamais retiré.
-- **`timetable_slots` n'est pas cloisonné par direction.** Sa policy de
-  lecture s'arrête au `school_id` : un `directeur_direction` voit l'emploi du
-  temps de tout l'établissement. Seul point de cloisonnement encore ouvert.
+- **`timetable_slots` est cloisonné en ÉCRITURE, pas en lecture.** Depuis le
+  partitionnement par programme, ses policies INSERT/UPDATE/DELETE portent la
+  direction ET la filière. La lecture reste ouverte à l'école entière,
+  délibérément : un enseignant doit voir l'emploi du temps où il figure, et un
+  directeur doit constater que l'autre programme occupe déjà la classe à cette
+  heure-là.
 - **Les fonctions `stats_*` contournent délibérément le RLS.** Elles sont en
   `SECURITY DEFINER` pour que chacun puisse comparer les classes, et ne sont
   sans danger **que** parce qu'elles ne rendent aucune colonne nominative. Y
@@ -174,6 +177,23 @@ Vérifiés en base le 2026-07-30, pas reconduits de mémoire.
   nouvelle colonne sensible sur `teachers` doit être omise des `grant` de la
   section 5 de `schema.sql`, sinon elle sera lisible par toute l'école.
 
+- **La paie d'un vacataire vient des POINTAGES, pas du planning.**
+  `timetable_checkins` est la source unique des heures payées ; `payroll_month`
+  ne lit plus `teacher_attendance` pour établir un montant. Un créneau non
+  pointé n'est pas payé. Les réglages `payroll_pay_excused_absence` et
+  `payroll_deduct_late` ont été **supprimés** : ils n'avaient de sens que dans
+  le modèle par déduction. Ne pas les réintroduire.
+- **`timetable_checkins.slot_id` est en `ON DELETE RESTRICT`**, comme
+  `fee_payments`. Supprimer un créneau effacerait sinon des heures dues.
+- **La filière partitionne le PROGRAMME, jamais le dossier de l'élève.**
+  Emploi du temps, affectation, titulaire, notes, évaluations, bulletin : oui.
+  Élève, inscriptions, frais, absences : non. `private.mon_programme()` rend
+  `true` sauf pour un `directeur_direction` portant une filière, ce qui laisse
+  l'école classique intacte.
+- **En école franco-arabe, `subjects.filiere` est obligatoire.** Deux
+  déclencheurs le tiennent : à la création d'une matière, et à la bascule d'une
+  école en franco-arabe. Une matière sans programme serait ambiguë sur le
+  bulletin comme sur l'emploi du temps.
 - **`fee_payments.fee_assessment_id` est en `ON DELETE RESTRICT`**, pas en
   CASCADE. Le remettre en CASCADE rendrait à un administrateur le pouvoir
   d'effacer toute la caisse d'un élève en supprimant un frais — reçus,
