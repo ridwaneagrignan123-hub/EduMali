@@ -30,10 +30,10 @@ base de production le **2026-07-31** (lecture de `pg_catalog`).
 | Colonnes | 240 |
 | Contraintes | 148 |
 | Tables avec RLS active | **28 sur 28** |
-| Policies | 95 |
+| Policies | 98 |
 | Index | 60 |
 | Fonctions `public` | 17 |
-| Fonctions `private` | 30 |
+| Fonctions `private` | 32 |
 | Déclencheurs | 36 |
 
 Les déclencheurs incluent `on_auth_user_created`, posé sur `auth.users` et
@@ -66,6 +66,7 @@ sur la production échouerait, les objets existant déjà.
 | `franco-arabe.sql` | `profiles.filiere` et la décision sur le périmètre RLS d'une direction à deux directeurs (2026-07-30) |
 | `paie-au-pointage.sql` | `timetable_checkins`, `payroll_closings` : la paie des vacataires se confirme au lieu de se déduire (2026-07-31) |
 | `programme-par-filiere.sql` | le programme se partitionne par filière, l'élève reste entier ; filière obligatoire en franco-arabe (2026-07-31) |
+| `grille-premier-cycle.sql` | le titulaire devient un enseignant aux yeux du RLS ; il tient sa grille de notes (2026-07-31) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -177,6 +178,21 @@ Vérifiés en base le 2026-07-31, pas reconduits de mémoire.
   nouvelle colonne sensible sur `teachers` doit être omise des `grant` de la
   section 5 de `schema.sql`, sinon elle sera lisible par toute l'école.
 
+- **Au PREMIER CYCLE, la note est sur 10 et la moyenne est SIMPLE.** Total ÷
+  nombre de matières, une case vide comptant 0, sans coefficient. La règle vit
+  dans `src/lib/premier-cycle.ts` et les trois écrans — grille, Moyennes,
+  bulletin — l'appellent. Ne pas la redupliquer : c'est sa divergence qui
+  produisait des bulletins vides. Le bulletin ne remet PAS ces notes au barème
+  de l'établissement, sinon il afficherait 16 là où la grille montre 8.
+- **`private.teaches_class()` inclut le TITULAIRE**, via
+  `class_head_teachers` et non seulement `class_subjects.teacher_id`. Idem pour
+  `teaches_student()` et `teaches_assessment()`. Au premier cycle le titulaire
+  tient la classe sans figurer dans `class_subjects` : sans cela il ne voyait
+  ni sa classe, ni ses élèves.
+- **La grille n'a PAS de table à elle.** Chaque colonne est une évaluation de
+  type `composition` sur 10, du couple (classe, matière, période) ; chaque
+  cellule une ligne de `grades`. C'est ce qui garde le bulletin d'accord avec
+  elle.
 - **La paie d'un vacataire vient des POINTAGES, pas du planning.**
   `timetable_checkins` est la source unique des heures payées ; `payroll_month`
   ne lit plus `teacher_attendance` pour établir un montant. Un créneau non

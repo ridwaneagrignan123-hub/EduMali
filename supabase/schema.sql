@@ -939,6 +939,10 @@ create policy "Direction generale cree les matieres" on subjects for insert to {
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
+create policy "Titulaire cree les matieres de sa grille" on subjects for insert to {authenticated}
+  with check ((private.est_titulaire_premier_cycle() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
 create policy "Users can view subjects from their school" on subjects for select to {authenticated}
   using ((school_id IN ( SELECT profiles.school_id
    FROM public.profiles
@@ -1057,6 +1061,16 @@ create policy "Encadrement retire les affectations" on class_subjects for delete
   using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
+-- L'en-tete de la grille cree la matiere : le titulaire doit pouvoir la
+-- rattacher a SA classe, et a elle seule.
+create policy "Titulaire compose la grille de sa classe" on class_subjects for insert to {authenticated}
+  with check ((private.est_titulaire(class_id) AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Titulaire retire une colonne de sa grille" on class_subjects for delete to {authenticated}
+  using ((private.est_titulaire(class_id) AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
 create policy "Users can view class subjects from their school" on class_subjects for select to {authenticated}
   using (((school_id IN ( SELECT profiles.school_id
    FROM profiles
@@ -1172,6 +1186,35 @@ grant update (status) on teachers to authenticated;
 
 
 -- 6. FONCTIONS
+
+CREATE OR REPLACE FUNCTION private.est_titulaire(target_class_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1 from class_head_teachers h
+    join teachers t on t.id = h.teacher_id
+    where h.class_id = target_class_id
+      and t.profile_id = auth.uid());
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.est_titulaire_premier_cycle()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1 from class_head_teachers h
+    join teachers t on t.id = h.teacher_id
+    join classes c on c.id = h.class_id
+    where t.profile_id = auth.uid()
+      and c.cycle = 'premier_cycle');
+$function$
+;
 
 CREATE OR REPLACE FUNCTION private.controler_annulation_pointage()
  RETURNS trigger
@@ -1903,6 +1946,10 @@ CREATE OR REPLACE FUNCTION private.teaches_assessment(target_assessment_id uuid)
 AS $function$
   select exists (
     select 1 from assessments a
+    where a.id = target_assessment_id
+      and private.est_titulaire(a.class_id))
+     or exists (
+    select 1 from assessments a
     join class_subjects cs on cs.class_id = a.class_id
     join teachers t on t.id = cs.teacher_id
     join profiles p on p.id = t.profile_id
@@ -1912,13 +1959,17 @@ AS $function$
 $function$
 ;
 
+-- Le TITULAIRE enseigne sa classe sans figurer dans class_subjects :
+-- sans cette premiere branche, il ne voyait ni sa classe, ni ses eleves,
+-- et ne pouvait saisir aucune note. Voir grille-premier-cycle.sql.
 CREATE OR REPLACE FUNCTION private.teaches_class(target_class_id uuid)
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  select exists (
+  select private.est_titulaire(target_class_id)
+     or exists (
     select 1 from class_subjects cs
     join teachers t on t.id = cs.teacher_id
     join profiles p on p.id = t.profile_id
@@ -1935,6 +1986,10 @@ CREATE OR REPLACE FUNCTION private.teaches_student(target_student_id uuid)
  SET search_path TO 'public'
 AS $function$
   select exists (
+    select 1 from student_class_enrollments e
+    where e.student_id = target_student_id
+      and private.est_titulaire(e.class_id))
+     or exists (
     select 1 from student_class_enrollments e
     join class_subjects cs on cs.class_id = e.class_id
     join teachers t on t.id = cs.teacher_id
