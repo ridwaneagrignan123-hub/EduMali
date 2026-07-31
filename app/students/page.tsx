@@ -7,6 +7,7 @@ import { matchesSearch, normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
 import { EditDialog } from "@/components/edit-dialog"
 import { AvertissementDirection } from "@/components/avertissement-direction"
+import { reprocheNumeroParent } from "@/src/lib/contact-parent"
 import {
   ImportOutcome,
   ImportRow,
@@ -295,6 +296,18 @@ export default function StudentsPage() {
       return
     }
 
+    /*
+     * Le numéro du parent est le seul moyen de joindre la famille : un
+     * numéro tronqué ne se découvre qu'au moment d'écrire, trop tard.
+     * Vide reste accepté — tous les parents n'en ont pas.
+     */
+    const reprocheTelephone = reprocheNumeroParent(parentPhone)
+
+    if (reprocheTelephone) {
+      alert(reprocheTelephone)
+      return
+    }
+
     if (!activeAcademicYearId) {
       alert(
         "Aucune année scolaire active n'est configurée pour votre établissement. Configurez-la avant d'ajouter un élève."
@@ -399,6 +412,13 @@ export default function StudentsPage() {
 
     if (!editForm.firstName.trim() || !editForm.lastName.trim()) {
       setEditError("Le prénom et le nom sont obligatoires.")
+      return
+    }
+
+    const reprocheTelephone = reprocheNumeroParent(editForm.parentPhone)
+
+    if (reprocheTelephone) {
+      setEditError(reprocheTelephone)
       return
     }
 
@@ -512,6 +532,16 @@ export default function StudentsPage() {
         errors.push(
           `Date de naissance « ${raw.values.date_of_birth} » non reconnue (AAAA-MM-JJ ou JJ/MM/AAAA).`
         )
+      }
+
+      // Même règle qu'à la saisie manuelle : un numéro tronqué se
+      // découvrirait au moment d'écrire au parent, trop tard.
+      const reprocheTelephone = reprocheNumeroParent(
+        raw.values.parent_phone ?? ""
+      )
+
+      if (reprocheTelephone) {
+        errors.push(reprocheTelephone)
       }
 
       const signature = normalizeSearchText(
@@ -960,7 +990,7 @@ export default function StudentsPage() {
 
               <div className="space-y-2">
                 <label htmlFor="parentPhone">
-                  Téléphone du parent/tuteur
+                  Numéro WhatsApp du parent/tuteur
                 </label>
 
                 <input
@@ -972,6 +1002,13 @@ export default function StudentsPage() {
                   }
                   className="w-full rounded-md border bg-background px-3 py-2"
                 />
+
+                <p className="text-xs text-muted-foreground">
+                  C&apos;est par ce numéro que l&apos;école préviendra la
+                  famille d&apos;une absence, d&apos;une retenue ou d&apos;un
+                  manquement au règlement. Sans lui, ces actions ne pourront
+                  pas aboutir.
+                </p>
               </div>
 
               <button

@@ -146,7 +146,7 @@ export async function POST(request: Request) {
 
     const { data: student, error: studentError } = await supabaseAdmin
       .from("students")
-      .select("id, first_name, last_name, parent_phone")
+      .select("id, first_name, last_name, parent_name, parent_phone")
       .eq("id", studentId)
       .eq("school_id", profile.school_id)
       .maybeSingle()
@@ -183,23 +183,51 @@ export async function POST(request: Request) {
       params ?? {}
     )
 
+    /*
+     * On ENREGISTRE D'ABORD, on envoie ensuite.
+     *
+     * sms_logs est devenue la file d'envoi : une ligne y naît toujours
+     * « en_attente », et le déclencheur sms_logs_auteur l'impose. Un
+     * message n'est marqué « sent » qu'après qu'un fournisseur l'a
+     * accepté — jamais au moment de la demande. Si l'envoi échoue, la
+     * ligne reste et porte l'erreur, au lieu de disparaître.
+     */
+    const { data: ligne, error: logError } = await supabaseAdmin
+      .from("sms_logs")
+      .insert({
+        school_id: profile.school_id,
+        student_id: studentId,
+        event_type: eventType,
+        related_id: relatedId || null,
+        channel: "sms",
+        parent_name: student.parent_name,
+        phone: student.parent_phone,
+        message,
+        status: "en_attente",
+        recorded_by: user.id,
+      })
+      .select("id")
+      .single()
+
+    if (logError || !ligne) {
+      console.error("Erreur journalisation SMS :", logError)
+
+      return NextResponse.json(
+        { error: "Le message n'a pas pu être enregistré." },
+        { status: 500 }
+      )
+    }
+
     const result = await sendSms(student.parent_phone, message)
 
-    const { error: logError } = await supabaseAdmin.from("sms_logs").insert({
-      school_id: profile.school_id,
-      student_id: studentId,
-      event_type: eventType,
-      related_id: relatedId || null,
-      phone: student.parent_phone,
-      message,
-      status: result.success ? "sent" : "failed",
-      provider_message_id: result.messageId || null,
-      error_message: result.error || null,
-    })
-
-    if (logError) {
-      console.error("Erreur journalisation SMS :", logError)
-    }
+    await supabaseAdmin
+      .from("sms_logs")
+      .update({
+        status: result.success ? "sent" : "failed",
+        provider_message_id: result.messageId || null,
+        error_message: result.error || null,
+      })
+      .eq("id", ligne.id)
 
     if (!result.success) {
       return NextResponse.json(
