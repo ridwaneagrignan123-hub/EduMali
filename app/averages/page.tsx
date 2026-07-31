@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { estPremierCycle } from "@/src/lib/premier-cycle"
 import { matchesSearch } from "@/src/lib/search"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 
@@ -300,7 +301,8 @@ export default function AveragesPage() {
       .from("class_subjects")
       .select(`
         subject_id,
-        coefficient
+        coefficient,
+        subjects ( name )
       `)
       .eq(
         "school_id",
@@ -331,6 +333,29 @@ export default function AveragesPage() {
         ]
       )
     )
+
+    /*
+     * PREMIER CYCLE : la moyenne est simple, sur /10, et une matière non
+     * notée compte 0. Il faut donc partir des matières de la CLASSE, et
+     * non des seules matières notées — sinon une matière vide
+     * disparaîtrait du calcul au lieu d'y peser zéro.
+     *
+     * La règle vit dans src/lib/premier-cycle.ts, partagée avec la
+     * grille et le bulletin : c'est ce qui garantit qu'ils affichent la
+     * même moyenne.
+     */
+    const { data: classeData } = await supabase
+      .from("classes")
+      .select("cycle")
+      .eq("id", classId)
+      .maybeSingle()
+
+    const premierCycle = estPremierCycle(classeData?.cycle)
+
+    const matieresDeLaClasse = (classSubjectsData ?? []).map((item: any) => ({
+      id: item.subject_id as string,
+      nom: (item.subjects?.name as string) ?? "—",
+    }))
 
     /*
      * 3. Récupérer les notes des élèves.
@@ -412,6 +437,21 @@ export default function AveragesPage() {
               }
             >()
 
+          /*
+           * Au premier cycle, chaque matière de la classe entre dans le
+           * calcul, notée ou non : une case vide vaut 0.
+           */
+          if (premierCycle) {
+            matieresDeLaClasse.forEach((matiere) => {
+              subjectMap.set(matiere.nom, {
+                subjectName: matiere.nom,
+                subjectCoefficient: 1,
+                weightedTotal: 0,
+                totalAssessmentCoefficient: 1,
+              })
+            })
+          }
+
           studentGrades.forEach(
             (grade: any) => {
               const assessment =
@@ -466,8 +506,9 @@ export default function AveragesPage() {
                * 15/30 = 10/20
                */
 
-              const normalizedScore =
-                (score /
+              const normalizedScore = premierCycle
+                ? score
+                : (score /
                   maxScore) *
                 scale
 
@@ -477,12 +518,22 @@ export default function AveragesPage() {
                 )
 
               if (existing) {
-                existing.weightedTotal +=
-                  normalizedScore *
-                  assessmentCoefficient
+                if (premierCycle) {
+                  /*
+                   * L'entrée a été amorcée à 0 : on y pose la note, on
+                   * ne l'additionne pas. Une seule composition par
+                   * matière au premier cycle.
+                   */
+                  existing.weightedTotal = normalizedScore
+                  existing.totalAssessmentCoefficient = 1
+                } else {
+                  existing.weightedTotal +=
+                    normalizedScore *
+                    assessmentCoefficient
 
-                existing.totalAssessmentCoefficient +=
-                  assessmentCoefficient
+                  existing.totalAssessmentCoefficient +=
+                    assessmentCoefficient
+                }
               } else {
                 subjectMap.set(
                   subject.name,

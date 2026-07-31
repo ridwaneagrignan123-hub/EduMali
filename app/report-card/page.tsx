@@ -10,10 +10,13 @@ import {
   filiereLabel,
   hasFiliere,
 } from "@/src/lib/etablissement"
+import { NOTE_MAX, estPremierCycle } from "@/src/lib/premier-cycle"
 
 type ClassItem = {
   id: string
   name: string
+  /* Décide de la règle de moyenne : simple au premier cycle. */
+  cycle: string | null
 }
 
 type AcademicPeriod = {
@@ -295,7 +298,7 @@ export default function ReportCardPage() {
     } = await supabase
       .from("classes")
       .select(
-        "id, name"
+        "id, name, cycle"
       )
       .eq(
         "school_id",
@@ -556,6 +559,10 @@ export default function ReportCardPage() {
      * celui d'avant.
      * ---------------------------------------------------------------
      */
+    const premierCycle = estPremierCycle(
+      classes.find((item) => item.id === selectedClassId)?.cycle
+    )
+
     const filieres: (string | null)[] = avecFiliere
       ? [...FILIERES]
       : [null]
@@ -659,8 +666,16 @@ export default function ReportCardPage() {
                       return
                     }
 
-                    const normalizedScore =
-                      (
+                    /*
+                     * PREMIER CYCLE : la note est déjà sur 10 et le
+                     * bulletin l'affiche sur 10. La remettre au barème
+                     * de l'établissement — 20 par défaut — ferait
+                     * afficher 16 là où la grille montre 8, et les deux
+                     * écrans se contrediraient.
+                     */
+                    const normalizedScore = premierCycle
+                      ? score
+                      : (
                         score /
                         maxScore
                       ) *
@@ -694,8 +709,15 @@ export default function ReportCardPage() {
               }
             )
 
-          const evaluatedSubjects =
-            subjectResults.filter(
+          /*
+           * PREMIER CYCLE : la moyenne est SIMPLE et une matière non
+           * notée compte 0 — c'est la règle du cahier, et c'est celle
+           * qu'appliquent déjà la grille et la page Moyennes. Ailleurs,
+           * on garde la moyenne pondérée sur les seules matières notées.
+           */
+          const evaluatedSubjects = premierCycle
+            ? subjectResults
+            : subjectResults.filter(
               (subject) =>
                 subject.average !==
                 null
@@ -719,7 +741,7 @@ export default function ReportCardPage() {
                     subject.average ??
                     0
                   ) *
-                    subject.coefficient,
+                    (premierCycle ? 1 : subject.coefficient),
                 0
               )
 
@@ -730,7 +752,7 @@ export default function ReportCardPage() {
                   subject
                 ) =>
                   sum +
-                  subject.coefficient,
+                  (premierCycle ? 1 : subject.coefficient),
                 0
               )
 
@@ -889,19 +911,19 @@ export default function ReportCardPage() {
       return "Non évalué"
     }
 
-    if (average >= appreciationExcellent) {
+    if (average >= appreciationExcellent * facteurSeuils) {
       return "Excellent"
     }
 
-    if (average >= appreciationVeryGood) {
+    if (average >= appreciationVeryGood * facteurSeuils) {
       return "Très bien"
     }
 
-    if (average >= appreciationGood) {
+    if (average >= appreciationGood * facteurSeuils) {
       return "Bien"
     }
 
-    if (average >= appreciationFair) {
+    if (average >= appreciationFair * facteurSeuils) {
       return "Passable"
     }
 
@@ -918,7 +940,7 @@ export default function ReportCardPage() {
     }
 
     // Le résultat suit le seuil « Passable » configuré par l'établissement.
-    if (average >= appreciationFair) {
+    if (average >= appreciationFair * facteurSeuils) {
       return "Satisfaisant"
     }
 
@@ -932,19 +954,19 @@ export default function ReportCardPage() {
       return "Élève non évalué pour cette période."
     }
 
-    if (average >= appreciationExcellent) {
+    if (average >= appreciationExcellent * facteurSeuils) {
       return "Excellent travail. Les résultats sont remarquables. Félicitations pour les efforts et la régularité."
     }
 
-    if (average >= appreciationVeryGood) {
+    if (average >= appreciationVeryGood * facteurSeuils) {
       return "Très bons résultats. Le travail est sérieux et les efforts doivent être poursuivis."
     }
 
-    if (average >= appreciationGood) {
+    if (average >= appreciationGood * facteurSeuils) {
       return "Bon travail dans l'ensemble. Les résultats sont satisfaisants. Il faut continuer les efforts."
     }
 
-    if (average >= appreciationFair) {
+    if (average >= appreciationFair * facteurSeuils) {
       return "Résultats passables. Des efforts supplémentaires et un travail plus régulier permettront de progresser."
     }
 
@@ -1000,6 +1022,22 @@ export default function ReportCardPage() {
    * Le rang reste calculé sur la classe entière : la recherche
    * ne change que ce qui est visible (et donc imprimé).
    */
+  /*
+   * Le bulletin d'une classe de premier cycle s'affiche SUR 10, comme la
+   * grille qui l'alimente. Les seuils d'appréciation, réglés sur le
+   * barème de l'établissement (20 par défaut), sont ramenés à la même
+   * échelle : sans cela « Excellent » demanderait 18 sur une note
+   * plafonnée à 10, et personne ne l'obtiendrait jamais.
+   */
+  const premierCycleAffiche = estPremierCycle(
+    classes.find((item) => item.id === selectedClassId)?.cycle
+  )
+
+  const baremeAffiche = premierCycleAffiche ? NOTE_MAX : gradingScale
+
+  const facteurSeuils =
+    premierCycleAffiche && gradingScale > 0 ? NOTE_MAX / gradingScale : 1
+
   const filteredReportCards = useMemo(
     () =>
       reportCards.filter(
@@ -1495,7 +1533,7 @@ export default function ReportCardPage() {
                             </th>
 
                             <th className="px-4 py-4">
-                              Moyenne / {formatScore(gradingScale)}
+                              Moyenne / {formatScore(baremeAffiche)}
                             </th>
 
                             <th className="px-4 py-4">
@@ -1534,7 +1572,7 @@ export default function ReportCardPage() {
                                     null
                                       ? `${subject.average.toFixed(
                                           2
-                                        )} / ${formatScore(gradingScale)}`
+                                        )} / ${formatScore(baremeAffiche)}`
                                       : "—"
                                   }
 
@@ -1623,7 +1661,7 @@ export default function ReportCardPage() {
                               : "—"
                           }{" "}
                           <span className="text-base font-normal">
-                            / {formatScore(gradingScale)}
+                            / {formatScore(baremeAffiche)}
                           </span>
                         </p>
 

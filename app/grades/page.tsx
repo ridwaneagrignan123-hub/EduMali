@@ -6,6 +6,8 @@ import { supabase } from "@/src/lib/supabase"
 import { can } from "@/src/lib/roles"
 import { normalizeSearchText } from "@/src/lib/search"
 import { AvertissementDirection } from "@/components/avertissement-direction"
+import { GrilleNotes } from "@/components/grille-notes"
+import { estPremierCycle } from "@/src/lib/premier-cycle"
 import {
   ImportOutcome,
   ImportRow,
@@ -86,6 +88,13 @@ type Student = {
   last_name: string
 }
 
+/* Classe éligible à la grille : seul son cycle nous intéresse ici. */
+type ClassePourGrille = {
+  id: string
+  name: string
+  cycle: string | null
+}
+
 type GradeEntry = {
   gradeId: string | null
   score: string
@@ -109,6 +118,14 @@ export default function GradesPage() {
 
   const [assessments, setAssessments] = useState<Assessment[]>([])
   const [selectedAssessmentId, setSelectedAssessmentId] = useState("")
+
+  /*
+   * Les classes de PREMIER CYCLE ne passent plus par le choix d'une
+   * évaluation : elles se tiennent d'un seul tenant, dans une grille.
+   * Le second cycle et le lycée gardent le modèle par évaluation.
+   */
+  const [classes, setClasses] = useState<ClassePourGrille[]>([])
+  const [classeGrilleId, setClasseGrilleId] = useState("")
 
   const [students, setStudents] = useState<Student[]>([])
   const [grades, setGrades] = useState<Record<string, GradeEntry>>({})
@@ -231,6 +248,22 @@ export default function GradesPage() {
       )
     } else {
       setAssessments((assessmentsData as unknown as Assessment[]) ?? [])
+    }
+
+    /*
+     * Les classes visibles par l'appelant. Le RLS fait le tri : un
+     * enseignant n'y voit que les siennes, titularisées comprises.
+     */
+    const { data: classesData, error: classesError } = await supabase
+      .from("classes")
+      .select("id, name, cycle")
+      .eq("school_id", profile.school_id)
+      .order("name")
+
+    if (classesError) {
+      console.error("Erreur classes :", classesError)
+    } else {
+      setClasses((classesData as ClassePourGrille[]) ?? [])
     }
 
     setLoading(false)
@@ -536,6 +569,14 @@ export default function GradesPage() {
 
   const selectedAssessment = assessments.find(
     (item) => item.id === selectedAssessmentId
+  )
+
+  const classesPremierCycle = classes.filter((classe) =>
+    estPremierCycle(classe.cycle)
+  )
+
+  const classeChoisiePourGrille = classesPremierCycle.find(
+    (classe) => classe.id === classeGrilleId
   )
 
   async function saveGrades() {
@@ -1060,6 +1101,48 @@ export default function GradesPage() {
           </div>
         )}
 
+        {/*
+          PREMIER CYCLE : on choisit une classe, pas une évaluation. La
+          grille remplace entièrement la saisie matière par matière — et
+          c'est elle qui définit les matières de la classe.
+        */}
+        {classesPremierCycle.length > 0 && (
+          <div className="rounded-xl border bg-background p-6">
+            <label
+              htmlFor="classe-grille"
+              className="mb-2 block font-medium"
+            >
+              Classe de premier cycle
+            </label>
+
+            <select
+              id="classe-grille"
+              value={classeGrilleId}
+              onChange={(event) => setClasseGrilleId(event.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-3"
+            >
+              <option value="">
+                Sélectionner une classe — saisie en grille
+              </option>
+
+              {classesPremierCycle.map((classe) => (
+                <option key={classe.id} value={classe.id}>
+                  {classe.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {classeChoisiePourGrille ? (
+          <GrilleNotes
+            schoolId={schoolId}
+            classId={classeChoisiePourGrille.id}
+            className={classeChoisiePourGrille.name}
+            peutModifier={can(monRole, "notes.saisir")}
+          />
+        ) : (
+        <>
         <div className="rounded-xl border bg-background p-6">
           <label htmlFor="assessment" className="mb-2 block font-medium">
             Évaluation
@@ -1233,6 +1316,8 @@ export default function GradesPage() {
               )}
             </div>
           </div>
+        )}
+        </>
         )}
       </section>
     </main>
