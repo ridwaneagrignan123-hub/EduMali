@@ -1,0 +1,147 @@
+-- =====================================================================
+-- Ridwane — messages aux parents, présence par leçon, discipline
+-- =====================================================================
+-- APPLIQUÉ en base le 2026-07-31. Ce fichier porte le raisonnement ;
+-- `schema.sql` porte l'état.
+
+
+-- =====================================================================
+-- 1. sms_logs DEVIENT LA FILE D'ENVOI
+-- =====================================================================
+-- Le nom de la table est conservé : elle portait déjà tout ce qu'il
+-- fallait, et la renommer aurait cassé la route existante sans rien
+-- apporter.
+--
+-- `event_type` couvre désormais retard, retenue et violation_reglement
+-- en plus de l'existant. `status` accueille `en_attente`. S'ajoutent
+-- `recorded_by`, `channel` et `parent_name`.
+--
+-- LE NOM ET LE NUMÉRO DU PARENT SONT FIGÉS au moment du déclenchement.
+-- La fiche élève peut changer plus tard ; le message, lui, s'adressait à
+-- cette personne-là, à ce numéro-là. Un historique qui suivrait la fiche
+-- réécrirait le passé.
+--
+-- ---------------------------------------------------------------------
+-- UN MESSAGE NE NAÎT JAMAIS « ENVOYÉ »
+--
+-- `private.imposer_auteur_message()` ramène tout INSERT à `en_attente`
+-- et efface un `provider_message_id` inventé, en plus d'imposer
+-- `recorded_by` depuis auth.uid().
+--
+-- Ce n'est pas de la méfiance envers l'écran : c'est que la seule
+-- personne autorisée à dire « envoyé » est celle qui a vu un
+-- fournisseur accepter le message. Une école qui croirait la famille
+-- prévenue serait plus mal lotie qu'une école qui sait devoir rappeler.
+--
+-- Vérifié : une ligne insérée en prétendant « sent » avec un faux
+-- identifiant ressort « en_attente », sans identifiant.
+-- ---------------------------------------------------------------------
+--
+-- L'ADAPTATEUR src/lib/whatsapp.ts est le seul point d'envoi. Aucun
+-- fournisseur n'y est codé : brancher WhatsApp suppose un compte
+-- Business (Meta ou un intermédiaire), des modèles de message
+-- PRÉ-APPROUVÉS et un numéro d'expéditeur vérifié — une démarche
+-- administrative externe. Sans passerelle configurée il rend
+-- `en_attente` ; avec une passerelle déclarée mais sans implémentation,
+-- il rend `en_attente` aussi, avec une raison distincte. Jamais `sent`.
+--
+-- L'ÉCRITURE passe par POST /api/parent-messages, qui compose le texte
+-- côté serveur — jamais un texte libre venu du client — et permet à un
+-- ENSEIGNANT de prévenir le parent de son élève, ce que la policy
+-- d'écriture de sms_logs réserve à l'encadrement : la clé service role
+-- passe outre, après contrôle de permission. La LECTURE est élargie à
+-- l'enseignant de l'élève et au surveillant, pour l'historique.
+
+
+-- =====================================================================
+-- 2. PRÉSENCE PAR LEÇON — LE CHOIX DE LA CLÉ D'UNICITÉ
+-- =====================================================================
+-- `attendance` marque la JOURNÉE, avec UNIQUE (student_id,
+-- attendance_date). Cela convient au premier cycle, où un seul
+-- enseignant tient la classe du matin au soir. Au second cycle et au
+-- lycée, chaque enseignant ne répond que de SA leçon : la contrainte par
+-- jour rend le modèle inutilisable, le premier à marquer verrouillant la
+-- journée entière.
+--
+-- `lesson_attendance` s'ajoute À CÔTÉ, sans toucher à `attendance` : le
+-- premier cycle continue exactement comme avant, et une classe sans
+-- cycle défini aussi.
+--
+-- ---------------------------------------------------------------------
+-- CLÉ RETENUE : (student_id, slot_id, lesson_date)
+--
+-- Le CRÉNEAU est la leçon. Il porte déjà l'enseignant, la classe, la
+-- matière et l'horaire : s'y accrocher, c'est décrire exactement ce
+-- qu'on constate — « cet élève, à cette heure-là, ce jour-là ».
+--
+-- La clé (student_id, subject_id, lesson_date) a été écartée : deux
+-- cours de maths le même jour, à 8 h et à 14 h, sont deux leçons
+-- distinctes. Elle les aurait confondus, et un élève présent le matin
+-- puis absent l'après-midi n'aurait pu porter qu'un seul statut — le
+-- second enseignant écrasant le relevé du premier sans le savoir.
+--
+-- Vérifié : les deux relevés coexistent ; un second relevé sur la MÊME
+-- leçon est refusé.
+-- ---------------------------------------------------------------------
+--
+-- slot_id est en ON DELETE RESTRICT. Un relevé d'absence est un fait
+-- constaté, souvent déjà signalé à la famille : supprimer un créneau ne
+-- doit pas l'effacer. Le créneau reste MODIFIABLE — horaires, enseignant
+-- — seule sa suppression bute une fois des présences saisies.
+--
+-- RLS : `private.enseigne_ce_creneau()` borne l'écriture à l'enseignant
+-- du créneau ; l'admin et l'encadrement écrivent aussi, ce dernier borné
+-- à son programme. La lecture suit le cloisonnement par direction et par
+-- filière déjà en place.
+
+
+-- =====================================================================
+-- 3. RETENUES
+-- =====================================================================
+-- Le motif est obligatoire (au moins 3 caractères, contrainte en base) :
+-- il figure tel quel dans le message aux parents, et une retenue sans
+-- motif serait illisible pour la famille comme pour le dossier.
+
+
+-- =====================================================================
+-- 4. RÈGLEMENT INTÉRIEUR ET MANQUEMENTS
+-- =====================================================================
+-- `school_rules` : chaque école écrit le sien. Il n'y a pas de règlement
+-- générique qui vaudrait partout, et les violations enregistrées
+-- renvoient à CES règles-là.
+--
+-- UNE RÈGLE SE DÉSACTIVE, ELLE NE SE SUPPRIME PAS. Abrogée, elle reste
+-- celle qui fondait les manquements déjà constatés :
+-- `rule_violations.rule_id` est en ON DELETE RESTRICT, et l'écran de
+-- constat ne propose que les règles actives.
+--
+-- Écriture réservée à `is_admin()`, comme le reste des paramètres.
+-- Lecture ouverte à toute l'école : un enseignant doit pouvoir citer la
+-- règle qu'il constate enfreinte.
+
+
+-- =====================================================================
+-- 5. HISTORIQUE DE L'ÉLÈVE
+-- =====================================================================
+-- Aucune table. L'écran rassemble ce que attendance, lesson_attendance,
+-- detentions, rule_violations et sms_logs savent déjà, et ne corrige
+-- rien : chaque fait se corrige là où il a été constaté, sinon la
+-- synthèse finirait par diverger de la source.
+--
+-- Le cloisonnement n'y est pas réécrit : toutes les lectures passent par
+-- le RLS. Un élève hors périmètre ressort « introuvable ».
+
+
+-- =====================================================================
+-- VÉRIFIÉ, PAS SUPPOSÉ (2026-07-31)
+-- =====================================================================
+--   Message inséré en prétendant « sent » ....... ressort en_attente
+--   Identifiant fournisseur inventé ............. effacé
+--   Auteur du message ........................... auth.uid() imposé
+--   Canal par défaut ............................ whatsapp
+--   Type « violation_reglement » ................ accepté
+--   Type inconnu ................................ refusé
+--   Deux leçons de la même matière le même jour . 2 relevés distincts
+--   Second relevé sur la MÊME leçon ............. refusé
+--   Suppression d'un créneau porteur ............ refusée (RESTRICT)
+--   Présence par jour du premier cycle .......... inchangée

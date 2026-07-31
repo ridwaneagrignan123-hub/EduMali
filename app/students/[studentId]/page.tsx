@@ -229,7 +229,16 @@ export default function StudentHistoryPage() {
   }, [studentId, annee, mois])
 
   useEffect(() => {
-    charger()
+    /*
+     * Le chargement passe par une fonction interne : appeler `charger`
+     * directement dans le corps de l'effet y déclencherait une mise à
+     * jour d'état synchrone, et enchaînerait les rendus.
+     */
+    async function lancer() {
+      await charger()
+    }
+
+    lancer()
   }, [charger])
 
   /*

@@ -26,15 +26,15 @@ base de production le **2026-07-31** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
-| Tables | **28** |
-| Colonnes | 240 |
-| Contraintes | 148 |
-| Tables avec RLS active | **28 sur 28** |
-| Policies | 98 |
-| Index | 60 |
+| Tables | **32** |
+| Colonnes | 276 |
+| Contraintes | 174 |
+| Tables avec RLS active | **32 sur 32** |
+| Policies | 114 |
+| Index | 71 |
 | Fonctions `public` | 17 |
-| Fonctions `private` | 32 |
-| Déclencheurs | 36 |
+| Fonctions `private` | 35 |
+| Déclencheurs | 45 |
 
 Les déclencheurs incluent `on_auth_user_created`, posé sur `auth.users` et
 non sur `public`.
@@ -67,6 +67,7 @@ sur la production échouerait, les objets existant déjà.
 | `paie-au-pointage.sql` | `timetable_checkins`, `payroll_closings` : la paie des vacataires se confirme au lieu de se déduire (2026-07-31) |
 | `programme-par-filiere.sql` | le programme se partitionne par filière, l'élève reste entier ; filière obligatoire en franco-arabe (2026-07-31) |
 | `grille-premier-cycle.sql` | le titulaire devient un enseignant aux yeux du RLS ; il tient sa grille de notes (2026-07-31) |
+| `messages-parents-et-discipline.sql` | `sms_logs` devient la file d'envoi ; `lesson_attendance`, `detentions`, `school_rules`, `rule_violations` (2026-07-31) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -178,6 +179,24 @@ Vérifiés en base le 2026-07-31, pas reconduits de mémoire.
   nouvelle colonne sensible sur `teachers` doit être omise des `grant` de la
   section 5 de `schema.sql`, sinon elle sera lisible par toute l'école.
 
+- **Un message aux parents ne naît JAMAIS « envoyé ».** `sms_logs` est la
+  file d'envoi ; le déclencheur `sms_logs_auteur` ramène tout insert à
+  `en_attente` et efface un `provider_message_id` inventé. Seul
+  `src/lib/whatsapp.ts` peut faire passer une ligne à `sent`, et seulement si
+  un fournisseur a accepté le message. Aucun fournisseur n'y est codé : le
+  brancher est une démarche externe (compte WhatsApp Business, modèles
+  pré-approuvés par Meta, numéro vérifié).
+- **La présence a DEUX modèles, et le cycle décide.** `attendance` marque la
+  journée (premier cycle) ; `lesson_attendance` marque une leçon, avec la clé
+  d'unicité `(student_id, slot_id, lesson_date)` — le créneau EST la leçon.
+  Ne pas fusionner les deux : la contrainte par jour laisserait le premier
+  enseignant à marquer verrouiller la journée entière au second cycle.
+- **`lesson_attendance.slot_id` est en `ON DELETE RESTRICT`.** Un relevé
+  d'absence est un fait constaté, souvent déjà signalé à la famille.
+  Supprimer un créneau ne doit pas l'effacer ; le créneau reste modifiable.
+- **Une règle du règlement se DÉSACTIVE, elle ne se supprime pas.** Abrogée,
+  elle reste celle qui fondait les manquements déjà constatés —
+  `rule_violations.rule_id` est en `RESTRICT` pour cette raison.
 - **Au PREMIER CYCLE, la note est sur 10 et la moyenne est SIMPLE.** Total ÷
   nombre de matières, une case vide comptant 0, sans coefficient. La règle vit
   dans `src/lib/premier-cycle.ts` et les trois écrans — grille, Moyennes,

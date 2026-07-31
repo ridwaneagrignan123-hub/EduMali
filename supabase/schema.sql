@@ -170,6 +170,26 @@ create table daily_reminders (
   constraint daily_reminders_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE
 );
 
+-- Retenue (punition). Le motif est obligatoire : il figure tel quel dans
+-- le message aux parents, et une retenue sans motif serait illisible
+-- pour la famille comme pour le dossier.
+create table detentions (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_id uuid not null,
+  student_id uuid not null,
+  class_id uuid,
+  detention_date date default CURRENT_DATE not null,
+  reason text not null,
+  recorded_by uuid,
+  constraint detentions_pkey PRIMARY KEY (id),
+  constraint detentions_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE SET NULL,
+  constraint detentions_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint detentions_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  constraint detentions_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE,
+  constraint detentions_reason_check CHECK ((length(btrim(reason)) >= 3))
+);
+
 create table directions (
   id uuid default gen_random_uuid() not null,
   created_at timestamp with time zone default now() not null,
@@ -254,6 +274,44 @@ create table grades (
   constraint grades_score_check CHECK ((score >= (0)::numeric))
 );
 
+-- PRESENCE PAR LECON — second cycle et lycee.
+--
+-- `attendance` marque la JOURNEE et ne peut pas porter ce cas : au
+-- second cycle chaque enseignant ne repond que de SA lecon, et la
+-- contrainte par jour laisserait le premier a marquer verrouiller la
+-- journee entiere. Les deux tables coexistent, le cycle decide.
+--
+-- CLE D'UNICITE (student_id, slot_id, lesson_date) : le CRENEAU EST la
+-- lecon — il porte deja l'enseignant, la classe, la matiere et
+-- l'horaire. Deux cours de maths le meme jour a 8 h et a 14 h sont deux
+-- creneaux distincts. Une cle (eleve, matiere, jour) les aurait
+-- confondus, et le second enseignant aurait ecrase le premier.
+create table lesson_attendance (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_id uuid not null,
+  student_id uuid not null,
+  class_id uuid not null,
+  subject_id uuid not null,
+  slot_id uuid not null,
+  lesson_date date not null,
+  status text not null,
+  note text,
+  recorded_by uuid,
+  constraint lesson_attendance_unique UNIQUE (student_id, slot_id, lesson_date),
+  constraint lesson_attendance_pkey PRIMARY KEY (id),
+  constraint lesson_attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE CASCADE,
+  constraint lesson_attendance_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint lesson_attendance_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  -- RESTRICT : un releve d'absence est un fait constate, souvent deja
+  -- signale a la famille. Supprimer un creneau ne doit pas l'effacer ;
+  -- le creneau reste modifiable, seule sa suppression bute.
+  constraint lesson_attendance_slot_id_fkey FOREIGN KEY (slot_id) REFERENCES public.timetable_slots(id) ON DELETE RESTRICT,
+  constraint lesson_attendance_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE,
+  constraint lesson_attendance_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES public.subjects(id) ON DELETE CASCADE,
+  constraint lesson_attendance_status_check CHECK ((status = ANY (ARRAY['present'::text, 'absent'::text, 'late'::text, 'excused'::text])))
+);
+
 create table lineup_themes (
   id uuid default gen_random_uuid() not null,
   school_id uuid not null,
@@ -311,6 +369,24 @@ create table profiles (
 
 -- Autorisation nominative d'ouvrir un etablissement. Consommee par
 -- /api/setup-school. RLS active et AUCUNE policy : voir section 3.
+-- Manquement au reglement interieur. rule_id est en RESTRICT : la regle
+-- enfreinte doit rester lisible. On la DESACTIVE, on ne la supprime pas.
+create table rule_violations (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_id uuid not null,
+  student_id uuid not null,
+  rule_id uuid not null,
+  violation_date date default CURRENT_DATE not null,
+  note text,
+  recorded_by uuid,
+  constraint rule_violations_pkey PRIMARY KEY (id),
+  constraint rule_violations_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint rule_violations_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES public.school_rules(id) ON DELETE RESTRICT,
+  constraint rule_violations_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  constraint rule_violations_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE
+);
+
 create table school_creation_grants (
   id uuid default gen_random_uuid() not null,
   email text not null,
@@ -334,6 +410,21 @@ create table school_holidays (
   constraint school_holidays_pkey PRIMARY KEY (id),
   constraint school_holidays_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
   constraint school_holidays_dates_check CHECK ((end_date >= start_date))
+);
+
+-- Le reglement interieur de CETTE ecole. Il n'y a pas de reglement
+-- generique qui vaudrait partout.
+create table school_rules (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_id uuid not null,
+  label text not null,
+  rule_text text not null,
+  is_active boolean default true not null,
+  constraint school_rules_unique_label UNIQUE (school_id, label),
+  constraint school_rules_pkey PRIMARY KEY (id),
+  constraint school_rules_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  constraint school_rules_label_check CHECK ((length(btrim(label)) >= 2))
 );
 
 create table schools (
@@ -372,11 +463,20 @@ create table sms_logs (
   provider_message_id text,
   error_message text,
   created_at timestamp with time zone default now() not null,
+  -- Qui a declenche le message. Impose en base : ecrire a une famille
+  -- engage l'ecole, on doit savoir qui l'a decide.
+  recorded_by uuid,
+  channel text default 'whatsapp'::text not null,
+  -- Le nom du parent AU MOMENT du declenchement : la fiche eleve peut
+  -- changer, le message s'adressait a cette personne-la.
+  parent_name text,
   constraint sms_logs_pkey PRIMARY KEY (id),
+  constraint sms_logs_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint sms_logs_channel_check CHECK ((channel = ANY (ARRAY['whatsapp'::text, 'sms'::text]))),
   constraint sms_logs_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
   constraint sms_logs_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE,
-  constraint sms_logs_event_type_check CHECK ((event_type = ANY (ARRAY['absence'::text, 'report_card'::text, 'fee_overdue'::text]))),
-  constraint sms_logs_status_check CHECK ((status = ANY (ARRAY['sent'::text, 'failed'::text])))
+  constraint sms_logs_event_type_check CHECK ((event_type = ANY (ARRAY['absence'::text, 'report_card'::text, 'fee_overdue'::text, 'retard'::text, 'retenue'::text, 'violation_reglement'::text]))),
+  constraint sms_logs_status_check CHECK ((status = ANY (ARRAY['en_attente'::text, 'sent'::text, 'failed'::text])))
 );
 
 create table student_class_enrollments (
@@ -532,6 +632,11 @@ CREATE UNIQUE INDEX class_head_teachers_sans_filiere ON public.class_head_teache
 -- ...et un seul par filiere (ecole franco-arabe).
 CREATE UNIQUE INDEX class_head_teachers_par_filiere ON public.class_head_teachers USING btree (class_id, filiere) WHERE (filiere IS NOT NULL);
 CREATE INDEX classes_direction_id_idx ON public.classes USING btree (direction_id);
+CREATE INDEX detentions_eleve_date_idx ON public.detentions USING btree (student_id, detention_date DESC);
+CREATE INDEX lesson_attendance_classe_jour_idx ON public.lesson_attendance USING btree (class_id, lesson_date DESC);
+CREATE INDEX lesson_attendance_eleve_jour_idx ON public.lesson_attendance USING btree (student_id, lesson_date DESC);
+CREATE INDEX rule_violations_eleve_date_idx ON public.rule_violations USING btree (student_id, violation_date DESC);
+CREATE INDEX sms_logs_school_status_idx ON public.sms_logs USING btree (school_id, status, created_at DESC);
 CREATE INDEX daily_reminders_school_date_idx ON public.daily_reminders USING btree (school_id, reminder_date DESC);
 CREATE INDEX fee_payments_school_date_idx ON public.fee_payments USING btree (school_id, payment_date DESC);
 CREATE INDEX lineup_themes_school_date_idx ON public.lineup_themes USING btree (school_id, scheduled_on);
@@ -561,11 +666,13 @@ alter table class_head_teachers enable row level security;
 alter table class_subjects enable row level security;
 alter table classes enable row level security;
 alter table daily_reminders enable row level security;
+alter table detentions enable row level security;
 alter table directions enable row level security;
 alter table fee_assessments enable row level security;
 alter table fee_class_defaults enable row level security;
 alter table fee_payments enable row level security;
 alter table grades enable row level security;
+alter table lesson_attendance enable row level security;
 alter table lineup_themes enable row level security;
 alter table payroll_closings enable row level security;
 alter table profiles enable row level security;
@@ -573,8 +680,10 @@ alter table profiles enable row level security;
 -- et zero policy ferme la table a `authenticated` depuis tout client.
 -- Seule la cle service role y accede, ce qui en fait une voie de
 -- confiance. Lui ajouter une policy de lecture revelerait qui est attendu.
+alter table rule_violations enable row level security;
 alter table school_creation_grants enable row level security;
 alter table school_holidays enable row level security;
+alter table school_rules enable row level security;
 alter table schools enable row level security;
 alter table sms_logs enable row level security;
 alter table student_class_enrollments enable row level security;
@@ -878,10 +987,6 @@ create policy "Journal SMS alimente par l'encadrement" on sms_logs for insert to
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
-create policy "Journal SMS lu par l'encadrement" on sms_logs for select to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
 
 create policy "Encadrement retire les inscriptions" on student_class_enrollments for delete to {authenticated}
   using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
@@ -1139,6 +1244,87 @@ create policy "Emploi du temps modifie par l'encadrement" on timetable_slots for
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND private.mon_programme(subject_id)));
 
+create policy "Retenue corrigee par la vie scolaire" on detentions for update to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant())))
+  with check ((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))));
+create policy "Retenue effacee par l'encadrement" on detentions for delete to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND private.is_encadrement()));
+create policy "Retenue posee par la vie scolaire ou l'enseignant" on detentions for insert to {authenticated}
+  with check (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+create policy "Retenues lues selon le role" on detentions for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+create policy "Presence par lecon corrigee par l'enseignant du creneau" on lesson_attendance for update to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.enseigne_ce_creneau(slot_id) OR private.is_admin() OR (private.is_encadrement() AND private.mon_programme(subject_id)))))
+  with check ((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))));
+create policy "Presence par lecon effacee par l'encadrement" on lesson_attendance for delete to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.enseigne_ce_creneau(slot_id))));
+create policy "Presence par lecon saisie par l'enseignant du creneau" on lesson_attendance for insert to {authenticated}
+  with check (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.enseigne_ce_creneau(slot_id) OR private.is_admin() OR (private.is_encadrement() AND private.mon_programme(subject_id)))));
+create policy "Presences par lecon visibles selon le role" on lesson_attendance for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_direction_generale() OR private.is_surveillant() OR (private.is_direction_scoped() AND (private.class_direction_id(class_id) = private.current_direction_id()) AND private.mon_programme(subject_id)) OR private.teaches_class(class_id))));
+create policy "Violation constatee par la vie scolaire ou l'enseignant" on rule_violations for insert to {authenticated}
+  with check (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+create policy "Violation corrigee par la vie scolaire" on rule_violations for update to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant())))
+  with check ((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))));
+create policy "Violation effacee par l'encadrement" on rule_violations for delete to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND private.is_encadrement()));
+create policy "Violations lues selon le role" on rule_violations for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+create policy "Reglement ecrit par l'administration" on school_rules for insert to {authenticated}
+  with check ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Reglement lu dans son ecole" on school_rules for select to {authenticated}
+  using ((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))));
+create policy "Reglement modifie par l'administration" on school_rules for update to {authenticated}
+  using ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))))
+  with check ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Reglement supprime par l'administration" on school_rules for delete to {authenticated}
+  using ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid())))));
+create policy "Messages parents lus par l'encadrement et l'enseignant" on sms_logs for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+
 
 -- 5. DROITS PAR COLONNE
 --
@@ -1186,6 +1372,62 @@ grant update (status) on teachers to authenticated;
 
 
 -- 6. FONCTIONS
+
+CREATE OR REPLACE FUNCTION private.enseigne_ce_creneau(target_slot_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1 from timetable_slots ts
+    join teachers t on t.id = ts.teacher_id
+    where ts.id = target_slot_id
+      and t.profile_id = auth.uid());
+$function$
+;
+
+-- Un message aux familles ne nait JAMAIS « envoye » : seul l'adaptateur
+-- src/lib/whatsapp.ts le fait passer a sent, et seulement si un
+-- fournisseur l'a accepte. Ce declencheur ramene tout insert a l'attente
+-- et efface un provider_message_id invente.
+CREATE OR REPLACE FUNCTION private.imposer_auteur_message()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if auth.uid() is not null then
+    new.recorded_by := auth.uid();
+  end if;
+
+  -- Un message ne nait jamais « envoye » : seul l'adaptateur le fait
+  -- passer a sent, et seulement si un fournisseur l'a accepte.
+  if tg_op = 'INSERT' and new.status is distinct from 'en_attente' then
+    new.status := 'en_attente';
+    new.provider_message_id := null;
+  end if;
+
+  return new;
+end;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION private.imposer_auteur_releve()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+begin
+  if auth.uid() is not null then
+    new.recorded_by := auth.uid();
+  end if;
+  return new;
+end;
+$function$
+;
 
 CREATE OR REPLACE FUNCTION private.est_titulaire(target_class_id uuid)
  RETURNS boolean
@@ -1836,13 +2078,55 @@ begin
       quoi := 'note';
       select 'Note de ' || s.last_name || ' ' || s.first_name || ' : ' || coalesce(ligne.score::text, '—')
         into libelle from students s where s.id = ligne.student_id;
+    when 'lesson_attendance' then
+      quoi := 'presence_lecon';
+      select 'Lecon de ' || sj.name || ' — ' || st.last_name || ' ' || st.first_name
+             || ' : ' || ligne.status
+        into libelle from students st, subjects sj
+        where st.id = ligne.student_id and sj.id = ligne.subject_id;
+    when 'detentions' then
+      quoi := 'retenue';
+      select 'Retenue de ' || st.last_name || ' ' || st.first_name || ' — ' || ligne.reason
+        into libelle from students st where st.id = ligne.student_id;
+    when 'rule_violations' then
+      quoi := 'violation_reglement';
+      select 'Reglement enfreint par ' || st.last_name || ' ' || st.first_name
+             || ' — ' || r.label
+        into libelle from students st, school_rules r
+        where st.id = ligne.student_id and r.id = ligne.rule_id;
+    when 'school_rules' then
+      quoi := 'regle';
+      libelle := 'Regle « ' || coalesce(ligne.label, '') || ' »';
+    when 'sms_logs' then
+      quoi := 'message_parent';
+      select 'Message a la famille de ' || st.last_name || ' ' || st.first_name
+             || ' (' || ligne.event_type || ') — ' || ligne.status
+        into libelle from students st where st.id = ligne.student_id;
+    when 'timetable_checkins' then
+      quoi := 'pointage';
+      select 'Pointage de ' || t.last_name || ' ' || t.first_name
+             || ' le ' || to_char(ligne.occurred_on, 'DD/MM/YYYY')
+             || ' — ' || ligne.hours || ' h'
+        into libelle from teachers t where t.id = ligne.teacher_id;
+
+      if tg_op = 'UPDATE' then
+        if old.cancelled_at is null and new.cancelled_at is not null then
+          quoi := 'annulation_pointage';
+          select 'Annulation du pointage de ' || t.last_name || ' ' || t.first_name
+                 || ' le ' || to_char(new.occurred_on, 'DD/MM/YYYY')
+                 || ' — ' || new.hours || ' h — motif : '
+                 || coalesce(new.cancellation_reason, '')
+            into libelle from teachers t where t.id = new.teacher_id;
+        end if;
+      end if;
+    when 'payroll_closings' then
+      quoi := 'cloture_paie';
+      libelle := 'Cloture de la paie de ' || lpad(ligne.month::text, 2, '0') || '/' || ligne.year;
     when 'fee_payments' then
       quoi := 'paiement';
       libelle := 'Recu n' || coalesce(ligne.receipt_number::text, '?')
                  || ' — ' || coalesce(ligne.amount_paid::text, '0') || ' F';
 
-      -- « if » imbrique, pas « and » : sur INSERT, old n'existe pas et
-      -- l'ordre d'evaluation d'un AND n'est pas garanti.
       if tg_op = 'UPDATE' then
         if old.cancelled_at is null and new.cancelled_at is not null then
           quoi := 'annulation';
@@ -1880,6 +2164,10 @@ begin
     when 'class_subjects' then
       quoi := 'affectation';
       select 'Affectation en ' || c.name into libelle from classes c where c.id = ligne.class_id;
+    when 'class_head_teachers' then
+      quoi := 'titulaire';
+      select 'Titulaire de ' || c.name || coalesce(' (' || ligne.filiere || ')', '')
+        into libelle from classes c where c.id = ligne.class_id;
     when 'teachers' then
       quoi := 'enseignant';
       libelle := 'Enseignant ' || coalesce(ligne.last_name, '') || ' ' || coalesce(ligne.first_name, '');
@@ -2509,6 +2797,15 @@ CREATE TRIGGER log_class_subjects AFTER INSERT OR DELETE OR UPDATE ON public.cla
 CREATE TRIGGER log_classes AFTER INSERT OR DELETE OR UPDATE ON public.classes FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_daily_reminders AFTER INSERT OR DELETE OR UPDATE ON public.daily_reminders FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER directions_set_updated_at BEFORE UPDATE ON public.directions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+CREATE TRIGGER detentions_auteur BEFORE INSERT ON public.detentions FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_releve();
+CREATE TRIGGER log_detentions AFTER INSERT OR DELETE OR UPDATE ON public.detentions FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER lesson_attendance_auteur BEFORE INSERT ON public.lesson_attendance FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_releve();
+CREATE TRIGGER log_lesson_attendance AFTER INSERT OR DELETE OR UPDATE ON public.lesson_attendance FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER rule_violations_auteur BEFORE INSERT ON public.rule_violations FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_releve();
+CREATE TRIGGER log_rule_violations AFTER INSERT OR DELETE OR UPDATE ON public.rule_violations FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER log_school_rules AFTER INSERT OR DELETE OR UPDATE ON public.school_rules FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER sms_logs_auteur BEFORE INSERT ON public.sms_logs FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_message();
+CREATE TRIGGER log_sms_logs AFTER INSERT OR UPDATE ON public.sms_logs FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_directions AFTER INSERT OR DELETE OR UPDATE ON public.directions FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER fee_assessments_refus_suppression BEFORE DELETE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.refuser_suppression_frais_paye();
 CREATE TRIGGER log_fee_assessments AFTER INSERT OR DELETE OR UPDATE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
