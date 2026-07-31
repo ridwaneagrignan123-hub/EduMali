@@ -179,6 +179,11 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Statistiques", path: "/statistics", roles: TOUS },
   { label: "Vie scolaire", path: "/supervision", roles: VIE_SCOLAIRE },
   { label: "Élèves", path: "/students", roles: ENCADREMENT },
+  /*
+   * Le pic de ressaisie de l'année : réinscrire tout un effectif à la
+   * rentrée. Mêmes rôles que la gestion des élèves.
+   */
+  { label: "Passage de classe", path: "/promotion", roles: ENCADREMENT },
   { label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
   { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
   { label: "Classes", path: "/classes", roles: ENCADREMENT },
