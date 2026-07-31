@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
 import { AvertissementDirection } from "@/components/avertissement-direction"
+import {
+  FILIERES,
+  filiereLabel,
+  hasFiliere,
+} from "@/src/lib/etablissement"
 
 type ClassItem = {
   id: string
@@ -39,6 +44,8 @@ type ClassSubjectInfo = {
   subjectId: string
   subjectName: string
   coefficient: number
+  /* Programme dont relève la matière. Nul hors école franco-arabe. */
+  filiere: string | null
 }
 
 type School = {
@@ -51,6 +58,7 @@ type School = {
   appreciation_very_good: number
   appreciation_good: number
   appreciation_fair: number
+  school_type: string
 }
 
 // Valeurs de repli si l'école n'est pas encore chargée : mêmes défauts qu'en base.
@@ -69,6 +77,8 @@ type SubjectResult = {
 
 type ReportCardStudent = {
   student: Student
+  /* Programme du bulletin. Nul en école classique : un seul bulletin. */
+  filiere: string | null
   subjects: SubjectResult[]
   generalAverage: number | null
   rank: number | null
@@ -87,6 +97,12 @@ export default function ReportCardPage() {
   const gradingScale = Number(
     school?.grading_scale ?? DEFAULT_GRADING_SCALE
   )
+
+  /*
+   * L'axe filière n'existe qu'en école franco-arabe. Ailleurs, un seul
+   * bulletin porte toutes les matières — comportement inchangé.
+   */
+  const avecFiliere = hasFiliere(school?.school_type)
 
   const appreciationExcellent = Number(
     school?.appreciation_excellent ?? DEFAULT_APPRECIATION_EXCELLENT
@@ -221,7 +237,7 @@ export default function ReportCardPage() {
     } = await supabase
       .from("schools")
       .select(
-        "name, address, phone, logo_url, grading_scale, appreciation_excellent, appreciation_very_good, appreciation_good, appreciation_fair"
+        "name, address, phone, logo_url, grading_scale, appreciation_excellent, appreciation_very_good, appreciation_good, appreciation_fair, school_type"
       )
       .eq(
         "id",
@@ -449,7 +465,8 @@ export default function ReportCardPage() {
         subject_id,
         coefficient,
         subjects (
-          name
+          name,
+          filiere
         )
       `)
       .eq(
@@ -481,6 +498,7 @@ export default function ReportCardPage() {
           subjectId: item.subject_id,
           subjectName: item.subjects?.name ?? "—",
           coefficient: Number(item.coefficient) || 1,
+          filiere: item.subjects?.filiere ?? null,
         })
       )
 
@@ -523,8 +541,41 @@ export default function ReportCardPage() {
       return
     }
 
-    const calculatedResults:
-      ReportCardStudent[] =
+    /*
+     * ---------------------------------------------------------------
+     * UN BULLETIN PAR PROGRAMME
+     *
+     * En école franco-arabe, la classe porte deux programmes et chacun
+     * a son propre bulletin : ses matières, sa moyenne générale, son
+     * rang — le rang étant calculé parmi les camarades de la MÊME
+     * classe sur ce SEUL programme. Un élève reçoit donc deux bulletins
+     * qui ne partagent aucune matière.
+     *
+     * En école classique, `filieres` vaut [null] : la boucle tourne une
+     * fois, sur toutes les matières, et le comportement est exactement
+     * celui d'avant.
+     * ---------------------------------------------------------------
+     */
+    const filieres: (string | null)[] = avecFiliere
+      ? [...FILIERES]
+      : [null]
+
+    const tousLesBulletins: ReportCardStudent[] = []
+
+    for (const filiere of filieres) {
+      const matieresDuProgramme =
+        filiere === null
+          ? classSubjects
+          : classSubjects.filter(
+              (subject) => subject.filiere === filiere
+            )
+
+      // Un programme sans aucune matière ne produit pas de bulletin vide.
+      if (avecFiliere && matieresDuProgramme.length === 0) {
+        continue
+      }
+
+      const calculatedResults: ReportCardStudent[] =
       students.map(
         (student) => {
           const studentGrades =
@@ -546,7 +597,7 @@ export default function ReportCardPage() {
 
           const subjectResults:
             SubjectResult[] =
-            classSubjects.map(
+            matieresDuProgramme.map(
               (subject) => {
                 const subjectGrades =
                   studentGrades.filter(
@@ -695,6 +746,7 @@ export default function ReportCardPage() {
 
           return {
             student,
+            filiere,
             subjects:
               subjectResults,
             generalAverage,
@@ -703,6 +755,8 @@ export default function ReportCardPage() {
         }
       )
 
+    // Le classement se fait DANS le programme : un élève est classé
+    // parmi ses camarades sur cette seule filière.
     const sortedResults =
       [
         ...calculatedResults,
@@ -775,8 +829,11 @@ export default function ReportCardPage() {
         currentAverage
     }
 
+      tousLesBulletins.push(...rankedResults)
+    }
+
     setReportCards(
-      rankedResults
+      tousLesBulletins
     )
 
     setLoadingReport(false)
@@ -1246,10 +1303,15 @@ export default function ReportCardPage() {
               (report) => (
 
                 <article
-                  id={`report-card-${report.student.id}`}
-                  key={
-                    report.student.id
-                  }
+                  id={`report-card-${report.student.id}${
+                    report.filiere ? `-${report.filiere}` : ""
+                  }`}
+                  /*
+                    La clé porte le programme : en franco-arabe, le même
+                    élève a deux bulletins, et son seul identifiant les
+                    ferait entrer en collision.
+                  */
+                  key={`${report.student.id}-${report.filiere ?? "unique"}`}
                   className={`overflow-hidden rounded-xl border bg-background shadow-sm report-card-print ${
                     printTarget !== null &&
                     printTarget !== "all" &&
@@ -1358,6 +1420,16 @@ export default function ReportCardPage() {
     {report.student.parent_name && (
       <p className="mt-1 text-xs text-muted-foreground">
         Parent / Tuteur : {report.student.parent_name}
+      </p>
+    )}
+
+    {/*
+      L'en-tête identifie le programme : sans cela, les deux bulletins
+      d'un même élève seraient indiscernables une fois imprimés.
+    */}
+    {report.filiere && (
+      <p className="mt-3 inline-block rounded-full border px-4 py-1 text-sm font-semibold uppercase tracking-wide">
+        Programme {filiereLabel(report.filiere).toLowerCase()}
       </p>
     )}
 

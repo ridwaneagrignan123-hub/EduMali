@@ -1,0 +1,140 @@
+-- =====================================================================
+-- Ridwane — le PROGRAMME se partitionne, l'ÉLÈVE reste entier
+-- =====================================================================
+-- APPLIQUÉ en base le 2026-07-31. Ce fichier porte le raisonnement ;
+-- `schema.sql` porte l'état. Il PROLONGE `franco-arabe.sql` — à lire
+-- ensemble.
+
+-- ---------------------------------------------------------------------
+-- CE QUE CE FICHIER PRÉCISE PAR RAPPORT À franco-arabe.sql
+--
+-- `franco-arabe.sql` disait : « la filière nomme la responsabilité, elle
+-- ne partitionne pas le RLS ». La ligne juste est plus fine, et c'est
+-- elle qui s'applique désormais :
+--
+--   la filière ne partitionne pas LE DOSSIER DE L'ÉLÈVE ;
+--   elle partitionne LE PROGRAMME.
+--
+-- Se partitionnent : l'emploi du temps, l'affectation d'enseignant, la
+-- nomination du titulaire, les notes et les évaluations, le bulletin.
+--
+-- Restent partagés : l'élève, son effectif, ses inscriptions, ses frais,
+-- ses absences, sa fiche. Un élève franco-arabe est UN élève dans UNE
+-- classe ; son dossier ne se coupe pas en deux, et les deux directeurs
+-- le suivent entièrement.
+--
+-- Le raisonnement initial reste valable là où il portait : c'est parce
+-- que l'élève est unique qu'on ne partitionne pas son dossier. Ce qui
+-- avait été mal tranché, c'est le PROGRAMME — qui, lui, se partitionne
+-- sans rien casser, puisqu'une matière relève d'un seul programme.
+-- ---------------------------------------------------------------------
+
+
+-- =====================================================================
+-- 1. TOUTE MATIÈRE D'UNE ÉCOLE FRANCO-ARABE A UN PROGRAMME
+-- =====================================================================
+-- LE CAS TRANCHÉ : une matière commune (EPS) à `filiere` nulle serait
+-- ambiguë DEUX fois — sur quel bulletin figure-t-elle, et quel titulaire
+-- l'assure ? Toute règle de repli aurait été arbitraire : la mettre sur
+-- les deux bulletins la compterait deux fois dans la moyenne ; sur aucun
+-- la ferait disparaître.
+--
+-- On lève donc l'ambiguïté à la source : en école franco-arabe, la
+-- filière est OBLIGATOIRE sur chaque matière. Une école qui tient à une
+-- EPS commune la déclare deux fois, une par programme, avec le
+-- coefficient qu'elle veut dans chacun — ce qui est d'ailleurs plus
+-- fidèle, les deux titulaires n'assurant pas la même séance.
+--
+-- Deux déclencheurs, parce qu'il y a deux façons de créer l'ambiguïté :
+--   subjects_exiger_filiere ... une matière créée sans programme
+--   schools_controle_bascule .. une école basculée en franco-arabe en
+--                               laissant des matières sans programme
+--
+-- En école CLASSIQUE, aucun des deux ne se déclenche : la filière reste
+-- nulle partout et l'axe n'apparaît nulle part.
+-- =====================================================================
+
+
+-- =====================================================================
+-- 2. LE CLOISONNEMENT : ÉCRITURE OUI, LECTURE NON
+-- =====================================================================
+-- `private.mon_programme(subject_id)` rend TRUE pour tout le monde sauf
+-- un `directeur_direction` PORTANT une filière. L'école classique — où
+-- la filière est nulle partout — n'est donc pas touchée, et c'est ce qui
+-- garantit la non-régression.
+--
+-- Sur timetable_slots et class_subjects, seules les policies INSERT,
+-- UPDATE et DELETE sont cloisonnées. La LECTURE reste ouverte à l'école
+-- entière, délibérément :
+--
+--   un enseignant doit voir l'emploi du temps où il figure ;
+--   un directeur doit pouvoir constater que l'autre programme occupe
+--   déjà la classe à cette heure-là, sinon il poserait des créneaux qui
+--   se chevauchent sans jamais le voir.
+--
+-- Sur grades et assessments, c'est la LECTURE qui est cloisonnée pour un
+-- directeur de direction : « il détient le bulletin de sa filière ».
+-- L'écriture des notes n'a pas bougé — elle appartient à l'enseignant de
+-- la classe et à l'admin, jamais au directeur.
+-- =====================================================================
+
+
+-- =====================================================================
+-- 3. PREMIER CYCLE : LE CRÉNEAU REVIENT AU TITULAIRE
+-- =====================================================================
+-- `private.imposer_titulaire_premier_cycle()` ÉCRASE teacher_id avec le
+-- titulaire de la filière de la matière, au lieu de refuser. Imposer
+-- plutôt que refuser rend la règle indépendante de ce que l'écran
+-- envoie : « rien ne doit permettre un second enseignant dans une même
+-- classe pour une même filière » tient alors en base, pas dans l'UI.
+--
+-- Il ne s'applique QUE si school_type = 'franco_arabe'. En école
+-- classique, l'emploi du temps garde son choix libre d'enseignant par
+-- créneau, y compris au premier cycle — comportement d'origine,
+-- strictement préservé.
+--
+-- Second cycle et lycée : le déclencheur ne fait rien. class_subjects
+-- garde son modèle d'un enseignant par matière, et RIEN n'empêche un
+-- enseignant de porter plusieurs matières, plusieurs classes, plusieurs
+-- filières ou deux directions — vérifié, voir plus bas.
+-- =====================================================================
+
+
+-- =====================================================================
+-- VÉRIFIÉ SOUS L'IDENTITÉ DE DEUX DIRECTEURS RÉELS, RLS ACTIF
+-- =====================================================================
+-- École franco-arabe :
+--   Bascule avec une matière sans programme ......... refusée
+--   Bascule après attribution des programmes ........ OK
+--   Nouvelle matière sans programme ................. refusée
+--   Créneau de premier cycle sans titulaire nommé ... refusé
+--   Créneau arabe attribué à un autre enseignant .... réattribué au
+--                                                     titulaire arabe
+--   Enseignants distincts sur la classe ............. 2 (un par filière)
+--   Second cycle, un même enseignant ................ 3 affectations,
+--                                                     2 classes, 2 filières
+--   Directeur français / créneau français ........... OK
+--   Directeur français / créneau ARABE .............. refusé
+--   Directeur français voit l'élève ................. 1 élève, 1 inscription
+--   Directeur arabe / créneau arabe ................. OK
+--   Directeur arabe voit le MÊME élève .............. 1 élève
+--
+-- École classique — non-régression :
+--   Matière sans programme .......................... acceptée
+--   Premier cycle, créneau sans titulaire nommé ..... accepté,
+--                                                     enseignant conservé
+--   Programmes distincts ............................ 0 (axe absent)
+
+
+-- =====================================================================
+-- LE BULLETIN
+-- =====================================================================
+-- Côté écran (app/report-card) : en école franco-arabe, la génération
+-- boucle sur les deux filières et produit un bulletin par programme —
+-- ses matières, sa moyenne générale, son rang calculé parmi les
+-- camarades de la MÊME classe sur ce SEUL programme, et son en-tête qui
+-- nomme le programme. Aucune matière n'est commune aux deux, la filière
+-- étant obligatoire et unique par matière.
+--
+-- En école classique, la boucle tourne une fois sur [null] : un seul
+-- bulletin, toutes les matières, exactement comme avant.

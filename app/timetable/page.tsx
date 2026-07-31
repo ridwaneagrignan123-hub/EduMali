@@ -4,17 +4,32 @@ import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { can } from "@/src/lib/roles"
+import {
+  estModeTitulaire,
+  hasFiliere,
+  toSchoolType,
+} from "@/src/lib/etablissement"
 
 type ClassItem = {
   id: string
   name: string
   level: string | null
+  cycle: string | null
 }
 
 type Subject = {
   id: string
   name: string
   code: string | null
+  /* Programme dont relève la matière. Nul hors école franco-arabe. */
+  filiere: string | null
+}
+
+/* Titulaire d'une classe, par filière. Voir class_head_teachers. */
+type HeadTeacher = {
+  class_id: string
+  teacher_id: string
+  filiere: string | null
 }
 
 type Teacher = {
@@ -68,6 +83,8 @@ export default function TimetablePage() {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [headTeachers, setHeadTeachers] = useState<HeadTeacher[]>([])
+  const [schoolType, setSchoolType] = useState("classique")
 
   const [selectedClassId, setSelectedClassId] = useState("")
   const [slots, setSlots] = useState<TimetableSlot[]>([])
@@ -88,6 +105,29 @@ export default function TimetablePage() {
     startTime?: string
     endTime?: string
   }>({})
+
+  const classeChoisie = classes.find((item) => item.id === selectedClassId)
+  const matiereChoisie = subjects.find((item) => item.id === subjectId)
+
+  /*
+   * L'enseignant est imposé quand — et seulement quand — l'école est
+   * franco-arabe ET la classe de premier cycle. Partout ailleurs le
+   * choix libre par créneau reste celui d'avant.
+   */
+  const modeTitulaire =
+    hasFiliere(schoolType) && estModeTitulaire(classeChoisie?.cycle)
+
+  const titulaireDuCreneau = modeTitulaire
+    ? teachers.find(
+        (teacher) =>
+          teacher.id ===
+          headTeachers.find(
+            (head) =>
+              head.class_id === selectedClassId &&
+              head.filiere === (matiereChoisie?.filiere ?? null)
+          )?.teacher_id
+      )
+    : undefined
 
   useEffect(() => {
     loadInitialData()
@@ -140,8 +180,14 @@ export default function TimetablePage() {
 
     const loadErrors: string[] = []
 
-    const [yearResult, classesResult, subjectsResult, teachersResult] =
-      await Promise.all([
+    const [
+      yearResult,
+      classesResult,
+      subjectsResult,
+      teachersResult,
+      headsResult,
+      schoolResult,
+    ] = await Promise.all([
         supabase
           .from("academic_years")
           .select("id")
@@ -151,13 +197,13 @@ export default function TimetablePage() {
 
         supabase
           .from("classes")
-          .select("id, name, level")
+          .select("id, name, level, cycle")
           .eq("school_id", profile.school_id)
           .order("name"),
 
         supabase
           .from("subjects")
-          .select("id, name, code")
+          .select("id, name, code, filiere")
           .eq("school_id", profile.school_id)
           .order("name"),
 
@@ -166,6 +212,17 @@ export default function TimetablePage() {
           .select("id, first_name, last_name")
           .eq("school_id", profile.school_id)
           .order("last_name"),
+
+        supabase
+          .from("class_head_teachers")
+          .select("class_id, teacher_id, filiere")
+          .eq("school_id", profile.school_id),
+
+        supabase
+          .from("schools")
+          .select("school_type")
+          .eq("id", profile.school_id)
+          .maybeSingle(),
       ])
 
     if (yearResult.error) {
@@ -195,6 +252,14 @@ export default function TimetablePage() {
     }
 
     setTeachers(teachersResult.data ?? [])
+
+    if (headsResult.error) {
+      console.error("Erreur titulaires :", headsResult.error)
+      loadErrors.push("les titulaires de classe")
+    }
+
+    setHeadTeachers((headsResult.data as HeadTeacher[]) ?? [])
+    setSchoolType(toSchoolType(schoolResult.data?.school_type))
 
     if (loadErrors.length > 0) {
       setLoadError(
@@ -340,10 +405,21 @@ export default function TimetablePage() {
       return
     }
 
-    if (teacherId) {
+    /*
+     * En mode titulaire, l'enseignant effectif n'est pas celui du
+     * formulaire : sans cette substitution, le contrôle de chevauchement
+     * ne porterait sur personne et un titulaire pourrait se retrouver
+     * dans deux classes à la même heure.
+     */
+    const enseignantEffectif = modeTitulaire
+      ? titulaireDuCreneau?.id ?? ""
+      : teacherId
+
+    if (enseignantEffectif) {
       const teacherConflict = conflictRows.find(
         (row) =>
-          row.teacher_id === teacherId && overlaps(row.start_time, row.end_time)
+          row.teacher_id === enseignantEffectif &&
+          overlaps(row.start_time, row.end_time)
       )
 
       if (teacherConflict) {
@@ -363,7 +439,14 @@ export default function TimetablePage() {
       school_id: schoolId,
       class_id: selectedClassId,
       subject_id: subjectId,
-      teacher_id: teacherId || null,
+      /*
+       * En mode titulaire, le déclencheur en base écrase de toute façon
+       * cette valeur : on envoie le titulaire pour que l'écran et la
+       * base disent la même chose, plutôt que de laisser un écart.
+       */
+      teacher_id: modeTitulaire
+        ? titulaireDuCreneau?.id ?? null
+        : teacherId || null,
       academic_year_id: academicYearId,
       day_of_week: dayValue,
       start_time: startTime,
@@ -547,24 +630,54 @@ export default function TimetablePage() {
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <label htmlFor="teacher">Enseignant</label>
+                {/*
+                  PREMIER CYCLE EN ÉCOLE FRANCO-ARABE : l'enseignant ne se
+                  choisit pas. Le créneau revient au titulaire de la
+                  filière de sa matière, sans quoi une même classe pourrait
+                  se retrouver avec deux enseignants sur un même programme.
+                  Le déclencheur imposer_titulaire_premier_cycle() l'impose
+                  en base ; ce bloc ne fait que ne pas proposer un choix
+                  qui serait de toute façon écrasé.
 
-                  <select
-                    id="teacher"
-                    value={teacherId}
-                    onChange={(event) => setTeacherId(event.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2"
-                  >
-                    <option value="">Aucun enseignant assigné</option>
+                  Ailleurs — école classique, second cycle, lycée — le
+                  choix libre par créneau est conservé tel quel.
+                */}
+                {modeTitulaire ? (
+                  <div className="space-y-2">
+                    <p>Enseignant</p>
 
-                    {teachers.map((teacher) => (
-                      <option key={teacher.id} value={teacher.id}>
-                        {teacher.last_name} {teacher.first_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <div className="rounded-md border bg-muted px-3 py-2 text-sm">
+                      {titulaireDuCreneau
+                        ? `${titulaireDuCreneau.last_name} ${titulaireDuCreneau.first_name}`
+                        : "Titulaire non nommé pour ce programme"}
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      {titulaireDuCreneau
+                        ? "Classe de premier cycle : le titulaire de ce programme assure tous ses créneaux."
+                        : "Nommez le titulaire de ce programme depuis Classes / Matières avant de composer l'emploi du temps."}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label htmlFor="teacher">Enseignant</label>
+
+                    <select
+                      id="teacher"
+                      value={teacherId}
+                      onChange={(event) => setTeacherId(event.target.value)}
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                    >
+                      <option value="">Aucun enseignant assigné</option>
+
+                      {teachers.map((teacher) => (
+                        <option key={teacher.id} value={teacher.id}>
+                          {teacher.last_name} {teacher.first_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <label htmlFor="day">Jour *</label>
