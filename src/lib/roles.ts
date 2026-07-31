@@ -206,6 +206,13 @@ export const NAV_ITEMS: NavItem[] = [
    * `authenticated` — le RLS seul ne saurait pas masquer une colonne.
    */
   { label: "Paie", path: "/payroll", roles: ["admin", "promoteur", "comptable"] },
+  /*
+   * L'enseignant y voit ce que l'école lui doit. Ouvert à tous les rôles
+   * susceptibles d'avoir une fiche enseignant rattachée : la fonction
+   * my_payroll_month() se borne d'elle-même aux fiches de l'appelant, et
+   * l'écran ne montre rien à qui n'en a aucune.
+   */
+  { label: "Ma rémunération", path: "/my-pay", roles: PEDAGOGIE },
   { label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
   { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
   { label: "Paramètres", path: "/settings", roles: ["admin"] },

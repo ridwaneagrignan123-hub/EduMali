@@ -1,0 +1,170 @@
+-- =====================================================================
+-- Ridwane — la paie des vacataires se confirme, elle ne se déduit plus
+-- =====================================================================
+-- APPLIQUÉ en base le 2026-07-31. Ce fichier porte le raisonnement ;
+-- `schema.sql` porte l'état.
+--
+-- ---------------------------------------------------------------------
+-- LE CHANGEMENT DE PRINCIPE
+--
+-- Avant : payroll_month partait du PLANNING et retranchait les absences
+-- relevées. Une heure était payée par défaut, et il fallait prouver
+-- qu'elle n'avait pas eu lieu.
+--
+-- Maintenant : une heure n'est payée que si elle a été CONFIRMÉE. Le
+-- surveillant valide le créneau assuré, et lui seul entre dans la paie.
+-- L'absence n'est plus une déduction, c'est l'absence de pointage.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- UN POINTAGE EST UN RECU DE CAISSE
+--
+-- Le clic crée une OBLIGATION DE PAYER : il est contrôlé exactement
+-- comme un encaissement, et pour la même raison.
+--
+--   `recorded_by` est imposé par le déclencheur depuis auth.uid(), jamais
+--   accepté du client — sans cela on attribuerait son pointage à un
+--   collègue en envoyant un autre identifiant.
+--
+--   `recorded_at` est distinct de `occurred_on`. C'est ce qui rend un
+--   pointage rétroactif VISIBLE : la date du cours dit quand il a eu
+--   lieu, l'horodatage dit quand quelqu'un a décidé de le payer. Le
+--   rétroactif reste permis dans le mois ouvert — l'interdire
+--   empêcherait de rattraper un oubli — mais il ne passe pas inaperçu.
+--
+--   Aucune policy DELETE : un pointage erroné s'annule avec un motif, il
+--   ne s'efface pas. La ligne annulée reste visible et son motif part
+--   dans activity_log.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- LE POINTAGE PART DE L'EMPLOI DU TEMPS, JAMAIS D'UNE LISTE LIBRE
+--
+-- `private.controler_pointage()` refuse tout ce que l'écran n'aurait pas
+-- dû proposer, et c'est là que la règle tient — pas dans l'interface :
+--
+--   date à venir ....................... refusée
+--   jour où le créneau n'a pas lieu .... refusé (day_of_week)
+--   hors année scolaire du créneau ..... refusé
+--   jour férié ou vacances ............. refusé
+--   mois clôturé ....................... refusé
+--   créneau sans enseignant ............ refusé
+--   durée > durée du créneau ........... refusée
+--
+-- La durée est plafonnée mais réductible : un cours partiellement assuré
+-- se pointe pour moins, afin de ne pas payer deux heures là où une seule
+-- a été faite.
+--
+-- `teacher_id` est DÉNORMALISÉ depuis le créneau au moment du pointage.
+-- Le créneau peut changer de titulaire plus tard ; la dette, elle, est
+-- envers celui qui a réellement assuré l'heure ce jour-là.
+--
+-- La clé vers `timetable_slots` est en ON DELETE RESTRICT : supprimer un
+-- créneau effacerait sinon des heures dues. Même leçon que
+-- fee_payments -> fee_assessments (voir suppression-frais-payes.sql).
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- CLÔTURE MENSUELLE
+--
+-- `payroll_closings` fige un mois, comme l'état de caisse fige la
+-- journée. Les deux déclencheurs consultent `private.mois_est_cloture()`
+-- avant d'écrire : après clôture, ni ajout, ni réduction, ni annulation.
+--
+-- Table SANS policy UPDATE ni DELETE : un mois clos ne se rouvre pas
+-- depuis l'application. Ce serait une réparation exceptionnelle, à faire
+-- à la clé service role et à assumer comme telle. Clore est réservé à
+-- l'admin : le promoteur voit sans écrire, comme partout sur l'argent.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- SÉPARATION DES RÔLES
+--
+-- La table ne contient AUCUN montant — ni taux, ni total. C'est ce qui
+-- permet de l'ouvrir au surveillant sans lui ouvrir la paie : il
+-- confirme des heures, il ne voit pas ce qu'elles coûtent. `payroll_month`
+-- continue de refuser tout appelant qui échoue à can_see_money().
+--
+-- `public.my_payroll_month()` est la seule voie par laquelle un
+-- enseignant voit son propre taux — les colonnes de rémunération étant
+-- fermées au rôle `authenticated` par des droits de colonne. Elle est en
+-- SECURITY DEFINER, donc bornée dans son corps : `where t.profile_id =
+-- auth.uid()`. Retirer cette clause ouvrirait les salaires de toute
+-- l'école.
+--
+-- Un vacataire SANS compte ne verra jamais cet écran — c'est le cas le
+-- plus fréquent, et rien n'est bloqué pour autant : `payroll_month`
+-- n'exige aucun profile_id, l'administration imprime son dû.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- RÉCONCILIATION AVEC L'EXISTANT — UN SEUL CALCUL
+--
+-- Le pointage REMPLACE le chemin « planifié moins absences » pour les
+-- vacataires. Il n'y a pas deux calculs : `payroll_month` ne lit plus
+-- teacher_attendance pour établir un montant.
+--
+--   heures_planifiees ... conservée, INFORMATIVE
+--   heures_pointees ..... nouvelle, source des heures payées
+--   heures_non_assurees . redéfinie : l'ÉCART entre les deux, ce que le
+--                         promoteur veut surveiller
+--   heures_payees ....... = pointées pour un vacataire ;
+--                         = planifiées pour un permanent (informatif,
+--                           son montant n'en dépend pas)
+--
+-- Les permanents restent mensualisés, inchangés.
+--
+-- `teacher_attendance` garde son rôle DISCIPLINAIRE et ses compteurs
+-- restent affichés, mais il ne pilote plus aucun montant.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- LES DEUX RÉGLAGES SUPPRIMÉS — ET POURQUOI
+--
+--   schools.payroll_pay_excused_absence
+--   schools.payroll_deduct_late
+--
+-- Ils n'avaient de sens que dans le modèle par déduction : ils réglaient
+-- CE QU'ON RETIRE d'un planning payé d'avance. Sous le pointage, rien
+-- n'est payé d'avance et il n'y a plus rien à retirer.
+--
+-- Ils ont été SUPPRIMÉS plutôt que laissés inertes. Un réglage visible
+-- qui ne commande rien est pire qu'absent : l'administrateur croit avoir
+-- décidé quelque chose. Relevé avant de les retirer : les 7 écoles
+-- étaient toutes à la valeur par défaut (false, false) — personne ne les
+-- avait configurés, aucune décision n'a donc été perdue.
+--
+-- Leur bloc de l'écran Paramètres est remplacé par l'explication du
+-- nouveau modèle, pour que la disparition ne laisse pas de trou.
+-- ---------------------------------------------------------------------
+
+
+-- =====================================================================
+-- VÉRIFIÉ SOUS L'IDENTITÉ D'UN SURVEILLANT ET D'UN ADMIN, RLS ACTIF
+-- =====================================================================
+--   Créneaux proposés un lundi ..................... 2
+--   Le même créneau un mardi ....................... 0 (impointable)
+--   Pointage dans le futur ......................... refusé
+--   Pointage un jour sans ce cours ................. refusé
+--   Pointage valide, durée réduite à 1 h ........... OK
+--   Pointer 3 h sur un créneau de 2 h .............. refusé
+--   Deux pointages du même créneau le même jour .... refusé
+--   Auteur enregistré .............................. auth.uid() imposé
+--   Surveillant appelant payroll_month ............. refusé
+--   Policy DELETE sur les pointages ................ aucune
+--   Annulation motivée ............................. 1 entrée activity_log
+--   La ligne annulée ............................... conservée, visible
+--   Total après annulation ......................... 1 h -> 2 000 F
+--   Écart planifié / pointé ........................ 8 h / 1 h
+--   Pointage ajouté dans un mois clôturé ........... refusé
+--   Modification dans un mois clôturé .............. refusée
+
+
+-- =====================================================================
+-- SUITE NATURELLE, NON FAITE ICI
+-- =====================================================================
+-- « Ce que l'école doit » est le montant des heures confirmées. Il n'est
+-- PAS diminué des versements déjà effectués : l'enregistrement des
+-- versements de salaire n'existe pas dans l'application. Le construire
+-- donnerait un vrai solde — et demanderait le même contrôle que la
+-- caisse, versement par versement.

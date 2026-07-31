@@ -58,7 +58,37 @@ type Rappel = {
   message: string
 }
 
-type Onglet = "retards" | "themes" | "rappels"
+/*
+ * Un créneau de la journée, tel que `slots_a_pointer` le rend : ce qui
+ * était PROGRAMMÉ ce jour-là, avec l'état de son pointage. La liste ne
+ * peut pas contenir un enseignant qui n'a pas cours — elle sort de
+ * l'emploi du temps, jamais d'un choix libre.
+ *
+ * Aucun montant n'y figure, et c'est ce qui rend cet écran ouvert au
+ * surveillant : il confirme des heures, il ne voit pas ce qu'elles
+ * coûtent.
+ */
+type CreneauAPointer = {
+  slot_id: string
+  class_id: string
+  classe: string
+  matiere: string
+  filiere: string | null
+  teacher_id: string | null
+  enseignant: string | null
+  start_time: string
+  end_time: string
+  duree: number
+  checkin_id: string | null
+  heures_pointees: number | null
+  pointe_par: string | null
+  pointe_le: string | null
+  annule: boolean | null
+  motif_annulation: string | null
+  mois_cloture: boolean
+}
+
+type Onglet = "retards" | "pointage" | "themes" | "rappels"
 
 export default function SupervisionPage() {
   const router = useRouter()
@@ -73,6 +103,13 @@ export default function SupervisionPage() {
   const [releves, setReleves] = useState<Releve[]>([])
   const [themes, setThemes] = useState<Theme[]>([])
   const [rappels, setRappels] = useState<Rappel[]>([])
+
+  /* Pointage : la journée examinée et ses créneaux programmés. */
+  const [datePointage, setDatePointage] = useState(versDateISO(new Date()))
+  const [creneaux, setCreneaux] = useState<CreneauAPointer[]>([])
+  const [chargementCreneaux, setChargementCreneaux] = useState(false)
+  const [pointageEnCours, setPointageEnCours] = useState<string | null>(null)
+  const [erreurPointage, setErreurPointage] = useState<string | null>(null)
 
   // Saisie d'un relevé
   const [enseignantId, setEnseignantId] = useState("")
@@ -170,6 +207,119 @@ export default function SupervisionPage() {
 
     lancer()
   }, [gate, chargerDonnees])
+
+  /*
+   * Les créneaux programmés le jour choisi. `slots_a_pointer` écarte
+   * déjà les jours fériés, les dates hors année scolaire et les jours
+   * où le créneau n'a pas lieu : la liste ne contient que du pointable.
+   */
+  const chargerCreneaux = useCallback(async (jour: string) => {
+    setChargementCreneaux(true)
+    setErreurPointage(null)
+
+    const { data, error } = await supabase.rpc("slots_a_pointer", {
+      p_date: jour,
+    })
+
+    if (error) {
+      console.error("Erreur créneaux :", error)
+      setErreurPointage("Les créneaux de cette journée n'ont pas pu être lus.")
+      setCreneaux([])
+    } else {
+      setCreneaux((data as CreneauAPointer[]) ?? [])
+    }
+
+    setChargementCreneaux(false)
+  }, [])
+
+  useEffect(() => {
+    if (gate.statut !== "autorise" || onglet !== "pointage") {
+      return
+    }
+
+    async function lancer() {
+      await chargerCreneaux(datePointage)
+    }
+
+    lancer()
+  }, [gate, onglet, datePointage, chargerCreneaux])
+
+  /* Confirme une heure assurée. La durée par défaut est celle du créneau. */
+  async function pointer(creneau: CreneauAPointer, heuresAPointer: number) {
+    if (gate.statut !== "autorise") {
+      return
+    }
+
+    setPointageEnCours(creneau.slot_id)
+    setErreurPointage(null)
+
+    const { error } = await supabase.from("timetable_checkins").insert({
+      school_id: gate.schoolId,
+      slot_id: creneau.slot_id,
+      occurred_on: datePointage,
+      hours: heuresAPointer,
+    })
+
+    setPointageEnCours(null)
+
+    if (error) {
+      console.error("Erreur pointage :", error)
+      // Les déclencheurs renvoient déjà une phrase lisible.
+      setErreurPointage(error.message || "Le pointage a échoué.")
+      return
+    }
+
+    await chargerCreneaux(datePointage)
+  }
+
+  /*
+   * Un pointage erroné ne s'efface pas : il s'annule avec un motif, qui
+   * part dans le journal d'activité. La ligne reste visible.
+   */
+  async function annulerPointage(creneau: CreneauAPointer) {
+    if (!creneau.checkin_id) {
+      return
+    }
+
+    const motif = window.prompt(
+      "Pourquoi annuler ce pointage ? Le motif est conservé dans le journal d'activité."
+    )
+
+    if (motif === null) {
+      return
+    }
+
+    if (motif.trim().length < 3) {
+      setErreurPointage("Le motif d'annulation est obligatoire.")
+      return
+    }
+
+    setPointageEnCours(creneau.slot_id)
+    setErreurPointage(null)
+
+    const { error } = await supabase
+      .from("timetable_checkins")
+      /*
+       * cancelled_by n'est pas envoyé : le déclencheur l'impose depuis
+       * auth.uid(), comme pour une annulation de reçu. Ce que le client
+       * enverrait serait de toute façon écrasé.
+       */
+      .update({
+        cancelled_at: new Date().toISOString(),
+        cancellation_reason: motif.trim(),
+      })
+      .eq("id", creneau.checkin_id)
+
+    setPointageEnCours(null)
+
+    if (error) {
+      console.error("Erreur annulation :", error)
+      setErreurPointage(error.message || "L'annulation a échoué.")
+      return
+    }
+
+    await chargerCreneaux(datePointage)
+  }
 
   async function enregistrerReleve(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -420,6 +570,7 @@ export default function SupervisionPage() {
           {(
             [
               ["retards", "Retards et absences"],
+              ["pointage", "Pointage des cours"],
               ["themes", "Thèmes au rang"],
               ["rappels", "Rappels"],
             ] as [Onglet, string][]
@@ -757,6 +908,185 @@ export default function SupervisionPage() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ============ POINTAGE DES COURS ============ */}
+        {onglet === "pointage" && (
+          <div className="rounded-xl border bg-background p-6">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  Confirmer les cours assurés
+                </h2>
+
+                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                  Seuls les créneaux réellement programmés ce jour-là
+                  apparaissent. Confirmer une heure engage l&apos;école à la
+                  payer : le pointage porte votre nom et l&apos;heure exacte à
+                  laquelle vous l&apos;avez posé.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="date-pointage" className="block text-sm">
+                  Journée
+                </label>
+
+                <input
+                  id="date-pointage"
+                  type="date"
+                  value={datePointage}
+                  max={versDateISO(new Date())}
+                  onChange={(event) => setDatePointage(event.target.value)}
+                  className="rounded-md border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+
+            {erreurPointage && (
+              <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                {erreurPointage}
+              </div>
+            )}
+
+            {creneaux.length > 0 && creneaux[0].mois_cloture && (
+              <div className="mt-4 rounded-lg border p-3 text-sm">
+                La paie de ce mois est <strong>clôturée</strong> : ses
+                pointages sont figés et ne peuvent plus être modifiés.
+              </div>
+            )}
+
+            {chargementCreneaux ? (
+              <p className="mt-6 text-sm text-muted-foreground">
+                Lecture de l&apos;emploi du temps...
+              </p>
+            ) : creneaux.length === 0 ? (
+              <p className="mt-6 text-sm text-muted-foreground">
+                Aucun cours n&apos;est programmé ce jour-là. Ce peut être un
+                jour de vacances, un jour férié, une date hors année
+                scolaire, ou un jour sans créneau à l&apos;emploi du temps.
+              </p>
+            ) : (
+              <div className="mt-6 space-y-3">
+                {creneaux.map((creneau) => {
+                  const pointe = Boolean(creneau.checkin_id) && !creneau.annule
+                  const enCours = pointageEnCours === creneau.slot_id
+
+                  return (
+                    <div
+                      key={creneau.slot_id}
+                      className="flex flex-wrap items-center gap-4 rounded-lg border p-4"
+                    >
+                      <span className="w-28 shrink-0 tabular-nums text-sm text-muted-foreground">
+                        {creneau.start_time.slice(0, 5)} –{" "}
+                        {creneau.end_time.slice(0, 5)}
+                      </span>
+
+                      <div className="min-w-[200px] flex-1">
+                        <p className="font-medium">
+                          {creneau.enseignant ?? "Aucun enseignant"}
+                        </p>
+
+                        <p className="text-sm text-muted-foreground">
+                          {creneau.classe} — {creneau.matiere}
+                          {creneau.filiere ? ` (${creneau.filiere})` : ""} —{" "}
+                          {creneau.duree} h
+                        </p>
+                      </div>
+
+                      {creneau.annule ? (
+                        <div className="text-sm">
+                          <p className="font-medium">Pointage annulé</p>
+
+                          <p className="text-xs text-muted-foreground">
+                            {creneau.motif_annulation}
+                          </p>
+                        </div>
+                      ) : pointe ? (
+                        <div className="flex items-center gap-4">
+                          <div className="text-sm">
+                            <p className="font-medium">
+                              {creneau.heures_pointees} h confirmée(s)
+                            </p>
+
+                            <p className="text-xs text-muted-foreground">
+                              par {creneau.pointe_par ?? "—"}
+                              {creneau.pointe_le
+                                ? ` le ${new Date(creneau.pointe_le).toLocaleString("fr-FR")}`
+                                : ""}
+                            </p>
+                          </div>
+
+                          {!creneau.mois_cloture && (
+                            <button
+                              onClick={() => annulerPointage(creneau)}
+                              disabled={enCours}
+                              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                            >
+                              Annuler
+                            </button>
+                          )}
+                        </div>
+                      ) : !creneau.teacher_id ? (
+                        <span className="text-sm text-muted-foreground">
+                          Créneau sans enseignant — rien à pointer
+                        </span>
+                      ) : creneau.mois_cloture ? (
+                        <span className="text-sm text-muted-foreground">
+                          Mois clôturé
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          {/*
+                            Une durée réduite se pointe quand le cours n'a
+                            été que partiellement assuré : on ne paie pas
+                            deux heures là où une seule a été faite.
+                          */}
+                          <button
+                            onClick={() => pointer(creneau, creneau.duree)}
+                            disabled={enCours}
+                            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                          >
+                            {enCours ? "..." : `Assuré (${creneau.duree} h)`}
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              const saisie = window.prompt(
+                                `Combien d'heures ont été réellement assurées ? (maximum ${creneau.duree})`,
+                                String(creneau.duree)
+                              )
+
+                              if (saisie === null) return
+
+                              const valeur = Number(saisie.replace(",", "."))
+
+                              if (
+                                Number.isNaN(valeur) ||
+                                valeur <= 0 ||
+                                valeur > creneau.duree
+                              ) {
+                                setErreurPointage(
+                                  `La durée doit être comprise entre 0 et ${creneau.duree} h.`
+                                )
+                                return
+                              }
+
+                              pointer(creneau, valeur)
+                            }}
+                            disabled={enCours}
+                            className="rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                          >
+                            Partiel
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 

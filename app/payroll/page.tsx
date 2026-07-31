@@ -38,6 +38,9 @@ type LignePaie = {
   salaire_mensuel: number | null
   creneaux: number
   heures_planifiees: number
+  /* Heures CONFIRMÉES par le pointage — la source des heures payées. */
+  heures_pointees: number
+  /* L'écart entre planifié et pointé : ce que le promoteur surveille. */
   heures_non_assurees: number
   heures_payees: number
   jours_absence: number
@@ -45,11 +48,7 @@ type LignePaie = {
   jours_retard: number
   minutes_retard: number
   montant: number
-}
-
-type Reglages = {
-  payroll_pay_excused_absence: boolean
-  payroll_deduct_late: boolean
+  mois_cloture: boolean
 }
 
 const MOIS = [
@@ -188,7 +187,6 @@ export default function PayrollPage() {
   const [mois, setMois] = useState(maintenant.getMonth() + 1)
 
   const [ecole, setEcole] = useState("")
-  const [reglages, setReglages] = useState<Reglages | null>(null)
   const [lignes, setLignes] = useState<LignePaie[]>([])
 
   const [chargement, setChargement] = useState(true)
@@ -196,6 +194,42 @@ export default function PayrollPage() {
 
   /* Bulletin en cours d'impression, null = tableau d'ensemble. */
   const [bulletin, setBulletin] = useState<LignePaie | null>(null)
+  const [cloture, setCloture] = useState(false)
+
+  /* Renseigné par payroll_month : toutes les lignes portent la même valeur. */
+  const moisCloture = lignes.length > 0 && Boolean(lignes[0].mois_cloture)
+
+  async function cloturerLeMois() {
+    if (gate.statut !== "autorise") {
+      return
+    }
+
+    const confirme = window.confirm(
+      `Clôturer la paie de ${MOIS[mois - 1]} ${annee} ? Les pointages de ce mois seront figés : plus aucun ajout, aucune réduction ni annulation ne sera possible. Cette opération ne se défait pas.`
+    )
+
+    if (!confirme) {
+      return
+    }
+
+    setCloture(true)
+
+    const { error } = await supabase.from("payroll_closings").insert({
+      school_id: gate.schoolId,
+      year: annee,
+      month: mois,
+    })
+
+    setCloture(false)
+
+    if (error) {
+      console.error("Erreur clôture :", error)
+      setErreur(error.message || "Le mois n'a pas pu être clôturé.")
+      return
+    }
+
+    setRechargement((valeur) => valeur + 1)
+  }
 
   /* Incrémenté après une modification de contrat, pour relancer le calcul. */
   const [rechargement, setRechargement] = useState(0)
@@ -212,7 +246,7 @@ export default function PayrollPage() {
       const [ecoleResultat, paieResultat] = await Promise.all([
         supabase
           .from("schools")
-          .select("name, payroll_pay_excused_absence, payroll_deduct_late")
+          .select("name")
           .eq("id", schoolId)
           .maybeSingle(),
         supabase.rpc("payroll_month", { p_year: annee, p_month: mois }),
@@ -233,15 +267,6 @@ export default function PayrollPage() {
 
       setErreur(null)
       setEcole(ecoleResultat.data?.name ?? "")
-      setReglages(
-        ecoleResultat.data
-          ? {
-              payroll_pay_excused_absence:
-                ecoleResultat.data.payroll_pay_excused_absence,
-              payroll_deduct_late: ecoleResultat.data.payroll_deduct_late,
-            }
-          : null
-      )
       setLignes(paieResultat.data ?? [])
       setChargement(false)
     }
@@ -257,10 +282,11 @@ export default function PayrollPage() {
     return lignes.reduce(
       (somme, ligne) => ({
         planifiees: somme.planifiees + Number(ligne.heures_planifiees),
+        pointees: somme.pointees + Number(ligne.heures_pointees),
         payees: somme.payees + Number(ligne.heures_payees),
         montant: somme.montant + Number(ligne.montant),
       }),
-      { planifiees: 0, payees: 0, montant: 0 }
+      { planifiees: 0, pointees: 0, payees: 0, montant: 0 }
     )
   }, [lignes])
 
@@ -354,6 +380,22 @@ export default function PayrollPage() {
           )}
 
           <div className="ml-auto flex gap-2">
+            {/*
+              Clôturer fige les pointages du mois — plus d'ajout, de
+              réduction ni d'annulation. C'est l'équivalent de l'état de
+              caisse qui fige la journée, et cela ne se défait pas depuis
+              l'application : le bouton disparaît une fois le mois clos.
+            */}
+            {!moisCloture && lignes.length > 0 && gate.role === "admin" && (
+              <button
+                onClick={cloturerLeMois}
+                disabled={cloture}
+                className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+              >
+                {cloture ? "Clôture..." : "Clôturer le mois"}
+              </button>
+            )}
+
             <button
               onClick={() => router.push("/teachers")}
               className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
@@ -462,6 +504,9 @@ export default function PayrollPage() {
           <div className="mt-3 flex flex-wrap justify-center gap-x-8 gap-y-1 text-sm">
             <span>
               <strong>Mois :</strong> {libelleMois}
+              {moisCloture && (
+                <span className="ml-2 font-semibold">— mois clôturé</span>
+              )}
             </span>
 
             {bulletin && (
@@ -545,10 +590,22 @@ export default function PayrollPage() {
 
                   <tr>
                     <td className="border border-black px-2 py-2">
-                      Heures non assurées
+                      Heures confirmées par pointage
                     </td>
                     <td className="border border-black px-2 py-2 text-right tabular-nums">
-                      − {heures(bulletin.heures_non_assurees)}
+                      {heures(bulletin.heures_pointees)}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td className="border border-black px-2 py-2">
+                      Écart{" "}
+                      <span className="text-xs italic">
+                        (planifié non confirmé)
+                      </span>
+                    </td>
+                    <td className="border border-black px-2 py-2 text-right tabular-nums">
+                      {heures(bulletin.heures_non_assurees)}
                     </td>
                   </tr>
 
@@ -653,7 +710,10 @@ export default function PayrollPage() {
                           Planifiées
                         </th>
                         <th className="border border-black px-2 py-1.5">
-                          Non assurées
+                          Pointées
+                        </th>
+                        <th className="border border-black px-2 py-1.5">
+                          Écart
                         </th>
                         <th className="border border-black px-2 py-1.5">
                           À payer
@@ -682,6 +742,10 @@ export default function PayrollPage() {
 
                           <td className="border border-black px-2 py-1.5 text-right tabular-nums">
                             {heures(ligne.heures_planifiees)}
+                          </td>
+
+                          <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                            {heures(ligne.heures_pointees)}
                           </td>
 
                           <td className="border border-black px-2 py-1.5 text-right tabular-nums">
@@ -714,6 +778,9 @@ export default function PayrollPage() {
                         <td className="border border-black px-2 py-1.5 text-right tabular-nums">
                           {heures(totaux.planifiees)}
                         </td>
+                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                          {heures(totaux.pointees)}
+                        </td>
                         <td className="border border-black px-2 py-1.5" />
                         <td className="border border-black px-2 py-1.5 text-right tabular-nums">
                           {heures(totaux.payees)}
@@ -729,22 +796,15 @@ export default function PayrollPage() {
               )}
             </section>
 
-            {reglages && (
-              <section className="paie-bloc mt-6">
-                <p className="text-xs italic">
-                  Règles appliquées :{" "}
-                  {reglages.payroll_pay_excused_absence
-                    ? "les absences excusées sont payées"
-                    : "les absences excusées ne sont pas payées"}
-                  {" ; "}
-                  {reglages.payroll_deduct_late
-                    ? "les retards font l'objet d'une retenue"
-                    : "les retards ne font pas l'objet d'une retenue"}
-                  . Elles se changent dans les paramètres de
-                  l&apos;établissement.
-                </p>
-              </section>
-            )}
+            <section className="paie-bloc mt-6">
+              <p className="text-xs italic">
+                Règle appliquée : un vacataire est payé sur ses heures
+                <strong> confirmées par pointage</strong>, jamais sur son
+                planning. Un créneau non pointé n&apos;est pas payé — il n&apos;y
+                a plus de retenue d&apos;absence à paramétrer. Les permanents
+                restent mensualisés.
+              </p>
+            </section>
 
             <section className="paie-bloc mt-10 flex justify-between gap-8">
               <div className="w-64">
