@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { requirePermission } from "@/src/lib/apiAuth"
+import { formaterNom, formaterPrenom } from "@/src/lib/noms"
 
 /*
  * Enregistrement d'un enseignant — SANS compte de connexion.
@@ -129,8 +130,13 @@ export async function POST(request: Request) {
       .from("teachers")
       .insert({
         school_id: schoolId,
-        first_name: firstName,
-        last_name: lastName,
+        /*
+         * Mise en forme ici, et non a l'ecran : la saisie manuelle comme
+         * l'import Excel passent tous deux par cette route, un seul
+         * point suffit donc a les tenir tous les deux.
+         */
+        first_name: formaterPrenom(firstName),
+        last_name: formaterNom(lastName),
         email,
         phone,
         specialty: readText(body.specialty),

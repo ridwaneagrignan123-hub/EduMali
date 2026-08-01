@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { requirePermission } from "@/src/lib/apiAuth"
+import { formaterNom, formaterPrenom } from "@/src/lib/noms"
 
 /*
  * Modifie les informations personnelles d'un enseignant.
@@ -115,8 +116,8 @@ export async function PATCH(
     const { data: updated, error: updateError } = await supabaseAdmin
       .from("teachers")
       .update({
-        first_name: firstName.value,
-        last_name: lastName.value,
+        first_name: formaterPrenom(firstName.value),
+        last_name: formaterNom(lastName.value),
         phone,
         specialty,
         hire_date: hireDate,
@@ -145,8 +146,8 @@ export async function PATCH(
       const { error: profileError } = await supabaseAdmin
         .from("profiles")
         .update({
-          first_name: firstName.value,
-          last_name: lastName.value,
+          first_name: formaterPrenom(firstName.value),
+          last_name: formaterNom(lastName.value),
           phone,
         })
         .eq("id", teacher.profile_id)

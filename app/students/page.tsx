@@ -8,6 +8,7 @@ import { parseSpreadsheetDate } from "@/src/lib/excel"
 import { EditDialog } from "@/components/edit-dialog"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 import { reprocheNumeroParent } from "@/src/lib/contact-parent"
+import { formaterNom, formaterPrenom } from "@/src/lib/noms"
 import {
   ImportOutcome,
   ImportRow,
@@ -380,8 +381,14 @@ export default function StudentsPage() {
       .from("students")
       .insert({
         school_id: schoolId,
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
+        /*
+         * Mise en forme A L'ENREGISTREMENT : ce qui est en base est ce
+         * qui s'imprime sur un bulletin. Mettre en forme a l'affichage
+         * laisserait la base disparate et deux ecrans pourraient
+         * diverger.
+         */
+        first_name: formaterPrenom(firstName),
+        last_name: formaterNom(lastName),
         date_of_birth: dateOfBirth || null,
         gender: gender || null,
         student_number: studentNumber.trim() || null,
@@ -487,8 +494,8 @@ export default function StudentsPage() {
     const { data: updated, error } = await supabase
       .from("students")
       .update({
-        first_name: editForm.firstName.trim(),
-        last_name: editForm.lastName.trim(),
+        first_name: formaterPrenom(editForm.firstName),
+        last_name: formaterNom(editForm.lastName),
         date_of_birth: editForm.dateOfBirth || null,
         gender: editForm.gender || null,
         student_number: editForm.studentNumber.trim() || null,
@@ -648,8 +655,10 @@ export default function StudentsPage() {
           classId,
           student: {
             school_id: schoolId,
-            first_name: firstName,
-            last_name: lastName,
+            // Même règle qu'à la saisie manuelle : un fichier importé
+            // ne doit pas introduire une casse que le formulaire refuse.
+            first_name: formaterPrenom(firstName),
+            last_name: formaterNom(lastName),
             date_of_birth: dateOfBirth || null,
             gender: gender || null,
             student_number: raw.values.student_number?.trim() || null,
