@@ -11,6 +11,12 @@ type ClassItem = {
   level: string | null
 }
 
+/* Le lien classe-matiere : ce que la classe etudie. */
+type ClassSubjectLien = {
+  class_id: string
+  subject_id: string
+}
+
 type Subject = {
   id: string
   name: string
@@ -58,6 +64,9 @@ export default function AssessmentsPage() {
   const [schoolId, setSchoolId] = useState("")
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
+
+  /* Quelles matières chaque classe étudie — la source unique. */
+  const [classSubjects, setClassSubjects] = useState<ClassSubjectLien[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [periods, setPeriods] = useState<AcademicPeriod[]>([])
   const [assessments, setAssessments] = useState<Assessment[]>([])
@@ -118,6 +127,7 @@ export default function AssessmentsPage() {
       yearsResult,
       periodsResult,
       assessmentsResult,
+      classSubjectsResult,
     ] = await Promise.all([
       supabase
         .from("classes")
@@ -173,6 +183,11 @@ export default function AssessmentsPage() {
         .order("assessment_date", {
           ascending: false,
         }),
+
+      supabase
+        .from("class_subjects")
+        .select("class_id, subject_id")
+        .eq("school_id", profile.school_id),
     ])
 
     const loadErrors: string[] = []
@@ -228,6 +243,7 @@ export default function AssessmentsPage() {
 
     setClasses(classesResult.data ?? [])
     setSubjects(subjectsResult.data ?? [])
+    setClassSubjects((classSubjectsResult.data as ClassSubjectLien[]) ?? [])
     setYears(loadedYears)
     setPeriods(loadedPeriods)
     setAssessments(
@@ -261,7 +277,23 @@ export default function AssessmentsPage() {
       period.id === academicPeriodId
   )
 
-  const availableSubjects = subjects
+  /*
+   * Seules les matières AFFECTÉES à la classe choisie.
+   *
+   * class_subjects est la source unique de ce que la classe étudie :
+   * noter une matière absente donnait un bulletin vide, puisqu'il liste
+   * les matières depuis cette table. Le déclencheur
+   * assessments_matiere_de_la_classe refuse de toute façon l'écriture ;
+   * ce filtre ne fait que ne pas proposer ce qui sera refusé.
+   */
+  const availableSubjects = classId
+    ? subjects.filter((subject) =>
+        classSubjects.some(
+          (lien) =>
+            lien.class_id === classId && lien.subject_id === subject.id
+        )
+      )
+    : []
 
   async function createAssessment(
     event: FormEvent<HTMLFormElement>
@@ -493,7 +525,11 @@ export default function AssessmentsPage() {
                   required
                 >
                   <option value="">
-                    Sélectionner une matière
+                    {!classId
+                      ? "Choisissez d'abord une classe"
+                      : availableSubjects.length === 0
+                        ? "Aucune matière affectée à cette classe"
+                        : "Sélectionner une matière"}
                   </option>
 
                   {availableSubjects.map(
@@ -510,6 +546,24 @@ export default function AssessmentsPage() {
                     )
                   )}
                 </select>
+
+                {/*
+                  Une classe sans matière affectée ne peut rien recevoir :
+                  on dit où aller plutôt que de laisser un sélecteur vide.
+                */}
+                {classId && availableSubjects.length === 0 && (
+                  <p className="text-sm text-amber-600">
+                    Cette classe n&apos;a encore aucune matière.{" "}
+                    <button
+                      type="button"
+                      onClick={() => router.push("/class_subjects")}
+                      className="font-medium underline"
+                    >
+                      Commencez par lui affecter des matières
+                    </button>{" "}
+                    — on ne note que ce que la classe étudie.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">

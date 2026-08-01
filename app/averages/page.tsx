@@ -361,6 +361,7 @@ export default function AveragesPage() {
       return {
         id: ligne.subject_id,
         nom: ligne.subjects?.name ?? "—",
+        coefficient: subjectCoefficients.get(ligne.subject_id) ?? 1,
       }
     })
 
@@ -445,19 +446,30 @@ export default function AveragesPage() {
             >()
 
           /*
-           * Au premier cycle, chaque matière de la classe entre dans le
-           * calcul, notée ou non : une case vide vaut 0.
+           * LA LISTE DES MATIÈRES VIENT DE class_subjects, comme sur le
+           * bulletin. C'est la même source de vérité des deux côtés :
+           * partir des notes, comme avant, montrait des matières que le
+           * bulletin ignorait, et les deux écrans racontaient alors deux
+           * histoires différentes pour le même élève.
+           *
+           * Le coefficient vient de là aussi. Il était auparavant
+           * remplacé par 1 pour une matière non affectée — un poids
+           * inventé, qui faussait la moyenne sans le dire.
            */
-          if (premierCycle) {
-            matieresDeLaClasse.forEach((matiere) => {
-              subjectMap.set(matiere.nom, {
-                subjectName: matiere.nom,
-                subjectCoefficient: 1,
-                weightedTotal: 0,
-                totalAssessmentCoefficient: 1,
-              })
+          matieresDeLaClasse.forEach((matiere) => {
+            subjectMap.set(matiere.nom, {
+              subjectName: matiere.nom,
+              subjectCoefficient: premierCycle ? 1 : matiere.coefficient,
+              weightedTotal: 0,
+              /*
+               * 0 marque « aucune note ». Au premier cycle on amorce à 1
+               * pour qu'une matière non notée pèse 0 dans la moyenne —
+               * c'est la règle du cahier. Ailleurs, une matière sans
+               * note sort du calcul, comme sur le bulletin.
+               */
+              totalAssessmentCoefficient: premierCycle ? 1 : 0,
             })
-          }
+          })
 
           studentGrades.forEach(
             (grade: any) => {
@@ -571,7 +583,16 @@ export default function AveragesPage() {
             SubjectAverage[] =
             Array.from(
               subjectMap.values()
-            ).map(
+            )
+              /*
+               * Une matière sans aucune note ne se moyenne pas : la
+               * garder donnerait une division par zéro, et l'inclure à 0
+               * appliquerait au second cycle la règle du premier.
+               */
+              .filter(
+                (subject) => subject.totalAssessmentCoefficient > 0
+              )
+              .map(
               (subject) => ({
                 subjectName:
                   subject.subjectName,
