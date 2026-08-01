@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { AvertissementDirection } from "@/components/avertissement-direction"
+import { DevoirsMaison } from "@/components/devoirs-maison"
 import {
   CYCLES,
   CYCLE_HINTS,
@@ -25,6 +26,16 @@ export default function ClassesPage() {
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  /*
+   * Le school_id sert au chemin de la photo dans le bucket. Il est déjà
+   * lu ici pour charger les classes ; on le garde plutôt que de le
+   * relire depuis le composant des devoirs.
+   */
+  const [schoolId, setSchoolId] = useState<string | null>(null)
+
+  // La classe dont on ouvre les devoirs — une seule à la fois.
+  const [classeOuverte, setClasseOuverte] = useState<ClassItem | null>(null)
 
   const [name, setName] = useState("")
   const [level, setLevel] = useState("")
@@ -57,6 +68,8 @@ export default function ClassesPage() {
       router.push("/setup-school")
       return
     }
+
+    setSchoolId(profile.school_id)
 
     const { data, error } = await supabase
       .from("classes")
@@ -274,7 +287,7 @@ export default function ClassesPage() {
                 {classes.map((classItem) => (
                   <div
                     key={classItem.id}
-                    className="flex items-center justify-between rounded-lg border p-4"
+                    className="flex items-center justify-between gap-4 rounded-lg border p-4"
                   >
                     <div>
                       <p className="font-semibold">
@@ -287,12 +300,44 @@ export default function ClassesPage() {
                         {cycleLabel(classItem.cycle)}
                       </p>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setClasseOuverte((ouverte) =>
+                          ouverte?.id === classItem.id ? null : classItem
+                        )
+                      }
+                      className="shrink-0 rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                    >
+                      {classeOuverte?.id === classItem.id
+                        ? "Fermer les devoirs"
+                        : "Devoirs à la maison"}
+                    </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+
+        {/*
+          La zone des devoirs occupe toute la largeur, sous les deux
+          colonnes : le formulaire et la liste des devoirs récents n'ont
+          pas de place dans la colonne étroite des classes.
+
+          `key` sur la classe : passer d'une classe à l'autre doit
+          repartir d'un formulaire vide, pas garder la page et les
+          exercices de la classe précédente.
+        */}
+        {classeOuverte && schoolId && (
+          <DevoirsMaison
+            key={classeOuverte.id}
+            schoolId={schoolId}
+            classId={classeOuverte.id}
+            className={classeOuverte.name}
+          />
+        )}
       </section>
     </main>
   )
