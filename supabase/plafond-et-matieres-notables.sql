@@ -1,0 +1,131 @@
+-- =====================================================================
+-- Ridwane — deux trous fermés en base
+-- =====================================================================
+-- APPLIQUÉ en base le 2026-08-01. Ce fichier porte le raisonnement ;
+-- `schema.sql` porte l'état.
+--
+-- Les deux corrections viennent d'un audit. Elles ont un point commun :
+-- la règle était supposée tenue par l'écran, alors que la clé anon est
+-- publique et qu'un contrôle côté client se contourne en une ligne
+-- depuis la console du navigateur.
+
+
+-- =====================================================================
+-- 1. ON NE VERSE JAMAIS PLUS QUE LE MONTANT DÛ
+-- =====================================================================
+-- Les seules contraintes étaient « le versement est positif » et « le
+-- montant dû est positif ». Rien n'empêchait le cumul des versements de
+-- dépasser le dû, ni d'abaisser le dû sous ce qui était déjà payé.
+-- Après tout le soin mis dans la caisse — numéros de reçu, auteur
+-- imposé, annulation motivée — c'était le trou restant.
+--
+-- ---------------------------------------------------------------------
+-- LE PIÈGE DE LA MISE À JOUR
+--
+-- `controler_plafond_versement()` somme les AUTRES lignes, jamais
+-- toutes. Compter la ligne courante additionnerait son ancienne valeur
+-- à la nouvelle : réenregistrer un versement de 20 000 à 20 000 aurait
+-- alors compté 40 000 et serait refusé, sans que personne comprenne
+-- pourquoi. Vérifié explicitement.
+-- ---------------------------------------------------------------------
+--
+-- L'ORDRE DES DÉCLENCHEURS COMPTE. À égalité de moment et d'événement,
+-- Postgres déclenche par ordre alphabétique :
+--
+--   fee_payments_controle_annulation  (impose cancelled_at/by)
+--   fee_payments_numero_recu          (numéro, auteur)
+--   fee_payments_plafond              (le contrôle, EN DERNIER)
+--
+-- Le plafond doit passer après le contrôle d'annulation pour voir le
+-- `cancelled_at` que celui-ci vient d'imposer. Un versement annulé sort
+-- immédiatement du contrôle : annuler RÉDUIT le total et ne doit jamais
+-- être bloqué, même sur un frais déjà au plafond.
+--
+-- `fee_assessments_plafond` ferme l'autre sens. Sans lui, remettre un
+-- frais à 0 transformerait les encaissements en trop-perçu invisible.
+-- Hausser le dû reste libre.
+--
+-- `private.montant_lisible()` met en forme les montants : `to_char`
+-- suit lc_numeric et rendait « 50,000 » — lisible à l'anglaise, mais
+-- trompeur en français où la virgule est décimale.
+--
+-- VÉRIFIÉ (2026-08-01) :
+--   Verser exactement le dû (30 000 + 20 000) ...... accepté
+--   Un franc de plus ............................... refusé
+--   Message ........................................ « Ce frais est de
+--     50 000 F, dont 50 000 F deja verses : il reste 0 F a payer. Vous
+--     ne pouvez pas encaisser 1 F. »
+--   Réenregistrer un versement à sa propre valeur .. accepté
+--   Abaisser le dû à 40 000 sur 50 000 versés ...... refusé
+--   Hausser le dû à 60 000 ......................... accepté
+--   Annuler un versement ........................... accepté
+--   Reverser après annulation ...................... accepté
+
+
+-- =====================================================================
+-- 2. ON NE NOTE QUE LES MATIÈRES DE LA CLASSE
+-- =====================================================================
+-- La grille avait réglé le premier cycle ; au second cycle et au lycée
+-- le défaut d'origine demeurait. On pouvait créer une évaluation sur une
+-- matière non affectée à la classe :
+--
+--   le BULLETIN liste les matières depuis class_subjects → il
+--   n'affichait rien, d'où les bulletins vides ;
+--
+--   la page MOYENNES lisait les matières depuis les notes → elle les
+--   montrait, avec un coefficient inventé de 1.
+--
+-- Deux écrans, deux histoires pour le même élève. class_subjects est la
+-- source unique de ce que la classe étudie ; on ne note que cela.
+--
+-- ---------------------------------------------------------------------
+-- RÉCONCILIER D'ABORD, GARDER ENSUITE — L'ORDRE N'EST PAS INDIFFÉRENT
+--
+-- Toute matière déjà notée dans une classe y a été rattachée
+-- (coefficient 1) AVANT que le déclencheur soit posé. Dans l'autre
+-- ordre, la garde aurait rejeté la réconciliation elle-même.
+--
+-- Relevé : 3 couples (classe, matière), 12 notes concernées, sur
+-- « 3eme Annee B » — Histoire-Géographie, Mathématiques, Rédaction.
+-- Aucune note perdue, et les bulletins vides se remplissent.
+--
+--   with manquantes as (
+--     select distinct a.school_id, a.class_id, a.subject_id
+--     from assessments a
+--     where not exists (
+--       select 1 from class_subjects cs
+--       where cs.class_id = a.class_id and cs.subject_id = a.subject_id))
+--   insert into class_subjects (school_id, class_id, subject_id, coefficient)
+--   select school_id, class_id, subject_id, 1 from manquantes;
+-- ---------------------------------------------------------------------
+--
+-- `assessments_matiere_de_la_classe` garde ensuite les ÉVALUATIONS, ce
+-- qui suffit à garder les notes : une note est toujours rattachée à une
+-- évaluation.
+--
+-- ---------------------------------------------------------------------
+-- LA GRILLE DU PREMIER CYCLE PASSE LA GARDE
+--
+-- Elle crée elle aussi des évaluations, depuis les matières de son
+-- en-tête. Son ordre était déjà le bon : `ajouterColonne()` inscrit la
+-- matière dans class_subjects, `evaluationDe()` crée la composition
+-- ensuite — et `renommerColonne()` insère la nouvelle ligne avant de
+-- retirer l'ancienne. Vérifié en rejouant cet ordre : l'écriture est
+-- acceptée.
+-- ---------------------------------------------------------------------
+--
+-- CÔTÉ ÉCRAN : la création d'évaluation ne propose que les matières de
+-- la classe, et renvoie vers Classes / Matières quand la classe n'en a
+-- aucune. La page Moyennes lit désormais la liste des matières ET les
+-- coefficients depuis class_subjects, exactement comme le bulletin —
+-- une matière sans note sort du calcul au second cycle, et pèse 0 au
+-- premier cycle, où c'est la règle du cahier.
+--
+-- VÉRIFIÉ (2026-08-01) :
+--   Évaluer une matière non affectée ............... refusé
+--   Message ........................................ « « Maths » n'est
+--     pas affectee a la classe 8eme : ajoutez-la d'abord dans Classes /
+--     Matieres. »
+--   Après affectation de la matière ................ accepté
+--   Grille du premier cycle, colonne puis composition  acceptée
+--   Évaluations orphelines restantes ............... 0

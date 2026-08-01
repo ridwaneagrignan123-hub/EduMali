@@ -22,7 +22,7 @@ automatiquement synchronisée.
 ## Ce que contient ce dossier
 
 **`schema.sql`** — état de référence complet, obtenu par introspection de la
-base de production le **2026-07-31** (lecture de `pg_catalog`).
+base de production le **2026-08-01** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
@@ -33,8 +33,8 @@ base de production le **2026-07-31** (lecture de `pg_catalog`).
 | Policies | 114 |
 | Index | 71 |
 | Fonctions `public` | 17 |
-| Fonctions `private` | 35 |
-| Déclencheurs | 45 |
+| Fonctions `private` | 39 |
+| Déclencheurs | 48 |
 
 Les déclencheurs incluent `on_auth_user_created`, posé sur `auth.users` et
 non sur `public`.
@@ -68,6 +68,7 @@ sur la production échouerait, les objets existant déjà.
 | `programme-par-filiere.sql` | le programme se partitionne par filière, l'élève reste entier ; filière obligatoire en franco-arabe (2026-07-31) |
 | `grille-premier-cycle.sql` | le titulaire devient un enseignant aux yeux du RLS ; il tient sa grille de notes (2026-07-31) |
 | `messages-parents-et-discipline.sql` | `sms_logs` devient la file d'envoi ; `lesson_attendance`, `detentions`, `school_rules`, `rule_violations` (2026-07-31) |
+| `plafond-et-matieres-notables.sql` | on ne verse pas plus que le dû ; on ne note que les matières de la classe (2026-08-01) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -150,7 +151,7 @@ La colonne `students.photo_url` stocke l'URL publique résultante.
 
 ## Points connus
 
-Vérifiés en base le 2026-07-31, pas reconduits de mémoire.
+Vérifiés en base le 2026-08-01, pas reconduits de mémoire.
 
 - **`students.matricule`** est une colonne morte : 0 ligne renseignée, aucune
   référence dans le code. L'application utilise `student_number`. Conservée
@@ -179,6 +180,19 @@ Vérifiés en base le 2026-07-31, pas reconduits de mémoire.
   nouvelle colonne sensible sur `teachers` doit être omise des `grant` de la
   section 5 de `schema.sql`, sinon elle sera lisible par toute l'école.
 
+- **On ne verse jamais plus que le montant dû**, et le dû ne descend pas
+  sous le déjà-payé. Deux déclencheurs, `fee_payments_plafond` et
+  `fee_assessments_plafond`, en comptant les seuls versements non annulés.
+  Le premier est nommé pour s'exécuter APRÈS
+  `fee_payments_controle_annulation` — l'ordre alphabétique décide, et il
+  doit voir le `cancelled_at` que celui-ci impose. Annuler n'est jamais
+  bloqué.
+- **On ne note que les matières affectées à la classe.**
+  `assessments_matiere_de_la_classe` garde les évaluations, ce qui suffit à
+  garder les notes. `class_subjects` est la source unique de ce que la classe
+  étudie : bulletin ET page Moyennes en lisent la liste et les coefficients.
+  Ne pas revenir à une lecture des matières depuis les notes — c'est ce qui
+  faisait diverger les deux écrans et produisait des bulletins vides.
 - **Un message aux parents ne naît JAMAIS « envoyé ».** `sms_logs` est la
   file d'envoi ; le déclencheur `sms_logs_auteur` ramène tout insert à
   `en_attente` et efface un `provider_message_id` inventé. Seul

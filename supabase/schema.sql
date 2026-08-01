@@ -1373,6 +1373,131 @@ grant update (status) on teachers to authenticated;
 
 -- 6. FONCTIONS
 
+-- Le separateur de milliers suit lc_numeric, qui rend « 50,000 » —
+-- lisible a l'anglaise, trompeur en francais ou la virgule est decimale.
+CREATE OR REPLACE FUNCTION private.montant_lisible(v numeric)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$ select replace(trim(to_char(v, 'FM999G999G999G999')), ',', ' '); $function$
+;
+
+-- ON N'ABAISSE PAS LE DU SOUS LE DEJA-PAYE : sans cela, remettre un
+-- frais a 0 transformerait les versements encaisses en trop-percu
+-- invisible. Hausser le du reste libre.
+CREATE OR REPLACE FUNCTION private.controler_baisse_montant_du()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_verse numeric;
+begin
+  if new.amount_due >= old.amount_due then
+    return new;
+  end if;
+
+  select coalesce(sum(fp.amount_paid), 0) into v_verse
+  from fee_payments fp
+  where fp.fee_assessment_id = new.id and fp.cancelled_at is null;
+
+  if new.amount_due < v_verse then
+    raise exception
+      '% F ont deja ete verses sur ce frais : il ne peut pas etre abaisse a % F. Annulez d''abord les versements en trop, avec leur motif.',
+      private.montant_lisible(v_verse),
+      private.montant_lisible(new.amount_due)
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$function$
+;
+
+-- ON NE VERSE JAMAIS PLUS QUE LE MONTANT DU.
+--
+-- Pose EN BASE et non a l'ecran : la cle anon est publique, un controle
+-- cote client se contourne depuis la console. Voir plafond-versements.sql.
+CREATE OR REPLACE FUNCTION private.controler_plafond_versement()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_du numeric; v_autres numeric; v_reste numeric;
+begin
+  -- Un versement annule ne pese rien : le laisser passer sans controle
+  -- garantit qu'une annulation n'est jamais refusee, meme sur un frais
+  -- deja au plafond.
+  if new.cancelled_at is not null then
+    return new;
+  end if;
+
+  select fa.amount_due into v_du
+  from fee_assessments fa where fa.id = new.fee_assessment_id;
+
+  if v_du is null then
+    raise exception 'Ce frais n''existe pas.' using errcode = 'P0001';
+  end if;
+
+  /*
+   * LE PIEGE DE LA MISE A JOUR : on somme les AUTRES lignes, pas
+   * toutes. Compter la ligne courante additionnerait son ancienne
+   * valeur a la nouvelle, et un simple passage de 5 000 a 5 000 serait
+   * refuse.
+   */
+  select coalesce(sum(fp.amount_paid), 0) into v_autres
+  from fee_payments fp
+  where fp.fee_assessment_id = new.fee_assessment_id
+    and fp.cancelled_at is null
+    and fp.id is distinct from new.id;
+
+  v_reste := v_du - v_autres;
+
+  if v_autres + new.amount_paid > v_du then
+    raise exception
+      'Ce frais est de % F, dont % F deja verses : il reste % F a payer. Vous ne pouvez pas encaisser % F.',
+      private.montant_lisible(v_du),
+      private.montant_lisible(v_autres),
+      private.montant_lisible(v_reste),
+      private.montant_lisible(new.amount_paid)
+      using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$function$
+;
+
+-- ON NE NOTE QUE LES MATIERES DE LA CLASSE. class_subjects est la source
+-- unique de ce que la classe etudie ; garder les EVALUATIONS suffit a
+-- garder les notes, une note etant toujours rattachee a l'une d'elles.
+CREATE OR REPLACE FUNCTION private.exiger_matiere_de_la_classe()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_classe text; v_matiere text;
+begin
+  if exists (
+    select 1 from class_subjects cs
+    where cs.class_id = new.class_id and cs.subject_id = new.subject_id
+  ) then
+    return new;
+  end if;
+
+  select c.name into v_classe from classes c where c.id = new.class_id;
+  select s.name into v_matiere from subjects s where s.id = new.subject_id;
+
+  raise exception
+    '« % » n''est pas affectee a la classe % : ajoutez-la d''abord dans Classes / Matieres.',
+    coalesce(v_matiere, 'Cette matiere'), coalesce(v_classe, 'choisie')
+    using errcode = 'P0001';
+end;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION private.enseigne_ce_creneau(target_slot_id uuid)
  RETURNS boolean
  LANGUAGE sql
@@ -2791,6 +2916,7 @@ $function$
 
 CREATE TRIGGER log_academic_periods AFTER INSERT OR DELETE OR UPDATE ON public.academic_periods FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_academic_years AFTER INSERT OR DELETE OR UPDATE ON public.academic_years FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER assessments_matiere_de_la_classe BEFORE INSERT OR UPDATE ON public.assessments FOR EACH ROW EXECUTE FUNCTION private.exiger_matiere_de_la_classe();
 CREATE TRIGGER log_assessments AFTER INSERT OR DELETE OR UPDATE ON public.assessments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_attendance AFTER INSERT OR DELETE OR UPDATE ON public.attendance FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_class_subjects AFTER INSERT OR DELETE OR UPDATE ON public.class_subjects FOR EACH ROW EXECUTE FUNCTION private.record_activity();
@@ -2808,10 +2934,12 @@ CREATE TRIGGER sms_logs_auteur BEFORE INSERT ON public.sms_logs FOR EACH ROW EXE
 CREATE TRIGGER log_sms_logs AFTER INSERT OR UPDATE ON public.sms_logs FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_directions AFTER INSERT OR DELETE OR UPDATE ON public.directions FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER fee_assessments_refus_suppression BEFORE DELETE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.refuser_suppression_frais_paye();
+CREATE TRIGGER fee_assessments_plafond BEFORE UPDATE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.controler_baisse_montant_du();
 CREATE TRIGGER log_fee_assessments AFTER INSERT OR DELETE OR UPDATE ON public.fee_assessments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_fee_class_defaults AFTER INSERT OR DELETE OR UPDATE ON public.fee_class_defaults FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER fee_payments_controle_annulation BEFORE UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.controler_annulation_paiement();
 CREATE TRIGGER fee_payments_numero_recu BEFORE INSERT ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.attribuer_numero_recu();
+CREATE TRIGGER fee_payments_plafond BEFORE INSERT OR UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.controler_plafond_versement();
 CREATE TRIGGER log_fee_payments AFTER INSERT OR DELETE OR UPDATE ON public.fee_payments FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER log_grades AFTER INSERT OR DELETE OR UPDATE ON public.grades FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER lineup_themes_set_updated_at BEFORE UPDATE ON public.lineup_themes FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
