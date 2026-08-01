@@ -242,13 +242,47 @@ export default function StudentsPage() {
 
     setClasses(classesData ?? [])
 
-    const { data: studentsData, error: studentsError } = await supabase
-      .from("students")
-      .select(
-        "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone"
-      )
-      .eq("school_id", profile.school_id)
-      .order("last_name", { ascending: true })
+    /*
+     * ON CHARGE TOUS LES ÉLÈVES, PAR TRANCHES.
+     *
+     * La recherche filtre les données déjà en mémoire — c'est ce qui la
+     * rend instantanée, et c'est aussi ce dont la page a besoin par
+     * ailleurs : elle regroupe l'effectif par classe et en compte les
+     * têtes. Mais PostgREST plafonne une réponse à mille lignes par
+     * défaut : sur une école bien fournie, l'élève numéro 1001 ne serait
+     * jamais chargé, donc introuvable même avec une recherche correcte —
+     * et l'écran n'en dirait rien.
+     *
+     * On demande donc les tranches jusqu'à ce que le serveur en rende
+     * une incomplète, signe qu'on a tout. Plutôt qu'une recherche côté
+     * serveur : celle-ci imposerait un aller-retour par frappe, et
+     * laisserait de toute façon le regroupement par classe incomplet.
+     */
+    const TAILLE_TRANCHE = 1000
+    const tousLesEleves: Student[] = []
+    let studentsError = null
+
+    for (let debut = 0; ; debut += TAILLE_TRANCHE) {
+      const { data: tranche, error } = await supabase
+        .from("students")
+        .select(
+          "id, first_name, last_name, date_of_birth, gender, student_number, address, parent_name, parent_phone"
+        )
+        .eq("school_id", profile.school_id)
+        .order("last_name", { ascending: true })
+        .range(debut, debut + TAILLE_TRANCHE - 1)
+
+      if (error) {
+        studentsError = error
+        break
+      }
+
+      tousLesEleves.push(...((tranche as Student[]) ?? []))
+
+      if (!tranche || tranche.length < TAILLE_TRANCHE) {
+        break
+      }
+    }
 
     if (studentsError) {
       console.error(
@@ -258,17 +292,42 @@ export default function StudentsPage() {
       setLoadError("Impossible de charger la liste des élèves.")
     }
 
-    setStudents(studentsData ?? [])
+    setStudents(tousLesEleves)
 
-    // Sert uniquement à regrouper la liste des élèves par classe.
-    const { data: enrollmentsData, error: enrollmentsError } = await supabase
-      .from("student_class_enrollments")
-      .select(`
-        student_id,
-        academic_year_id,
-        classes ( id, name )
-      `)
-      .eq("school_id", profile.school_id)
+    /*
+     * Même plafond, même remède : les inscriptions comptent une ligne
+     * par élève ET par année, elles franchissent donc le millier avant
+     * les élèves eux-mêmes. Tronquées, elles ne rendraient personne
+     * introuvable — mais rangeraient des élèves inscrits sous « sans
+     * classe », ce qui est faux et se remarque tard.
+     */
+    const toutesLesInscriptions: Enrollment[] = []
+    let enrollmentsError = null
+
+    for (let debut = 0; ; debut += TAILLE_TRANCHE) {
+      const { data: tranche, error } = await supabase
+        .from("student_class_enrollments")
+        .select(`
+          student_id,
+          academic_year_id,
+          classes ( id, name )
+        `)
+        .eq("school_id", profile.school_id)
+        .range(debut, debut + TAILLE_TRANCHE - 1)
+
+      if (error) {
+        enrollmentsError = error
+        break
+      }
+
+      toutesLesInscriptions.push(
+        ...((tranche as unknown as Enrollment[]) ?? [])
+      )
+
+      if (!tranche || tranche.length < TAILLE_TRANCHE) {
+        break
+      }
+    }
 
     if (enrollmentsError) {
       console.error(
@@ -278,7 +337,7 @@ export default function StudentsPage() {
       setLoadError("Impossible de charger les classes des élèves.")
     }
 
-    setEnrollments((enrollmentsData as unknown as Enrollment[]) ?? [])
+    setEnrollments(toutesLesInscriptions)
 
     setLoading(false)
   }

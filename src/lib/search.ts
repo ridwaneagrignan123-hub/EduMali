@@ -18,22 +18,41 @@ export function normalizeSearchText(value: string) {
 }
 
 /*
- * Renvoie true si la recherche est vide, ou si au moins un des
- * champs fournis contient le texte recherché.
+ * Recherche PAR MOTS, sur l'ensemble des champs réunis.
+ *
+ * ---------------------------------------------------------------------
+ * CE QUI NE MARCHAIT PAS
+ *
+ * La version précédente comparait le texte recherché à chaque champ
+ * ISOLÉMENT. Taper « Awa Traoré » ne trouvait donc rien : `first_name`
+ * vaut « Awa », `last_name` vaut « Traoré », et aucun des deux ne
+ * contient la chaîne entière. Seuls les mots isolés fonctionnaient —
+ * alors que saisir le nom complet est le premier réflexe.
+ * ---------------------------------------------------------------------
+ *
+ * On découpe donc la recherche en mots, et on exige que CHACUN se
+ * retrouve dans les champs concaténés. « Awa Traoré », « Traoré Awa »,
+ * « awa » et « traore » trouvent tous le même élève, l'ordre n'important
+ * plus.
+ *
+ * Les champs sont joints par une espace : sans elle, « Awat » trouverait
+ * un « Awa » suivi d'un « Traoré », deux champs distincts recollés par
+ * accident.
  */
 export function matchesSearch(
   search: string,
   ...fields: (string | null | undefined)[]
 ) {
-  const normalizedSearch = normalizeSearchText(search)
+  const mots = normalizeSearchText(search).split(/\s+/).filter(Boolean)
 
-  if (!normalizedSearch) {
+  if (mots.length === 0) {
     return true
   }
 
-  return fields.some(
-    (field) =>
-      field != null &&
-      normalizeSearchText(field).includes(normalizedSearch)
-  )
+  const texte = fields
+    .filter((field): field is string => field != null)
+    .map(normalizeSearchText)
+    .join(" ")
+
+  return mots.every((mot) => texte.includes(mot))
 }
