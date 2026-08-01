@@ -1,0 +1,73 @@
+-- =====================================================================
+-- Ridwane — devoirs à la maison
+-- =====================================================================
+-- APPLIQUÉ en base le 2026-08-01. Ce fichier porte le raisonnement ;
+-- `schema.sql` porte l'état.
+
+-- ---------------------------------------------------------------------
+-- TROIS COLONNES DE TEXTE, PAS DE NOMBRES
+--
+-- Un devoir se note tel qu'il est dicté en classe : « page 42-43 »,
+-- « exercices 3, 5 et 7 ». Ce ne sont pas des nombres, et les stocker
+-- comme tels obligerait à inventer une syntaxe que personne n'emploie.
+--
+-- `subject_id` est FACULTATIVE : un titulaire de premier cycle donne
+-- « le devoir » sans toujours le rattacher à une matière.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- AU MOINS UNE INFORMATION UTILE — homework_contenu_utile
+--
+-- Un devoir sans page, sans énoncé et sans photo produirait un message
+-- disant « votre enfant a un devoir » et rien de plus. C'est pire
+-- qu'aucun message : il occupe l'attention de la famille sans rien lui
+-- apprendre, et l'habitue à ne plus les lire.
+--
+-- La contrainte teste `btrim()` : trois espaces ne sont pas une
+-- information. Vérifié — un devoir rempli d'espaces est refusé.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- LA PHOTO : LE MÊME MODÈLE QUE LES CARTES SCOLAIRES, À L'IDENTIQUE
+--
+-- Bucket `homework-photos`, PUBLIC EN LECTURE. Le lien part dans un
+-- message WhatsApp, que le parent ouvre sans compte ni jeton : un bucket
+-- privé rendrait le lien inutilisable, ce qui est tout l'objet.
+--
+-- AUCUNE POLICY SELECT, délibérément — exactement comme pour
+-- student-photos. Les URL `/object/public/...` contournent le RLS et
+-- n'en ont pas besoin ; une policy SELECT n'ouvrirait que le LISTAGE,
+-- c'est-à-dire l'énumération des photos de toutes les écoles.
+--
+-- Le chemin est `{school_id}/...`. Ce n'est pas une convention de
+-- rangement, c'est LE mécanisme de cloisonnement : les trois policies
+-- d'écriture comparent `storage.foldername(name)[1]` au `school_id` de
+-- l'appelant. Changer ce chemin dans le code casserait le cloisonnement
+-- en silence.
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- QUI DONNE UN DEVOIR
+--
+-- L'enseignant de la classe — `private.teaches_class()`, qui inclut le
+-- titulaire de premier cycle — et l'encadrement. Le directeur de
+-- direction reste borné à sa direction et, en franco-arabe, à son
+-- programme quand la matière est renseignée : on ne donne pas un devoir
+-- d'arabe depuis la direction française.
+-- ---------------------------------------------------------------------
+
+-- `sms_logs.event_type` accueille « devoir ». C'est la seule
+-- modification apportée à la file d'envoi : le message emprunte la
+-- mécanique existante, il n'en crée pas une seconde.
+
+
+-- =====================================================================
+-- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-01)
+-- =====================================================================
+--   Devoir sans page, ni énoncé, ni photo ......... refusé
+--   Devoir rempli d'espaces ....................... refusé
+--   Devoir page 42-43, exercices 3, 5 et 7 ........ accepté
+--   Devoir avec la seule photo .................... accepté
+--   Devoir avec le seul énoncé recopié ............ accepté
+--   event_type « devoir » ......................... admis
+--   event_type « devoirs » (inconnu) .............. refusé
