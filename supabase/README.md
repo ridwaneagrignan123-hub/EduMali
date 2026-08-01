@@ -26,15 +26,15 @@ base de production le **2026-08-01** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
-| Tables | **32** |
-| Colonnes | 276 |
-| Contraintes | 174 |
-| Tables avec RLS active | **32 sur 32** |
-| Policies | 114 |
-| Index | 71 |
+| Tables | **33** |
+| Colonnes | 287 |
+| Contraintes | 180 |
+| Tables avec RLS active | **33 sur 33** |
+| Policies | 118 |
+| Index | 73 |
 | Fonctions `public` | 17 |
 | Fonctions `private` | 39 |
-| Déclencheurs | 48 |
+| Déclencheurs | 50 |
 
 Les déclencheurs incluent `on_auth_user_created`, posé sur `auth.users` et
 non sur `public`.
@@ -69,6 +69,7 @@ sur la production échouerait, les objets existant déjà.
 | `grille-premier-cycle.sql` | le titulaire devient un enseignant aux yeux du RLS ; il tient sa grille de notes (2026-07-31) |
 | `messages-parents-et-discipline.sql` | `sms_logs` devient la file d'envoi ; `lesson_attendance`, `detentions`, `school_rules`, `rule_violations` (2026-07-31) |
 | `plafond-et-matieres-notables.sql` | on ne verse pas plus que le dû ; on ne note que les matières de la classe (2026-08-01) |
+| `devoirs-maison.sql` | table `homework`, bucket `homework-photos`, `sms_logs.event_type` accueille `devoir` (2026-08-01) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,
@@ -125,29 +126,46 @@ reportée à la main dans `schema.sql`, sous peine de le voir diverger.
 
 ## Stockage de fichiers
 
-Un seul bucket à ce jour : **`student-photos`**, qui porte les photos
-d'identité affichées sur les cartes scolaires (`app/id-cards`).
+Deux buckets, bâtis sur le **même modèle** : **`student-photos`**, qui porte
+les photos d'identité des cartes scolaires (`app/id-cards`), et
+**`homework-photos`**, qui porte les photos d'exercice des devoirs à la
+maison (`components/devoirs-maison.tsx`). Tout ce qui suit vaut pour les
+deux — c'est délibéré, un second mécanisme aurait doublé la surface à
+vérifier pour rien.
 
-Il est **public en lecture** — une carte imprimée doit afficher la photo sans
-jeton d'authentification, et l'URL contient deux UUID, donc elle n'est pas
-devinable. L'écriture, elle, est strictement cloisonnée.
+⚠️ **Ni l'un ni l'autre n'est décrit dans `schema.sql`**, qui ne couvre que
+le schéma `public`. Une base recréée depuis ce fichier n'aura aucun bucket :
+il faut les reposer à la main, avec les policies décrites ici.
 
-**Ne rajoutez pas de policy `SELECT` sur `storage.objects` pour ce bucket.**
+Ils sont **publics en lecture** — une carte imprimée doit afficher la photo
+sans jeton d'authentification, et le lien d'un devoir doit s'ouvrir depuis un
+message WhatsApp, chez un parent qui n'a pas de compte. Les URL contiennent
+des UUID, donc elles ne sont pas devinables. L'écriture, elle, est strictement
+cloisonnée.
+
+**Ne rajoutez pas de policy `SELECT` sur `storage.objects` pour ces buckets.**
 Les URL `/object/public/…` contournent le RLS : l'affichage n'en a pas besoin.
 Une policy `SELECT` n'ouvre que le *listage*, et celle qui existait permettait
 à un visiteur non connecté d'énumérer les photos de tous les élèves de toutes
 les écoles — des mineurs. Elle a été retirée après vérification que les photos
 restaient servies.
 
-Le chemin de chaque fichier est **`{school_id}/{student_id}.{ext}`**. Ce n'est
-pas une simple convention de rangement : c'est le mécanisme de sécurité.
-Les policies comparent `storage.foldername(name)[1]` au `school_id` de
-l'appelant, si bien qu'un utilisateur ne peut écrire que sous le dossier de
-son propre établissement. Changer ce chemin dans le code casserait
-silencieusement le cloisonnement — toute modification doit garder le
-`school_id` en premier segment.
+Le chemin de chaque fichier commence par le **`school_id`** —
+`{school_id}/{student_id}.{ext}` pour les cartes, `{school_id}/{uuid}.{ext}`
+pour les devoirs, une photo de devoir n'appartenant à aucun élève en
+particulier. Ce n'est pas une simple convention de rangement : c'est le
+mécanisme de sécurité. Les policies comparent `storage.foldername(name)[1]`
+au `school_id` de l'appelant, si bien qu'un utilisateur ne peut écrire que
+sous le dossier de son propre établissement. Changer ce chemin dans le code
+casserait silencieusement le cloisonnement — toute modification doit garder
+le `school_id` en premier segment.
 
-La colonne `students.photo_url` stocke l'URL publique résultante.
+Les colonnes `students.photo_url` et `homework.photo_url` stockent l'URL
+publique résultante.
+
+La photo d'un devoir part aux parents **en lien, pas en pièce jointe** :
+joindre l'image exigerait un message média sur un modèle approuvé par
+WhatsApp Business, capacité à ajouter le jour où un fournisseur sera branché.
 
 ## Points connus
 

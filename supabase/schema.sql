@@ -1,9 +1,15 @@
 -- =====================================================================
 -- Ridwane — état de référence de la base
 -- =====================================================================
--- OBTENU PAR INTROSPECTION de pg_catalog le 2026-07-30.
+-- OBTENU PAR INTROSPECTION de pg_catalog le 2026-08-01.
 -- Ni écrit de mémoire, ni recopié des scripts du dossier : c'est ce qui
 -- fait sa valeur, et ce qui a manqué les fois où il a divergé.
+--
+-- ⚠️  PORTÉE : le schéma `public` et les fonctions `private`. Le stockage
+-- n'y est PAS — ni les buckets `student-photos` et `homework-photos`, ni
+-- leurs policies sur storage.objects. Une base recréée depuis ce fichier
+-- n'aura aucun bucket : il faut les reposer à la main. C'est écrit ici
+-- pour que l'absence soit une limite connue et non une découverte.
 --
 -- ⚠️  NE JAMAIS EXÉCUTER CE FICHIER SUR LA PRODUCTION.
 -- Il sert à recréer une base VIERGE — environnement local, base de test,
@@ -274,6 +280,41 @@ create table grades (
   constraint grades_score_check CHECK ((score >= (0)::numeric))
 );
 
+-- DEVOIRS A LA MAISON.
+--
+-- page et exercises sont du TEXTE, pas des nombres : un devoir se note
+-- tel qu'il est dicte — « 42-43 », « 3, 5 et 7 ». Les stocker en
+-- nombres imposerait une syntaxe que personne n'emploie.
+--
+-- subject_id est FACULTATIVE : un titulaire de premier cycle donne
+-- « le devoir » sans toujours le rattacher a une matiere.
+--
+-- homework_contenu_utile exige au moins une information reelle. Un
+-- devoir sans page, sans enonce et sans photo produirait un message
+-- disant « votre enfant a un devoir » et rien de plus — pire qu'aucun
+-- message : il occupe la famille sans rien lui apprendre, et l'habitue
+-- a ne plus les lire. Le btrim est ce qui empeche trois espaces de
+-- passer pour une information.
+create table homework (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_id uuid not null,
+  class_id uuid not null,
+  subject_id uuid,
+  due_date date default CURRENT_DATE not null,
+  page text,
+  exercises text,
+  instructions text,
+  photo_url text,
+  recorded_by uuid,
+  constraint homework_pkey PRIMARY KEY (id),
+  constraint homework_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE CASCADE,
+  constraint homework_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint homework_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
+  constraint homework_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES public.subjects(id) ON DELETE SET NULL,
+  constraint homework_contenu_utile CHECK (((COALESCE(btrim(page), ''::text) <> ''::text) OR (COALESCE(btrim(exercises), ''::text) <> ''::text) OR (COALESCE(btrim(instructions), ''::text) <> ''::text) OR (COALESCE(btrim(photo_url), ''::text) <> ''::text)))
+);
+
 -- PRESENCE PAR LECON — second cycle et lycee.
 --
 -- `attendance` marque la JOURNEE et ne peut pas porter ce cas : au
@@ -475,7 +516,7 @@ create table sms_logs (
   constraint sms_logs_channel_check CHECK ((channel = ANY (ARRAY['whatsapp'::text, 'sms'::text]))),
   constraint sms_logs_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
   constraint sms_logs_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE,
-  constraint sms_logs_event_type_check CHECK ((event_type = ANY (ARRAY['absence'::text, 'report_card'::text, 'fee_overdue'::text, 'retard'::text, 'retenue'::text, 'violation_reglement'::text]))),
+  constraint sms_logs_event_type_check CHECK ((event_type = ANY (ARRAY['absence'::text, 'report_card'::text, 'fee_overdue'::text, 'retard'::text, 'retenue'::text, 'violation_reglement'::text, 'devoir'::text]))),
   constraint sms_logs_status_check CHECK ((status = ANY (ARRAY['en_attente'::text, 'sent'::text, 'failed'::text])))
 );
 
@@ -633,6 +674,7 @@ CREATE UNIQUE INDEX class_head_teachers_sans_filiere ON public.class_head_teache
 CREATE UNIQUE INDEX class_head_teachers_par_filiere ON public.class_head_teachers USING btree (class_id, filiere) WHERE (filiere IS NOT NULL);
 CREATE INDEX classes_direction_id_idx ON public.classes USING btree (direction_id);
 CREATE INDEX detentions_eleve_date_idx ON public.detentions USING btree (student_id, detention_date DESC);
+CREATE INDEX homework_classe_date_idx ON public.homework USING btree (class_id, due_date DESC);
 CREATE INDEX lesson_attendance_classe_jour_idx ON public.lesson_attendance USING btree (class_id, lesson_date DESC);
 CREATE INDEX lesson_attendance_eleve_jour_idx ON public.lesson_attendance USING btree (student_id, lesson_date DESC);
 CREATE INDEX rule_violations_eleve_date_idx ON public.rule_violations USING btree (student_id, violation_date DESC);
@@ -672,6 +714,7 @@ alter table fee_assessments enable row level security;
 alter table fee_class_defaults enable row level security;
 alter table fee_payments enable row level security;
 alter table grades enable row level security;
+alter table homework enable row level security;
 alter table lesson_attendance enable row level security;
 alter table lineup_themes enable row level security;
 alter table payroll_closings enable row level security;
@@ -1263,6 +1306,30 @@ create policy "Retenues lues selon le role" on detentions for select to {authent
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+-- DEVOIRS : l'enseignant de la classe — teaches_class() inclut le
+-- titulaire de premier cycle — et l'encadrement. Le directeur de
+-- direction reste borne a sa direction et, en franco-arabe, a son
+-- programme quand la matiere est renseignee : on ne donne pas un devoir
+-- d'arabe depuis la direction francaise.
+create policy "Devoir corrige par l'enseignant de la classe" on homework for update to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.is_encadrement())))
+  with check ((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))));
+create policy "Devoir donne par l'enseignant de la classe" on homework for insert to {authenticated}
+  with check (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.is_admin() OR (private.is_encadrement() AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((subject_id IS NULL) OR private.mon_programme(subject_id))))));
+create policy "Devoir retire par l'enseignant de la classe" on homework for delete to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.is_encadrement())));
+create policy "Devoirs lus dans son ecole" on homework for select to {authenticated}
+  using (((school_id IN ( SELECT p.school_id
+   FROM profiles p
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_class(class_id))));
 create policy "Presence par lecon corrigee par l'enseignant du creneau" on lesson_attendance for update to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
@@ -2925,6 +2992,8 @@ CREATE TRIGGER log_daily_reminders AFTER INSERT OR DELETE OR UPDATE ON public.da
 CREATE TRIGGER directions_set_updated_at BEFORE UPDATE ON public.directions FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 CREATE TRIGGER detentions_auteur BEFORE INSERT ON public.detentions FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_releve();
 CREATE TRIGGER log_detentions AFTER INSERT OR DELETE OR UPDATE ON public.detentions FOR EACH ROW EXECUTE FUNCTION private.record_activity();
+CREATE TRIGGER homework_auteur BEFORE INSERT ON public.homework FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_releve();
+CREATE TRIGGER log_homework AFTER INSERT OR DELETE OR UPDATE ON public.homework FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER lesson_attendance_auteur BEFORE INSERT ON public.lesson_attendance FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_releve();
 CREATE TRIGGER log_lesson_attendance AFTER INSERT OR DELETE OR UPDATE ON public.lesson_attendance FOR EACH ROW EXECUTE FUNCTION private.record_activity();
 CREATE TRIGGER rule_violations_auteur BEFORE INSERT ON public.rule_violations FOR EACH ROW EXECUTE FUNCTION private.imposer_auteur_releve();
