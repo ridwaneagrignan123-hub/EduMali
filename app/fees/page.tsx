@@ -320,6 +320,24 @@ export default function FeesPage() {
   }
 
   /*
+   * Le reste à payer d'un frais — dû moins versé non annulé.
+   *
+   * L'écran s'en sert pour prévenir AVANT l'aller-retour ; la base garde
+   * le dernier mot. Le déclencheur fee_payments_plafond refuse de toute
+   * façon un versement qui dépasserait, y compris envoyé depuis la
+   * console du navigateur avec la clé anon.
+   */
+  function getResteAPayer(assessmentId: string) {
+    const frais = assessments.find((item) => item.id === assessmentId)
+
+    if (!frais) {
+      return 0
+    }
+
+    return Number(frais.amount_due) - getTotalPaid(assessmentId)
+  }
+
+  /*
    * Annulation d'un encaissement. Le motif est obligatoire, et la base le
    * vérifie aussi : la contrainte exige trois caractères au moins, sinon
    * un espace suffirait à contourner l'obligation.
@@ -435,6 +453,30 @@ export default function FeesPage() {
 
     if (!paymentDate) {
       alert("Veuillez indiquer la date du paiement.")
+      return
+    }
+
+    /*
+     * Même règle qu'en base, dite plus tôt. Le message reprend les
+     * mêmes trois chiffres — dû, déjà versé, reste — pour que
+     * l'utilisateur voie la même chose des deux côtés.
+     */
+    const frais = assessments.find((item) => item.id === paymentAssessmentId)
+    const dejaVerse = getTotalPaid(paymentAssessmentId)
+    const reste = Number(frais?.amount_due ?? 0) - dejaVerse
+
+    if (amountNumber > reste) {
+      alert(
+        `Ce frais est de ${formatAmount(
+          Number(frais?.amount_due ?? 0)
+        )}, dont ${formatAmount(
+          dejaVerse
+        )} déjà versés : il reste ${formatAmount(
+          reste
+        )} à payer. Vous ne pouvez pas encaisser ${formatAmount(
+          amountNumber
+        )}.`
+      )
       return
     }
 
@@ -949,6 +991,17 @@ export default function FeesPage() {
                         type="number"
                         min="1"
                         step="1"
+                        /*
+                          Le plafond est le reste à payer, pas le montant
+                          dû : sur un frais déjà réglé pour moitié, offrir
+                          le total inviterait à un trop-perçu que la base
+                          refuserait ensuite.
+                        */
+                        max={
+                          paymentAssessmentId
+                            ? getResteAPayer(paymentAssessmentId)
+                            : undefined
+                        }
                         value={paymentAmount}
                         onChange={(event) =>
                           setPaymentAmount(event.target.value)
@@ -956,6 +1009,16 @@ export default function FeesPage() {
                         className="w-full rounded-md border bg-background px-3 py-2"
                         required
                       />
+
+                      {paymentAssessmentId && (
+                        <p className="text-xs text-muted-foreground">
+                          Reste à payer :{" "}
+                          <strong>
+                            {formatAmount(getResteAPayer(paymentAssessmentId))}
+                          </strong>{" "}
+                          — un versement ne peut pas dépasser ce montant.
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2">
