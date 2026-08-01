@@ -60,6 +60,33 @@
 -- modification apportée à la file d'envoi : le message emprunte la
 -- mécanique existante, il n'en crée pas une seconde.
 
+-- ---------------------------------------------------------------------
+-- L'ENVOI AUX PARENTS — /api/homework/send
+--
+-- La route reprend /api/parent-messages sans le réécrire : même contrôle
+-- de permission, même insertion à « en_attente », même adaptateur
+-- unique. Ce qui s'y ajoute, et rien d'autre, c'est la boucle sur
+-- l'effectif de la classe.
+--
+-- UN MESSAGE PAR ÉLÈVE, et donc par parent. Sur une classe de cinquante,
+-- cinquante lignes. Ce n'est pas un détail de mise en œuvre : c'est le
+-- coût réel de l'action, et l'écran le dit avant qu'on clique.
+--
+-- L'EFFECTIF EST BORNÉ PAR L'ANNÉE ACTIVE. Sans ce filtre, le message
+-- irait aussi aux familles des élèves passés par la classe les années
+-- précédentes. Sans année active, la route refuse au lieu d'envoyer
+-- large.
+--
+-- LES ÉLÈVES SANS NUMÉRO PARENT SONT IGNORÉS, pas bloquants : une fiche
+-- incomplète ne doit pas priver toute la classe. Leur nombre remonte à
+-- l'écran, pour qu'on sache quelles fiches compléter.
+--
+-- LA PHOTO PART EN LIEN, pas en pièce jointe. Joindre l'image exigerait
+-- un message média sur modèle approuvé par WhatsApp Business — une
+-- capacité pour le jour où un fournisseur sera branché, pas un bricolage
+-- à faire ici.
+-- ---------------------------------------------------------------------
+
 
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-01)
@@ -71,3 +98,11 @@
 --   Devoir avec le seul énoncé recopié ............ accepté
 --   event_type « devoir » ......................... admis
 --   event_type « devoirs » (inconnu) .............. refusé
+--
+-- Envoi, sur les données réelles (classe « 3eme Annee B », 2 inscrits) :
+--   Effectif de l'année active .................... 2 élèves trouvés
+--   Une ligne sms_logs par élève .................. 2 lignes, 2 élèves
+--   Ligne insérée à « sent » ...................... ramenée en attente
+--   recorded_by conservé sous service role ........ 2 lignes sur 2
+--   Un élève sans numéro parent ................... 1 destinataire,
+--                                                   1 ignoré

@@ -42,6 +42,8 @@ type Devoir = {
 type ResultatEnvoi = {
   enFile: number
   ignores: number
+  envoyes: number
+  echecs: number
   statut: string
   raison: string | null
 }
@@ -257,16 +259,18 @@ export function DevoirsMaison({
        * On dit ce qui s'est réellement passé. Tant qu'aucun fournisseur
        * n'est branché, « enregistré, en attente » — jamais « envoyé ».
        */
-      const compte = `${resultat.enFile} message(s) mis en file${
+      const compte = `${resultat.enFile} message(s) enregistré(s)${
         resultat.ignores > 0
           ? `, ${resultat.ignores} élève(s) ignoré(s) faute de numéro parent`
           : ""
-      }.`
+      }${resultat.echecs > 0 ? `, ${resultat.echecs} en échec` : ""}.`
 
       setMessage(
         resultat.statut === "sent"
           ? `${compte} Messages envoyés.`
-          : `${compte} ${resultat.raison ?? "En attente d'un fournisseur WhatsApp."}`
+          : `${compte} En attente : ${
+              resultat.raison ?? "aucun fournisseur WhatsApp n'est branché."
+            }`
       )
     } catch (error) {
       console.error("Erreur envoi devoir :", error)
