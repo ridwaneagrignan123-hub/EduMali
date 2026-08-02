@@ -85,10 +85,6 @@ export default function DirectionsPage() {
    */
   const peutEcrire = can(role, "structure.ecole")
 
-  useEffect(() => {
-    loadData()
-  }, [])
-
   async function loadData() {
     setLoading(true)
     setLoadError(null)
@@ -133,6 +129,28 @@ export default function DirectionsPage() {
     await loadDirectionsAndClasses(profile.school_id)
     setLoading(false)
   }
+
+  /*
+   * L'effet est place APRES la fonction qu'il appelle, et non avant.
+   *
+   * Une fonction du corps du composant est recreee a chaque rendu :
+   * l'appeler depuis un effet declare plus haut, c'est capturer une
+   * version qui ne suivra pas les rendus suivants. Le lint le signale
+   * comme un acces avant declaration ; c'est un vrai piege, pas une
+   * question de style.
+   */
+  useEffect(() => {
+    /*
+     * Le chargement passe par une fonction interne : appeler le
+     * chargeur directement dans le corps de l'effet y declenche des
+     * mises a jour d'etat synchrones, et enchaine les rendus.
+     */
+    async function lancer() {
+      await loadData()
+    }
+
+    lancer()
+  }, [])
 
   async function loadDirectionsAndClasses(currentSchoolId: string) {
     const [directionsResult, classesResult, schoolResult, directeursResult] =

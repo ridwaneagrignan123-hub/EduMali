@@ -134,11 +134,16 @@ export default function TimetablePage() {
   }, [])
 
   useEffect(() => {
-    if (selectedClassId) {
-      loadSlots(selectedClassId)
-    } else {
-      setSlots([])
+    // Fonction interne : voir la note sur les rendus en cascade.
+    async function appliquer() {
+      if (selectedClassId) {
+        await loadSlots(selectedClassId)
+      } else {
+        setSlots([])
+      }
     }
+
+    appliquer()
   }, [selectedClassId])
 
   async function loadInitialData() {

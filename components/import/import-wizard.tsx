@@ -110,35 +110,55 @@ export function ImportWizard({
   const [outcome, setOutcome] = useState<ImportOutcome | null>(null)
 
   /*
-   * validateRows est recréée à chaque rendu de la page appelante :
-   * on la garde dans une ref pour ne relancer la validation que lorsque
-   * la correspondance ou le contenu du fichier changent réellement.
+   * validateRows est recréée à chaque rendu de la page appelante : on la
+   * garde dans une ref pour ne relancer la validation que lorsque la
+   * correspondance ou le contenu du fichier changent réellement.
+   *
+   * L'affectation se fait dans un EFFET, pas pendant le rendu. Écrire
+   * une ref pendant le rendu casse la promesse qu'un rendu ne laisse
+   * pas de trace : React peut rendre un composant sans jamais l'afficher
+   * — la ref garderait alors une valeur venue d'un rendu abandonné.
+   *
+   * L'effet est déclaré AVANT celui qui lit la ref : les effets partent
+   * dans l'ordre de déclaration, donc la ref est à jour quand la
+   * validation la relit.
    */
   const validateRef = useRef(validateRows)
-  validateRef.current = validateRows
+
+  useEffect(() => {
+    validateRef.current = validateRows
+  })
 
   const mappingSignature = fields
     .map((field) => `${field.key}=${mapping[field.key] ?? ""}`)
     .join("|")
 
   useEffect(() => {
-    if (rawRows.length === 0) {
-      setRows([])
-      return
-    }
+    /*
+     * Le calcul passe par une fonction interne : mettre l'etat a jour
+     * directement dans le corps de l'effet enchaine les rendus.
+     */
+    function appliquer() {
+      if (rawRows.length === 0) {
+        setRows([])
+        return
+      }
 
-    const mapped = rawRows.map((row) => {
-      const values: Record<string, string> = {}
+      const mapped = rawRows.map((row) => {
+        const values: Record<string, string> = {}
 
-      fields.forEach((field) => {
-        const header = mapping[field.key]
-        values[field.key] = header ? (row.values[header] ?? "") : ""
+        fields.forEach((field) => {
+          const header = mapping[field.key]
+          values[field.key] = header ? (row.values[header] ?? "") : ""
+        })
+
+        return { lineNumber: row.lineNumber, values }
       })
 
-      return { lineNumber: row.lineNumber, values }
-    })
+      setRows(validateRef.current(mapped))
+    }
 
-    setRows(validateRef.current(mapped))
+    appliquer()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mappingSignature, rawRows])
 

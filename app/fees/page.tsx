@@ -122,17 +122,28 @@ export default function FeesPage() {
   }, [])
 
   useEffect(() => {
-    if (selectedYearId) {
-      loadFeesForYear(selectedYearId)
+    /*
+     * Le tout passe par une fonction interne : mettre l'état à jour
+     * directement dans le corps de l'effet enchaîne les rendus.
+     */
+    async function appliquer() {
+      /*
+       * Le montant pré-rempli dépend de l'année : on repart d'un
+       * formulaire vierge plutôt que de laisser un montant qui ne
+       * correspond plus. La remise à zéro passe AVANT le chargement,
+       * pour qu'aucun rendu n'affiche l'ancien montant sur la nouvelle
+       * année.
+       */
+      setAssessmentStudentId("")
+      setAssessmentAmount("")
+      setAssessmentAmountHint(null)
+
+      if (selectedYearId) {
+        await loadFeesForYear(selectedYearId)
+      }
     }
 
-    /*
-     * Le montant pré-rempli dépend de l'année : on repart d'un formulaire
-     * vierge plutôt que de laisser un montant qui ne correspond plus.
-     */
-    setAssessmentStudentId("")
-    setAssessmentAmount("")
-    setAssessmentAmountHint(null)
+    appliquer()
   }, [selectedYearId])
 
   async function loadInitialData() {

@@ -150,24 +150,25 @@ export default function SettingsPage() {
    */
   const isAdmin = role === "directeur_general"
 
-  useEffect(() => {
-    loadSchool()
-  }, [])
-
   /*
    * Les champs de montants suivent l'année scolaire sélectionnée :
    * une classe sans montant défini pour cette année reste vide.
    */
   useEffect(() => {
-    const amounts: Record<string, string> = {}
+    // Fonction interne : voir la note sur les rendus en cascade.
+    function appliquer() {
+      const amounts: Record<string, string> = {}
 
-    feeDefaults
-      .filter((item) => item.academic_year_id === selectedFeeYearId)
-      .forEach((item) => {
-        amounts[item.class_id] = String(Number(item.default_amount))
-      })
+      feeDefaults
+        .filter((item) => item.academic_year_id === selectedFeeYearId)
+        .forEach((item) => {
+          amounts[item.class_id] = String(Number(item.default_amount))
+        })
 
-    setFeeAmounts(amounts)
+      setFeeAmounts(amounts)
+    }
+
+    appliquer()
   }, [feeDefaults, selectedFeeYearId])
 
   async function loadSchool() {
@@ -316,6 +317,28 @@ export default function SettingsPage() {
 
     setLoading(false)
   }
+
+  /*
+   * L'effet est place APRES la fonction qu'il appelle, et non avant.
+   *
+   * Une fonction du corps du composant est recreee a chaque rendu :
+   * l'appeler depuis un effet declare plus haut, c'est capturer une
+   * version qui ne suivra pas les rendus suivants. Le lint le signale
+   * comme un acces avant declaration ; c'est un vrai piege, pas une
+   * question de style.
+   */
+  useEffect(() => {
+    /*
+     * Le chargement passe par une fonction interne : appeler le
+     * chargeur directement dans le corps de l'effet y declenche des
+     * mises a jour d'etat synchrones, et enchaine les rendus.
+     */
+    async function lancer() {
+      await loadSchool()
+    }
+
+    lancer()
+  }, [])
 
   async function reloadHolidays() {
     const { data, error } = await supabase

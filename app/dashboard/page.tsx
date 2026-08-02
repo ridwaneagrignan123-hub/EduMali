@@ -61,10 +61,6 @@ export default function DashboardPage() {
   const [directionName, setDirectionName] =
     useState<string | null>(null)
 
-  useEffect(() => {
-    checkUserAndLoadDashboard()
-  }, [])
-
   /** Renvoie un compte sans école là où il doit aller. */
   async function aiguiller() {
     const {
@@ -101,6 +97,150 @@ export default function DashboardPage() {
         return
       default:
         router.push("/demande-acces")
+    }
+  }
+
+  /*
+   * Compteurs restreints au périmètre d'un directeur de direction.
+   *
+   * On part des classes visibles : le RLS ne renvoie déjà que celles de
+   * sa direction. Élèves et enseignants en sont déduits via les
+   * inscriptions et les affectations de matières.
+   */
+  async function loadDirectionCounts(
+    currentSchoolId: string,
+    directionId: string | null,
+    today: string,
+    dashboardErrors: string[]
+  ) {
+    const { data: schoolData, error: schoolError } = await supabase
+      .from("schools")
+      .select("name, dg_voit_comptabilite")
+      .eq("id", currentSchoolId)
+      .maybeSingle()
+
+    if (schoolError) {
+      console.error("Erreur école :", schoolError)
+      dashboardErrors.push("les informations de l'établissement")
+    }
+
+    setSchool(schoolData)
+
+    if (directionId) {
+      const { data: directionData } = await supabase
+        .from("directions")
+        .select("name")
+        .eq("id", directionId)
+        .maybeSingle()
+
+      setDirectionName(directionData?.name ?? null)
+    }
+
+    const { data: classesData, error: classesError } = await supabase
+      .from("classes")
+      .select("id")
+      .eq("school_id", currentSchoolId)
+
+    if (classesError) {
+      console.error("Erreur classes :", classesError)
+      dashboardErrors.push("le nombre de classes")
+
+      setClassCount(null)
+      setStudentCount(null)
+      setTeacherCount(null)
+      setAttendanceCount(null)
+      return
+    }
+
+    const classIds = (classesData ?? []).map((item) => item.id)
+
+    setClassCount(classIds.length)
+
+    if (classIds.length === 0) {
+      setStudentCount(0)
+      setTeacherCount(0)
+      setAttendanceCount(0)
+      return
+    }
+
+    const [
+      enrollmentsResult,
+      classSubjectsResult,
+      headTeachersResult,
+      attendanceResult,
+    ] = await Promise.all([
+        supabase
+          .from("student_class_enrollments")
+          .select("student_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        supabase
+          .from("class_subjects")
+          .select("teacher_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        /*
+         * Les titulaires comptent aussi. Au premier cycle, l'enseignant
+         * est rattaché à la CLASSE, pas aux matières : ne lire que
+         * class_subjects afficherait « 0 enseignant » pour une classe
+         * pourtant tenue.
+         */
+        supabase
+          .from("class_head_teachers")
+          .select("teacher_id")
+          .eq("school_id", currentSchoolId)
+          .in("class_id", classIds),
+
+        supabase
+          .from("attendance")
+          .select("*", { count: "exact", head: true })
+          .eq("school_id", currentSchoolId)
+          .eq("attendance_date", today)
+          .in("class_id", classIds),
+      ])
+
+    if (enrollmentsResult.error) {
+      console.error("Erreur élèves :", enrollmentsResult.error)
+      dashboardErrors.push("le nombre d'élèves")
+      setStudentCount(null)
+    } else {
+      // Un élève inscrit dans plusieurs classes ne doit être compté qu'une fois.
+      const uniqueStudents = new Set(
+        (enrollmentsResult.data ?? []).map((item) => item.student_id)
+      )
+
+      setStudentCount(uniqueStudents.size)
+    }
+
+    if (classSubjectsResult.error || headTeachersResult.error) {
+      console.error(
+        "Erreur enseignants :",
+        classSubjectsResult.error ?? headTeachersResult.error
+      )
+      dashboardErrors.push("le nombre d'enseignants")
+      setTeacherCount(null)
+    } else {
+      // Un titulaire également affecté à ses matières ne compte qu'une fois.
+      const uniqueTeachers = new Set(
+        [
+          ...(classSubjectsResult.data ?? []),
+          ...(headTeachersResult.data ?? []),
+        ]
+          .map((item) => item.teacher_id)
+          .filter(Boolean)
+      )
+
+      setTeacherCount(uniqueTeachers.size)
+    }
+
+    if (attendanceResult.error) {
+      console.error("Erreur présences :", attendanceResult.error)
+      dashboardErrors.push("le nombre de présences")
+      setAttendanceCount(null)
+    } else {
+      setAttendanceCount(attendanceResult.count ?? 0)
     }
   }
 
@@ -291,148 +431,27 @@ export default function DashboardPage() {
   }
 
   /*
-   * Compteurs restreints au périmètre d'un directeur de direction.
+   * L'effet est place APRES la fonction qu'il appelle, et non avant.
    *
-   * On part des classes visibles : le RLS ne renvoie déjà que celles de
-   * sa direction. Élèves et enseignants en sont déduits via les
-   * inscriptions et les affectations de matières.
+   * Une fonction du corps du composant est recreee a chaque rendu :
+   * l'appeler depuis un effet declare plus haut, c'est capturer une
+   * version qui ne suivra pas les rendus suivants. Le lint le signale
+   * comme un acces avant declaration ; c'est un vrai piege, pas une
+   * question de style.
    */
-  async function loadDirectionCounts(
-    currentSchoolId: string,
-    directionId: string | null,
-    today: string,
-    dashboardErrors: string[]
-  ) {
-    const { data: schoolData, error: schoolError } = await supabase
-      .from("schools")
-      .select("name, dg_voit_comptabilite")
-      .eq("id", currentSchoolId)
-      .maybeSingle()
-
-    if (schoolError) {
-      console.error("Erreur école :", schoolError)
-      dashboardErrors.push("les informations de l'établissement")
+  useEffect(() => {
+    /*
+     * Le chargement passe par une fonction interne : appeler le
+     * chargeur directement dans le corps de l'effet y declenche des
+     * mises a jour d'etat synchrones, et enchaine les rendus.
+     */
+    async function lancer() {
+      await checkUserAndLoadDashboard()
     }
 
-    setSchool(schoolData)
+    lancer()
+  }, [])
 
-    if (directionId) {
-      const { data: directionData } = await supabase
-        .from("directions")
-        .select("name")
-        .eq("id", directionId)
-        .maybeSingle()
-
-      setDirectionName(directionData?.name ?? null)
-    }
-
-    const { data: classesData, error: classesError } = await supabase
-      .from("classes")
-      .select("id")
-      .eq("school_id", currentSchoolId)
-
-    if (classesError) {
-      console.error("Erreur classes :", classesError)
-      dashboardErrors.push("le nombre de classes")
-
-      setClassCount(null)
-      setStudentCount(null)
-      setTeacherCount(null)
-      setAttendanceCount(null)
-      return
-    }
-
-    const classIds = (classesData ?? []).map((item) => item.id)
-
-    setClassCount(classIds.length)
-
-    if (classIds.length === 0) {
-      setStudentCount(0)
-      setTeacherCount(0)
-      setAttendanceCount(0)
-      return
-    }
-
-    const [
-      enrollmentsResult,
-      classSubjectsResult,
-      headTeachersResult,
-      attendanceResult,
-    ] = await Promise.all([
-        supabase
-          .from("student_class_enrollments")
-          .select("student_id")
-          .eq("school_id", currentSchoolId)
-          .in("class_id", classIds),
-
-        supabase
-          .from("class_subjects")
-          .select("teacher_id")
-          .eq("school_id", currentSchoolId)
-          .in("class_id", classIds),
-
-        /*
-         * Les titulaires comptent aussi. Au premier cycle, l'enseignant
-         * est rattaché à la CLASSE, pas aux matières : ne lire que
-         * class_subjects afficherait « 0 enseignant » pour une classe
-         * pourtant tenue.
-         */
-        supabase
-          .from("class_head_teachers")
-          .select("teacher_id")
-          .eq("school_id", currentSchoolId)
-          .in("class_id", classIds),
-
-        supabase
-          .from("attendance")
-          .select("*", { count: "exact", head: true })
-          .eq("school_id", currentSchoolId)
-          .eq("attendance_date", today)
-          .in("class_id", classIds),
-      ])
-
-    if (enrollmentsResult.error) {
-      console.error("Erreur élèves :", enrollmentsResult.error)
-      dashboardErrors.push("le nombre d'élèves")
-      setStudentCount(null)
-    } else {
-      // Un élève inscrit dans plusieurs classes ne doit être compté qu'une fois.
-      const uniqueStudents = new Set(
-        (enrollmentsResult.data ?? []).map((item) => item.student_id)
-      )
-
-      setStudentCount(uniqueStudents.size)
-    }
-
-    if (classSubjectsResult.error || headTeachersResult.error) {
-      console.error(
-        "Erreur enseignants :",
-        classSubjectsResult.error ?? headTeachersResult.error
-      )
-      dashboardErrors.push("le nombre d'enseignants")
-      setTeacherCount(null)
-    } else {
-      // Un titulaire également affecté à ses matières ne compte qu'une fois.
-      const uniqueTeachers = new Set(
-        [
-          ...(classSubjectsResult.data ?? []),
-          ...(headTeachersResult.data ?? []),
-        ]
-          .map((item) => item.teacher_id)
-          .filter(Boolean)
-      )
-
-      setTeacherCount(uniqueTeachers.size)
-    }
-
-    if (attendanceResult.error) {
-      console.error("Erreur présences :", attendanceResult.error)
-      dashboardErrors.push("le nombre de présences")
-      setAttendanceCount(null)
-    } else {
-      setAttendanceCount(attendanceResult.count ?? 0)
-    }
-  }
 
   function getUserName() {
     if (

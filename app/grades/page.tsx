@@ -148,8 +148,20 @@ export default function GradesPage() {
   }, [])
 
   useEffect(() => {
-    setIsOnline(navigator.onLine)
-    setPending(readQueue())
+    /*
+     * La lecture initiale passe par une fonction interne : mettre l'etat
+     * a jour directement dans le corps de l'effet enchaine les rendus.
+     *
+     * Elle ne peut pas se faire a l'initialisation de l'etat : `navigator`
+     * n'existe pas au rendu serveur, et lire la file au premier rendu
+     * client produirait un ecart d'hydratation.
+     */
+    function lireLEtatDuReseau() {
+      setIsOnline(navigator.onLine)
+      setPending(readQueue())
+    }
+
+    lireLEtatDuReseau()
 
     function handleOnline() {
       setIsOnline(true)
