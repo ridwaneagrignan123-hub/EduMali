@@ -1013,6 +1013,22 @@ export default function TeachersPage() {
                               </button>
                             )}
 
+                            {/*
+                              Le rapport mensuel : des faits dates, pour
+                              un entretien de ponctualite. Aucun montant
+                              n'y figure sauf pour qui a le droit de voir
+                              l'argent — c'est payroll_month() qui en
+                              decide, en base.
+                            */}
+                            <button
+                              onClick={() =>
+                                router.push(`/teachers/${teacher.id}/rapport`)
+                              }
+                              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                            >
+                              Rapport mensuel
+                            </button>
+
                             <button
                               onClick={() => startEditTeacher(teacher)}
                               className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
