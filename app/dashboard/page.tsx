@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
-import { NAV_ITEMS } from "@/src/lib/roles"
+import { menuPour } from "@/src/lib/roles"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 
 type Profile = {
@@ -17,15 +17,17 @@ type Profile = {
 
 type School = {
   name: string | null
+  /* Le promoteur ouvre ou ferme la comptabilité à son directeur général. */
+  dg_voit_comptabilite: boolean | null
 }
 
 /*
- * Le menu vit désormais dans src/lib/roles.ts, aux côtés des
- * permissions, pour qu'une règle et son affichage ne puissent plus
- * diverger. C'est ainsi que « Frais scolaires » restait proposé au
- * directeur général, qui n'y a pas accès.
+ * Le menu vit dans src/lib/roles.ts, aux côtés des permissions, pour
+ * qu'une règle et son affichage ne puissent plus diverger. C'est ainsi
+ * que « Frais scolaires » restait proposé au directeur général, qui n'y
+ * a pas accès. Le filtrage lui-même est fait par menuPour(), qui sait
+ * aussi lire l'autorisation comptable accordée au directeur général.
  */
-const navItems = NAV_ITEMS
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -161,7 +163,7 @@ export default function DashboardPage() {
     ] = await Promise.all([
       supabase
         .from("schools")
-        .select("name")
+        .select("name, dg_voit_comptabilite")
         .eq("id", schoolId)
         .maybeSingle(),
 
@@ -257,7 +259,7 @@ export default function DashboardPage() {
   ) {
     const { data: schoolData, error: schoolError } = await supabase
       .from("schools")
-      .select("name")
+      .select("name, dg_voit_comptabilite")
       .eq("id", currentSchoolId)
       .maybeSingle()
 
@@ -405,11 +407,9 @@ export default function DashboardPage() {
   }
 
   function renderNavItems(onNavigate: () => void) {
-    return navItems
-      .filter((item) =>
-        // Pas de repli implicite : un rôle inconnu ou absent n'ouvre rien.
-        item.roles.includes(profile?.role ?? "")
-      )
+    return menuPour(profile?.role, {
+      dgVoitComptabilite: school?.dg_voit_comptabilite,
+    })
       .map((item) => {
         const isActive = item.path === "/dashboard"
 

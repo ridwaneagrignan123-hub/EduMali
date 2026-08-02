@@ -9,6 +9,7 @@ import {
   hasFiliere,
   toSchoolType,
 } from "@/src/lib/etablissement"
+import { can } from "@/src/lib/roles"
 
 /* Directeur de direction, avec sa filière en école franco-arabe. */
 type Directeur = {
@@ -35,11 +36,11 @@ type ClassItem = {
 /*
  * Rôles autorisés à organiser l'établissement en directions.
  *
- * "admin" est le rôle historique de l'application : il conserve les mêmes
- * droits qu'un directeur général tant que les comptes n'ont pas été migrés
- * vers les nouveaux rôles.
+ * Le promoteur les CONSULTE ; seul le directeur général les crée et les
+ * modifie — l'écran s'appuie sur `isAllowed` pour la lecture et sur la
+ * permission `structure.ecole` pour les boutons d'écriture.
  */
-const ALLOWED_ROLES = ["admin", "promoteur", "directeur_general"]
+const ALLOWED_ROLES = ["promoteur", "directeur_general"]
 
 export default function DirectionsPage() {
   const router = useRouter()
@@ -66,6 +67,13 @@ export default function DirectionsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const isAllowed = ALLOWED_ROLES.includes(role)
+
+  /*
+   * Le promoteur LIT cette page, il ne l'ecrit pas : les directions font
+   * partie de la structure commune, tenue par le directeur general. Sans
+   * ce garde, l'ecran lui proposerait des boutons que le RLS refuse.
+   */
+  const peutEcrire = can(role, "structure.ecole")
 
   useEffect(() => {
     loadData()
@@ -308,7 +316,7 @@ export default function DirectionsPage() {
             id={`direction-${classItem.id}`}
             value={classItem.direction_id ?? ""}
             onChange={(event) => assignClass(classItem, event.target.value)}
-            disabled={pendingClassId === classItem.id}
+            disabled={!peutEcrire || pendingClassId === classItem.id}
             className="rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-60"
           >
             <option value="">Non rattachée</option>
@@ -406,6 +414,7 @@ export default function DirectionsPage() {
           </div>
         )}
 
+        {peutEcrire && (
         <div className="rounded-xl border bg-background p-6">
           <h3 className="font-heading text-xl font-bold">
             Créer une direction
@@ -437,6 +446,7 @@ export default function DirectionsPage() {
             </button>
           </form>
         </div>
+        )}
 
         {unassignedClasses.length > 0 && (
           <div
@@ -530,6 +540,7 @@ export default function DirectionsPage() {
                         )}
                       </div>
 
+                      {peutEcrire && (
                       <button
                         onClick={() => deleteDirection(direction)}
                         disabled={deletingId === direction.id}
@@ -540,6 +551,7 @@ export default function DirectionsPage() {
                           ? "Suppression..."
                           : "Supprimer"}
                       </button>
+                      )}
                     </div>
 
                     {attached.length === 0 ? (

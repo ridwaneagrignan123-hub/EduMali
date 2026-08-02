@@ -41,7 +41,7 @@ type GuardResult =
 /**
  * Exige que l'appelant détienne `permission`.
  *
- * Remplace le contrôle `role === "admin"` codé en dur, qui refusait la
+ * Remplace un contrôle de rôle codé en dur, qui refusait la
  * page « Comptes utilisateurs » au promoteur — pourtant propriétaire de
  * l'établissement — et l'invitation d'un enseignant à tout l'encadrement.
  */

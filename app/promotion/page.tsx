@@ -26,12 +26,7 @@ import { AvertissementDirection } from "@/components/avertissement-direction"
  */
 
 /* Réservé aux rôles qui gèrent déjà les inscriptions (eleves.gerer). */
-const ROLES_AUTORISES = [
-  "admin",
-  "promoteur",
-  "directeur_general",
-  "directeur_direction",
-]
+const ROLES_AUTORISES = ["directeur_direction"]
 
 type AcademicYear = {
   id: string

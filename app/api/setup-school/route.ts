@@ -223,7 +223,12 @@ export async function POST(request: Request) {
       school_id: school.id,
       first_name: (user.user_metadata?.first_name as string) ?? "",
       last_name: (user.user_metadata?.last_name as string) ?? "",
-      role: "admin",
+      /*
+       * Celui qui ouvre l'ecole en est le PROMOTEUR : le proprietaire.
+       * Il nommera ensuite son directeur general et son comptable, qui
+       * feront le travail — lui-meme ne saisit rien.
+       */
+      role: "promoteur",
       is_active: true,
     })
 

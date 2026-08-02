@@ -23,7 +23,7 @@ import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate
  * jamais un montant. Cet écran n'a donc rien à filtrer lui-même — et il
  * ne le doit pas, un filtre côté navigateur ne protégeant rien.
  */
-const ROLES_AUTORISES = ["admin", "promoteur", "directeur_general"]
+const ROLES_AUTORISES = ["promoteur", "directeur_general"]
 
 const PAGE = 50
 

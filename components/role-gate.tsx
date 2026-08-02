@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
-import { roleLabel } from "@/src/lib/roles"
+import { peutVoirComptabilite, roleLabel } from "@/src/lib/roles"
 
 /*
  * Refus lisible pour une page qu'un rôle n'a pas à ouvrir.
@@ -19,9 +19,20 @@ type Etat =
   | { statut: "refuse"; role: string }
   | { statut: "autorise"; role: string; schoolId: string }
 
-export function useRoleGate(allowedRoles: string[]) {
+/**
+ * @param allowedRoles rôles qui ouvrent la page par eux-mêmes.
+ * @param options.comptabilite page financière : le directeur général y
+ *   entre en plus si le promoteur de son école l'y a autorisé. Sans ce
+ *   drapeau, aucune liste figée ne pourrait exprimer cet accès, qui
+ *   dépend d'un interrupteur posé école par école.
+ */
+export function useRoleGate(
+  allowedRoles: string[],
+  options?: { comptabilite?: boolean }
+) {
   const router = useRouter()
   const [etat, setEtat] = useState<Etat>({ statut: "chargement" })
+  const surComptabilite = options?.comptabilite === true
 
   useEffect(() => {
     async function verifier() {
@@ -52,9 +63,20 @@ export function useRoleGate(allowedRoles: string[]) {
       }
 
       const role = profile.role ?? ""
+      let autorise = allowedRoles.includes(role)
+
+      if (!autorise && surComptabilite) {
+        const { data: ecole } = await supabase
+          .from("schools")
+          .select("dg_voit_comptabilite")
+          .eq("id", profile.school_id)
+          .maybeSingle()
+
+        autorise = peutVoirComptabilite(role, ecole?.dg_voit_comptabilite)
+      }
 
       setEtat(
-        allowedRoles.includes(role)
+        autorise
           ? { statut: "autorise", role, schoolId: profile.school_id }
           : { statut: "refuse", role }
       )

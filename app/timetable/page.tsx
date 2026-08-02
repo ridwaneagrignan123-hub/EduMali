@@ -578,7 +578,7 @@ export default function TimetablePage() {
               refuse l'écriture à l'enseignant, qui n'a ici qu'à lire le
               sien.
             */}
-            {can(monRole, "structure.gerer") ? (
+            {can(monRole, "classes.gerer") ? (
             <div className="rounded-xl border bg-background p-6">
               <h3 className="text-xl font-semibold">
                 Ajouter un créneau
@@ -845,7 +845,7 @@ export default function TimetablePage() {
                                     )}
                                   </div>
 
-                                  {can(monRole, "structure.gerer") && (
+                                  {can(monRole, "classes.gerer") && (
                                     <button
                                       onClick={() => deleteSlot(slot.id)}
                                       className="text-xs font-medium text-destructive hover:underline"

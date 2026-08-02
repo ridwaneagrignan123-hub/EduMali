@@ -27,7 +27,7 @@ import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate
  */
 
 /* Alignée sur can_see_money() : les directeurs en sont exclus. */
-const ROLES_AUTORISES = ["admin", "promoteur", "comptable"]
+const ROLES_AUTORISES = ["promoteur", "comptable"]
 
 type LignePaie = {
   enseignant_id: string
@@ -180,7 +180,7 @@ function EditeurContrat({
 
 export default function PayrollPage() {
   const router = useRouter()
-  const gate = useRoleGate(ROLES_AUTORISES)
+  const gate = useRoleGate(ROLES_AUTORISES, { comptabilite: true })
 
   const maintenant = new Date()
   const [annee, setAnnee] = useState(maintenant.getFullYear())
@@ -386,7 +386,7 @@ export default function PayrollPage() {
               caisse qui fige la journée, et cela ne se défait pas depuis
               l'application : le bouton disparaît une fois le mois clos.
             */}
-            {!moisCloture && lignes.length > 0 && gate.role === "admin" && (
+            {!moisCloture && lignes.length > 0 && gate.role === "comptable" && (
               <button
                 onClick={cloturerLeMois}
                 disabled={cloture}

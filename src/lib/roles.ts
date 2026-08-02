@@ -17,10 +17,32 @@
  * Enfin, can() sert aussi à l'écran, pour ne pas proposer un bouton qui
  * renverra 403. Cet usage-là ne protège rien.
  * ---------------------------------------------------------------------
+ *
+ * LE MODÈLE, EN UNE PHRASE PAR RÔLE
+ *
+ *   promoteur ........... propriétaire. VOIT tout, N'ÉCRIT RIEN, sauf
+ *                         nommer le directeur général, nommer le
+ *                         comptable, et ouvrir ou fermer la
+ *                         comptabilité au directeur général.
+ *   directeur_general ... nomme les directeurs, tient la structure
+ *                         commune (matières, année scolaire, périodes,
+ *                         directions, paramètres). Ne touche pas au
+ *                         travail pédagogique des directions.
+ *   directeur_direction . sa direction et rien d'autre : ses classes,
+ *                         ses élèves, ses enseignants, son emploi du
+ *                         temps. Les directeurs sont PAIRS.
+ *   comptable ........... la comptabilité, et elle seule.
+ *   surveillant ......... la surveillance de son cycle.
+ *   teacher ............. ses classes, ses créneaux.
+ *
+ * « admin » N'EXISTE PLUS. C'était le propriétaire de l'école sous un
+ * autre nom : ses comptes sont devenus `promoteur`, et ses écritures
+ * ont été reventilées vers le rôle qui fait le travail. Le compte qui
+ * répare n'est plus un rôle d'école : c'est l'exploitant de la
+ * plateforme, table `platform_operators`, hors de cette matrice.
  */
 
 export const ROLE_LABELS: Record<string, string> = {
-  admin: "Administrateur",
   promoteur: "Promoteur",
   directeur_general: "Directeur général",
   directeur_direction: "Directeur de direction",
@@ -30,25 +52,43 @@ export const ROLE_LABELS: Record<string, string> = {
 }
 
 /** Tient la vie scolaire : retards, thèmes au rang, rappels. */
-export const VIE_SCOLAIRE = ["admin", "promoteur", "directeur_general",
+export const VIE_SCOLAIRE = ["promoteur", "directeur_general",
   "directeur_direction", "surveillant"]
 
 /** Direction générale : vue d'ensemble de l'établissement. */
-const DIRECTION_GENERALE = ["admin", "promoteur", "directeur_general"]
+const DIRECTION_GENERALE = ["promoteur", "directeur_general"]
 
 /** Encadrement : direction générale + directeur d'une direction. */
 const ENCADREMENT = [...DIRECTION_GENERALE, "directeur_direction"]
+
+/*
+ * L'encadrement QUI ÉCRIT — le même, moins le promoteur.
+ *
+ * Le promoteur reste dans ENCADREMENT parce qu'il voit tout. Il doit
+ * disparaître de chaque écriture. Deux listes jumelles plutôt qu'une
+ * seule avec des exceptions dispersées : c'est le pendant exact des
+ * fonctions `private.encadrement_ecrit()` et `private.dg_ecrit()` en
+ * base, et l'on peut vérifier d'un coup d'œil qu'aucune écriture ne
+ * nomme le promoteur.
+ */
+const ENCADREMENT_ECRIT = ["directeur_general", "directeur_direction"]
+const DG_ECRIT = ["directeur_general"]
+const DIRECTEUR_ECRIT = ["directeur_direction"]
 
 export type Permission =
   /** Voir les frais, les paiements, les montants de référence. */
   | "finances.voir"
   /** Créer un frais, enregistrer un paiement. */
   | "finances.saisir"
+  /** Ouvrir ou fermer la comptabilité au directeur général. */
+  | "comptabilite.autoriser_dg"
   /** Inscrire, modifier ou supprimer un élève. */
   | "eleves.gerer"
-  /** Créer classes, matières, années, affectations. */
-  | "structure.gerer"
-  /** Gérer les comptes enseignants. */
+  /** Matières, années scolaires, périodes, directions — toute l'école. */
+  | "structure.ecole"
+  /** Classes, affectations, emploi du temps — dans sa direction. */
+  | "classes.gerer"
+  /** Gérer les fiches enseignants. */
   | "enseignants.gerer"
   /** Saisir et corriger les notes. */
   | "notes.saisir"
@@ -62,32 +102,56 @@ export type Permission =
   | "comptes.consulter"
   /** Modifier l'identité d'un compte et lui renvoyer un lien d'accès. */
   | "comptes.gerer"
-  /** Attribuer un rôle ordinaire, activer ou désactiver un compte. */
-  | "comptes.roles"
-  /** Attribuer ou retirer « admin » et « promoteur ». */
-  | "comptes.roles_eleves"
 
 const PERMISSIONS: Record<Permission, string[]> = {
-  // Le directeur général en est volontairement exclu.
-  "finances.voir": ["admin", "promoteur", "comptable"],
-  // Le promoteur voit sans écrire : il ne change pas les montants en
-  // cours de route.
-  "finances.saisir": ["admin", "comptable"],
-  "eleves.gerer": ENCADREMENT,
-  "structure.gerer": ENCADREMENT,
-  "enseignants.gerer": ENCADREMENT,
-  // La note appartient à l'enseignant qui l'a donnée. Les directeurs et
-  // le promoteur la lisent et l'impriment, ils ne la modifient pas.
-  // L'admin fait exception : c'est le compte qui répare.
-  "notes.saisir": ["admin", "teacher"],
+  /*
+   * Le promoteur CONSULTE la comptabilité, il n'y saisit jamais : il ne
+   * change pas les montants en cours de route. Le directeur général n'y
+   * est pas non plus — il n'y entre que si le promoteur l'y autorise,
+   * école par école, ce qu'une liste figée ne peut pas exprimer. Voir
+   * peutVoirComptabilite() plus bas.
+   */
+  "finances.voir": ["promoteur", "comptable"],
+  "finances.saisir": ["comptable"],
+  "comptabilite.autoriser_dg": ["promoteur"],
+
+  /*
+   * L'élève appartient à une direction, et son directeur en est le seul
+   * maître : c'est lui qui l'inscrit et qui corrige sa fiche. Le RLS
+   * borne l'écriture à sa propre direction.
+   */
+  "eleves.gerer": DIRECTEUR_ECRIT,
+
+  /*
+   * La structure COMMUNE au directeur général : matières, année
+   * scolaire, périodes, directions, paramètres. Les directeurs sont
+   * pairs, donc aucun ne peut trancher pour les autres sur la date de
+   * la rentrée ou le barème ; le promoteur, lui, n'écrit rien. Sans ce
+   * rôle, personne ne pourrait ouvrir une année scolaire.
+   */
+  "structure.ecole": DG_ECRIT,
+  "parametres.gerer": DG_ECRIT,
+
+  // Les classes, en revanche, sont le travail du directeur : il crée
+  // les siennes, y affecte les matières et compose son emploi du temps.
+  "classes.gerer": DIRECTEUR_ECRIT,
+  "enseignants.gerer": DIRECTEUR_ECRIT,
+
+  /*
+   * Qui saisit la note dépend de la CLASSE, pas seulement du rôle : le
+   * directeur décide, classe par classe, si c'est l'enseignant ou
+   * lui-même. Cette liste dit qui peut y prétendre ; peutNoterClasse()
+   * tranche pour une classe donnée.
+   */
+  "notes.saisir": ["teacher", "directeur_direction"],
+
   /*
    * Le directeur général y a droit lui aussi, mais le RLS lui retire
-   * les lignes financières — il voit passer les notes, les élèves et
-   * les comptes, jamais un montant.
+   * les lignes financières tant que le promoteur ne les lui a pas
+   * ouvertes.
    */
   "activite.consulter": DIRECTION_GENERALE,
-  "parametres.gerer": ["admin"],
-  "vie_scolaire.tenir": VIE_SCOLAIRE,
+  "vie_scolaire.tenir": ["directeur_direction", "surveillant"],
 
   /*
    * Les comptes, à granularité fine — et c'est délibéré.
@@ -96,50 +160,87 @@ const PERMISSIONS: Record<Permission, string[]> = {
    * d'administration courante. Attribuer un rôle en est un autre : c'est
    * la seule opération de l'application qui donne du pouvoir à
    * quelqu'un. Les confondre reviendrait à laisser une secrétaire
-   * nommer un administrateur.
+   * nommer un directeur. La nomination a donc sa propre table, NOMINE.
    */
-  "comptes.consulter": DIRECTION_GENERALE,
-  "comptes.gerer": DIRECTION_GENERALE,
-  "comptes.roles": DIRECTION_GENERALE,
-
-  /*
-   * « admin » et « promoteur » voient les finances ; le directeur
-   * général en est exclu. S'il pouvait nommer un administrateur, il lui
-   * suffirait d'en créer un pour contourner cette exclusion — ou de
-   * désactiver l'administrateur en place. Ces deux rôles sont donc hors
-   * de sa portée, en attribution comme en retrait.
-   */
-  "comptes.roles_eleves": ["admin", "promoteur"],
+  "comptes.consulter": ENCADREMENT,
+  "comptes.gerer": ENCADREMENT_ECRIT,
 }
 
 /*
- * Les rôles qui donnent accès à tout, finances comprises. Les attribuer
- * ou toucher à un compte qui les porte demande « comptes.roles_eleves ».
+ * QUI NOMME QUI.
+ *
+ * Une table explicite plutôt que deux niveaux de permission : la
+ * hiérarchie des nominations EST le modèle de rôles, et on doit pouvoir
+ * la lire d'un trait.
+ *
+ * Le promoteur nomme le directeur général et le comptable — ses deux
+ * seules écritures, avec l'accès du DG à la comptabilité. Le directeur
+ * général nomme les directeurs et les surveillants. Chaque directeur
+ * nomme ses enseignants.
+ *
+ * Personne ne nomme un promoteur : le propriétaire de l'école ne se
+ * remplace pas depuis l'application. Cela se fait par l'exploitant de
+ * la plateforme, hors de cette matrice.
  */
-export const ROLES_ELEVES = ["admin", "promoteur"]
+export const NOMINE: Record<string, string[]> = {
+  promoteur: ["directeur_general", "comptable"],
+  directeur_general: ["directeur_direction", "surveillant"],
+  directeur_direction: ["teacher"],
+}
 
 export function can(role: string | null | undefined, permission: Permission) {
   return PERMISSIONS[permission].includes(role ?? "")
 }
 
 /**
+ * La comptabilité, y compris le cas qu'aucune liste figée ne peut
+ * porter : le directeur général n'y entre que si le promoteur de SON
+ * école l'y a autorisé (`schools.dg_voit_comptabilite`).
+ *
+ * C'est un droit de LECTURE. La saisie reste au comptable seul, quelle
+ * que soit la valeur de l'interrupteur — `finances.saisir` ne le nomme
+ * pas, et `private.can_write_money()` non plus en base.
+ */
+export function peutVoirComptabilite(
+  role: string | null | undefined,
+  dgAutorise: boolean | null | undefined
+) {
+  if (can(role, "finances.voir")) {
+    return true
+  }
+
+  return role === "directeur_general" && dgAutorise === true
+}
+
+/**
  * Vrai si `role` a le droit d'attribuer `roleVise`, ou d'agir sur un
  * compte qui le porte déjà.
+ *
+ * Le rôle ACTUEL de la cible compte autant que celui qu'on veut lui
+ * donner : rétrograder un directeur général est aussi une prise de
+ * pouvoir que de nommer le sien.
  */
 export function canAssignRole(
   role: string | null | undefined,
   roleVise: string | null | undefined
 ) {
-  if (ROLES_ELEVES.includes(roleVise ?? "")) {
-    return can(role, "comptes.roles_eleves")
+  const nominables = NOMINE[role ?? ""] ?? []
+
+  /*
+   * Un compte fraîchement invité n'a pas encore de rôle. Le lui refuser
+   * le rendrait ingérable par celui-là même qui vient de l'inviter :
+   * quiconque nomme peut agir sur un compte sans rôle.
+   */
+  if (!roleVise) {
+    return nominables.length > 0
   }
 
-  return can(role, "comptes.roles")
+  return nominables.includes(roleVise)
 }
 
 /** Les rôles que `role` peut effectivement attribuer. */
 export function assignableRoles(role: string | null | undefined) {
-  return Object.keys(ROLE_LABELS).filter((cible) => canAssignRole(role, cible))
+  return NOMINE[role ?? ""] ?? []
 }
 
 export function isDirectionGenerale(role: string | null | undefined) {
@@ -162,7 +263,14 @@ export function roleLabel(role: string | null | undefined) {
  * boutons de création qui échoueraient. Il accède à ses élèves par
  * Notes, Moyennes et Bulletins.
  */
-export type NavItem = { label: string; path: string; roles: string[] }
+export type NavItem = {
+  label: string
+  path: string
+  roles: string[]
+  /** Vrai seulement pour l'entrée « Comptabilité » : le directeur
+   *  général l'obtient par autorisation du promoteur, pas par son rôle. */
+  suitAutorisationComptable?: boolean
+}
 
 const PEDAGOGIE = [...ENCADREMENT, "teacher"]
 
@@ -206,13 +314,18 @@ export const NAV_ITEMS: NavItem[] = [
    * les trois écrans existent tels quels et gardent chacun leur propre
    * garde de rôle.
    *
-   * Les directeurs en sont exclus, comme partout sur l'argent — le
-   * directeur général voit l'établissement entier sauf les finances. Ce
-   * retrait du menu ne protège rien par lui-même : cash_report_* et
+   * Le directeur général n'y figure PAS par son rôle : il l'obtient de
+   * l'interrupteur posé par le promoteur, d'où le drapeau ci-dessous.
+   * Ce retrait du menu ne protège rien par lui-même : cash_report_* et
    * payroll_month() revérifient can_see_money() en base, et les colonnes
    * de rémunération de `teachers` sont fermées au rôle `authenticated`.
    */
-  { label: "Comptabilité", path: "/accounting", roles: ["admin", "promoteur", "comptable"] },
+  {
+    label: "Comptabilité",
+    path: "/accounting",
+    roles: ["promoteur", "comptable"],
+    suitAutorisationComptable: true,
+  },
   /*
    * L'enseignant y voit ce que l'école lui doit. Ouvert à tous les rôles
    * susceptibles d'avoir une fiche enseignant rattachée : la fonction
@@ -221,6 +334,28 @@ export const NAV_ITEMS: NavItem[] = [
    */
   { label: "Ma rémunération", path: "/my-pay", roles: PEDAGOGIE },
   { label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
-  { label: "Comptes utilisateurs", path: "/users", roles: DIRECTION_GENERALE },
-  { label: "Paramètres", path: "/settings", roles: ["admin"] },
+  { label: "Comptes utilisateurs", path: "/users", roles: ENCADREMENT },
+  { label: "Paramètres", path: "/settings", roles: DG_ECRIT },
 ]
+
+/**
+ * Le menu d'un rôle, autorisation comptable du directeur général
+ * comprise.
+ *
+ * Le filtrage vit ici, avec les règles, et non dans le tableau de bord :
+ * c'est ce qui empêche un écran de proposer une page que la permission
+ * refusera.
+ */
+export function menuPour(
+  role: string | null | undefined,
+  options?: { dgVoitComptabilite?: boolean | null }
+) {
+  return NAV_ITEMS.filter((item) => {
+    if (item.suitAutorisationComptable) {
+      return peutVoirComptabilite(role, options?.dgVoitComptabilite)
+    }
+
+    // Pas de repli implicite : un rôle inconnu ou absent n'ouvre rien.
+    return item.roles.includes(role ?? "")
+  })
+}

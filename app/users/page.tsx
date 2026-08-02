@@ -46,7 +46,7 @@ type Direction = {
 const roleLabels = ROLE_LABELS
 
 /* Doit rester aligné sur la permission comptes.consulter. */
-const ROLES_AUTORISES = ["admin", "promoteur", "directeur_general"]
+const ROLES_AUTORISES = ["promoteur", "directeur_general"]
 
 // Seul rôle dont le périmètre est limité à une direction.
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
@@ -105,6 +105,10 @@ export default function UsersPage() {
 
   const [schoolType, setSchoolType] = useState("classique")
   const avecFiliere = hasFiliere(schoolType)
+
+  /* Le promoteur ouvre ou ferme la comptabilite a son directeur general. */
+  const [dgVoitCompta, setDgVoitCompta] = useState(false)
+  const [bascule, setBascule] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -199,16 +203,53 @@ export default function UsersPage() {
     /* L'axe filière n'apparaît qu'en école franco-arabe. */
     const { data: schoolData, error: schoolError } = await supabase
       .from("schools")
-      .select("school_type")
+      .select("school_type, dg_voit_comptabilite")
       .maybeSingle()
 
     if (schoolError) {
       console.error("Erreur type d'établissement :", schoolError)
     } else {
       setSchoolType(toSchoolType(schoolData?.school_type))
+      setDgVoitCompta(schoolData?.dg_voit_comptabilite === true)
     }
 
     setLoading(false)
+  }
+
+  async function basculerComptaDuDg(autorise: boolean) {
+    setActionError(null)
+    setActionMessage(null)
+    setBascule(true)
+
+    const accessToken = await getAccessToken()
+
+    if (!accessToken) {
+      return
+    }
+
+    const response = await fetch("/api/school/accounting-access", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ autorise }),
+    })
+
+    const result = await response.json()
+    setBascule(false)
+
+    if (!response.ok) {
+      setActionError(result.error ?? "Le reglage n'a pas pu etre enregistre.")
+      return
+    }
+
+    setDgVoitCompta(autorise)
+    setActionMessage(
+      autorise
+        ? "Le directeur general voit desormais la comptabilite."
+        : "La comptabilite est refermee au directeur general."
+    )
   }
 
   async function updateUser(
@@ -547,6 +588,49 @@ export default function UsersPage() {
           </div>
         )}
 
+        {/*
+          Les trois seules écritures du promoteur tiennent sur cet écran :
+          nommer son directeur général, nommer son comptable — par la
+          colonne « Rôle » ci-dessous — et cet interrupteur-ci. Partout
+          ailleurs, il regarde.
+        */}
+        {can(monRole, "comptabilite.autoriser_dg") && (
+          <div className="rounded-xl border bg-background p-6">
+            <h3 className="text-xl font-semibold">
+              Comptabilité du directeur général
+            </h3>
+
+            <p className="mt-2 text-sm text-muted-foreground">
+              Par défaut, le directeur général ne voit pas les frais, les
+              paiements ni la paie. Vous pouvez lui ouvrir la consultation.
+              Cela ne lui donne <strong>jamais</strong> la saisie : seul le
+              comptable enregistre un paiement.
+            </p>
+
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              <button
+                type="button"
+                onClick={() => basculerComptaDuDg(!dgVoitCompta)}
+                disabled={bascule}
+                className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:opacity-50"
+              >
+                {bascule
+                  ? "Enregistrement..."
+                  : dgVoitCompta
+                    ? "Refermer la comptabilité"
+                    : "Ouvrir la comptabilité"}
+              </button>
+
+              <p className="text-sm">
+                État actuel :{" "}
+                <strong>
+                  {dgVoitCompta ? "ouverte en lecture" : "fermée"}
+                </strong>
+              </p>
+            </div>
+          </div>
+        )}
+
         {!loadError && (
           <div className="rounded-xl border bg-background p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -741,7 +825,6 @@ export default function UsersPage() {
                               disabled={
                                 user.isSelf ||
                                 isPending ||
-                                !can(monRole, "comptes.roles") ||
                                 !canAssignRole(monRole, user.role)
                               }
                               className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
@@ -900,7 +983,6 @@ export default function UsersPage() {
                             disabled={
                               user.isSelf ||
                               isPending ||
-                              !can(monRole, "comptes.roles") ||
                               !canAssignRole(monRole, user.role)
                             }
                             className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"

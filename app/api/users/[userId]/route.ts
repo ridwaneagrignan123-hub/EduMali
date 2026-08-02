@@ -5,7 +5,7 @@ import {
   requireManageableTarget,
   requirePermission,
 } from "@/src/lib/apiAuth"
-import { can } from "@/src/lib/roles"
+import { assignableRoles } from "@/src/lib/roles"
 import { isFiliere } from "@/src/lib/etablissement"
 
 /*
@@ -29,7 +29,7 @@ const UNBAN_DURATION = "none"
  * rejetée par Postgres.
  */
 const ALLOWED_ROLES = [
-  "admin",
+  // « admin » a disparu du modèle : ses comptes sont devenus promoteur.
   "teacher",
   "promoteur",
   "directeur_general",
@@ -76,7 +76,7 @@ export async function PATCH(
      * rétrograder en enseignant, et régner seul.
      */
     if (role !== undefined || isActive !== undefined) {
-      if (!can(guard.context.role, "comptes.roles")) {
+      if (assignableRoles(guard.context.role).length === 0) {
         return NextResponse.json(
           {
             error:

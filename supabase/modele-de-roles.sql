@@ -1,0 +1,103 @@
+-- =====================================================================
+-- Ridwane — le modèle de rôles
+-- =====================================================================
+-- APPLIQUÉ en base le 2026-08-02. Ce fichier porte le raisonnement ;
+-- `schema.sql` porte l'état.
+
+-- ---------------------------------------------------------------------
+-- TÂCHE 1 — LE PROMOTEUR EN LECTURE SEULE
+-- ---------------------------------------------------------------------
+--
+-- « admin » N'EXISTE PLUS.
+--
+-- C'était le propriétaire de l'école sous un autre nom. Les deux comptes
+-- qui le portaient sont devenus `promoteur`, et la valeur a été retirée
+-- de profiles_role_check : elle ne peut plus être attribuée.
+--
+-- Ce que le promoteur PERD — toute l'écriture — a été reventilé, jamais
+-- supprimé. Une capacité qui n'appartient plus à personne est pire qu'un
+-- droit mal placé : elle ne se voit qu'au moment où quelqu'un en a
+-- besoin, et il est alors trop tard.
+--
+-- ---------------------------------------------------------------------
+-- POURQUOI DEUX FONCTIONS JUMELLES
+--
+-- `is_encadrement()` et `is_direction_generale()` servaient à la fois en
+-- LECTURE et en ÉCRITURE. Le promoteur doit rester dans la première et
+-- disparaître de la seconde : les retirer de ces fonctions lui aurait
+-- fermé la lecture, ce qui est tout le contraire du modèle.
+--
+-- D'où `encadrement_ecrit()` et `dg_ecrit()`, réservées aux policies
+-- d'écriture. La substitution a été faite PAR BALAYAGE de pg_policies,
+-- pas à la main : sur 48 policies on en oublie une, et celle qu'on
+-- oublie est un trou qui ne se voit pas. Le balayage, lui, se recompte.
+--
+--   48 policies d'écriture .......... is_encadrement    -> encadrement_ecrit
+--   12 policies d'écriture .......... is_direction_generale -> dg_ecrit
+--    7 policies de lecture ........... intactes
+--
+-- ---------------------------------------------------------------------
+-- CE QUE « admin » PORTAIT, ET OÙ C'EST PARTI
+--
+--   Frais supprimés ................. comptable (can_write_money)
+--   Clôture de la paie .............. comptable
+--   Règlement intérieur ............. directeur général (vaut pour
+--                                     toute l'école ; les surveillants
+--                                     le font respecter, ils ne le
+--                                     rédigent pas)
+--   Journal d'activité .............. promoteur, et directeur général
+--                                     — lignes financières comprises
+--                                     seulement si le promoteur l'y a
+--                                     autorisé
+--   Notes .......................... l'encadrement qui écrit, resserré
+--                                     ensuite au réglage « qui note »
+--   Devoirs, présence par leçon ..... doublon de l'encadrement dans la
+--                                     même expression : disparaît sans
+--                                     rien emporter
+--
+-- ---------------------------------------------------------------------
+-- L'EXPLOITANT DE LA PLATEFORME — UNE TABLE, PAS UN RÔLE
+--
+-- `platform_operators` plutôt qu'une valeur de profiles.role. Un profil
+-- appartient à une école (school_id) ; l'exploitant non. Dans la même
+-- énumération, il serait devenu un « exploitant de l'école X », et
+-- chaque liste `role in (...)` aurait dû penser à l'exclure — c'est
+-- exactement le genre d'oubli qui ouvre un accès.
+--
+-- Séparé, on peut être promoteur de sa propre école ET exploitant, ce
+-- qui est le cas réel aujourd'hui.
+--
+-- Aucune policy, délibérément — comme school_creation_grants. RLS active
+-- et zéro policy ferme la table à `authenticated` : seule la clé service
+-- role y accède. Lui ajouter une policy de lecture révélerait qui tient
+-- la plateforme.
+--
+-- ---------------------------------------------------------------------
+-- L'ACCÈS DU DG À LA COMPTABILITÉ — UN DRAPEAU D'ÉCOLE
+--
+-- `schools.dg_voit_comptabilite`, et non un second rôle. Un rôle
+-- « directeur_general_avec_comptabilite » aurait doublé chaque liste
+-- pour une seule différence, et changer d'avis aurait voulu dire
+-- renommer le compte au lieu de basculer un interrupteur. Porté par
+-- l'école, le réglage survit au remplacement du directeur général.
+--
+-- C'est un droit de LECTURE. `can_write_money()` ne nomme que le
+-- comptable, quelle que soit la valeur du drapeau.
+
+
+-- =====================================================================
+-- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
+-- =====================================================================
+-- Sous de vraies réclamations JWT de promoteur :
+--   lire les élèves ................................ passe
+--   créer une classe ............................... refusé
+--   créer une matière .............................. refusé
+--   inscrire un élève .............................. refusé
+--   ouvrir une année scolaire ...................... refusé
+--   modifier une classe ............................ refusé (0 ligne)
+--
+-- Après reventilation :
+--   policies citant is_admin ....................... 0
+--   fonctions citant 'admin' ....................... 0
+--   profils portant le rôle admin .................. 0
+--   policies d'écriture citant le promoteur ........ 0

@@ -143,7 +143,12 @@ export default function SettingsPage() {
   const [holidayError, setHolidayError] = useState<string | null>(null)
   const [holidayMessage, setHolidayMessage] = useState<string | null>(null)
 
-  const isAdmin = role === "admin"
+  /*
+   * Les parametres de l'etablissement appartiennent au directeur
+   * general : c'est le seul role a vue ecole entiere qui ecrive. Le
+   * promoteur les consulte, comme tout le reste.
+   */
+  const isAdmin = role === "directeur_general"
 
   useEffect(() => {
     loadSchool()

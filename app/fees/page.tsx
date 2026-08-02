@@ -70,11 +70,11 @@ function formatAmount(value: number) {
 const UNASSIGNED_CLASS_LABEL = "Sans classe"
 
 /* Le directeur général en est exclu : voir supabase/rls-roles.sql. */
-const ROLES_AUTORISES = ["admin", "promoteur", "comptable"]
+const ROLES_AUTORISES = ["promoteur", "comptable"]
 
 export default function FeesPage() {
   const router = useRouter()
-  const gate = useRoleGate(ROLES_AUTORISES)
+  const gate = useRoleGate(ROLES_AUTORISES, { comptabilite: true })
 
   /* Le promoteur lit les finances, il ne les saisit pas. */
   const peutSaisir =

@@ -19,7 +19,7 @@ import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate
  * ---------------------------------------------------------------------
  *
  * LA SÉCURITÉ NE TIENT PAS À CE MENU. Chaque page appelée porte déjà son
- * `useRoleGate(["admin", "promoteur", "comptable"])`, et les fonctions
+ * `useRoleGate(["promoteur", "comptable"])`, et les fonctions
  * en base — `cash_report_*`, `payroll_month` — revérifient
  * `can_see_money()`. Retirer une entrée du menu ne protège rien : cela
  * évite seulement de proposer une porte qui se refermerait au nez.
@@ -29,7 +29,7 @@ import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate
  */
 
 /* Aligné sur can_see_money(). Les directeurs en sont volontairement absents. */
-const ROLES_AUTORISES = ["admin", "promoteur", "comptable"]
+const ROLES_AUTORISES = ["promoteur", "comptable"]
 
 type Tableau = {
   titre: string
@@ -66,7 +66,7 @@ const TABLEAUX: Tableau[] = [
 
 export default function AccountingPage() {
   const router = useRouter()
-  const gate = useRoleGate(ROLES_AUTORISES)
+  const gate = useRoleGate(ROLES_AUTORISES, { comptabilite: true })
 
   if (gate.statut === "chargement") return <ChargementPage />
   if (gate.statut === "refuse") return <AccesRefuse role={gate.role} />

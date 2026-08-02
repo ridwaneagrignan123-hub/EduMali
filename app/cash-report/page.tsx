@@ -29,7 +29,7 @@ import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate
  */
 
 /* Alignée sur can_see_money() en base : le directeur général en est exclu. */
-const ROLES_AUTORISES = ["admin", "promoteur", "comptable"]
+const ROLES_AUTORISES = ["promoteur", "comptable"]
 
 type Totaux = {
   encaisse: number
@@ -86,7 +86,7 @@ function jourISO(date: Date) {
 
 export default function CashReportPage() {
   const router = useRouter()
-  const gate = useRoleGate(ROLES_AUTORISES)
+  const gate = useRoleGate(ROLES_AUTORISES, { comptabilite: true })
 
   const [jour, setJour] = useState(() => jourISO(new Date()))
   const [ecole, setEcole] = useState("")
