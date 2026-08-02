@@ -185,6 +185,31 @@
 -- restent donc communes à l'école.
 
 
+-- ---------------------------------------------------------------------
+-- TÂCHE 5 — LE COMPTABLE RESSERRÉ
+-- ---------------------------------------------------------------------
+--
+-- Comptabilité, Classes, liste des Élèves. Rien d'autre.
+--
+-- AUCUNE POLICY N'A CHANGÉ ICI, et c'est le point : le RLS lui donnait
+-- déjà exactement ces lectures — classes, élèves, inscriptions, frais,
+-- paiements, paie, pointages, fiches enseignants pour la paie — et
+-- AUCUNE donnée pédagogique : ni note, ni évaluation, ni présence. Le
+-- resserrement était un problème de MENU, pas de sécurité. Vérifié
+-- table par table avant de toucher quoi que ce soit.
+--
+-- Classes et Élèves ne sont pas un agrément : sans eux, il ne peut
+-- rattacher ni un frais ni un paiement à qui que ce soit. Il les LIT
+-- sans les écrire — inscrire un élève appartient à son directeur, créer
+-- une classe aussi. Les écrans masquent donc leurs formulaires de
+-- création, que le RLS refusait déjà.
+--
+-- Les STATISTIQUES lui sont retirées, bien qu'elles ne portent que des
+-- agrégats : « rien d'autre » veut dire rien d'autre. Le tableau de bord
+-- lui reste — c'est la page d'accueil, la retirer le laisserait sans
+-- point d'entrée.
+
+
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
 -- =====================================================================

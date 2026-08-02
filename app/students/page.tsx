@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { can } from "@/src/lib/roles"
 import { matchesSearch, normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
 import { EditDialog } from "@/components/edit-dialog"
@@ -162,6 +163,10 @@ export default function StudentsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const [schoolId, setSchoolId] = useState("")
+
+  /* Role de la personne connectee, pour ne pas proposer ce que le RLS refuse. */
+  const [role, setRole] = useState("")
+  const peutGererLesEleves = can(role, "eleves.gerer")
   const [activeAcademicYearId, setActiveAcademicYearId] = useState("")
   const [selectedClassId, setSelectedClassId] = useState("")
 
@@ -199,7 +204,7 @@ export default function StudentsPage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("school_id")
+      .select("school_id, role")
       .eq("id", user.id)
       .maybeSingle()
 
@@ -209,6 +214,7 @@ export default function StudentsPage() {
     }
 
     setSchoolId(profile.school_id)
+    setRole(profile.role ?? "")
 
     const { data: academicYearData, error: academicYearError } =
       await supabase
@@ -882,6 +888,12 @@ export default function StudentsPage() {
         )}
 
         <div className="grid gap-8 xl:grid-cols-[420px_1fr]">
+          {/*
+            Le comptable LIT la liste des eleves — il en a besoin pour
+            rattacher un frais ou un paiement — mais ne l'ecrit pas :
+            inscrire un eleve appartient a son directeur.
+          */}
+          {peutGererLesEleves && (
           <div className="rounded-xl border bg-background p-6">
             <h3 className="text-xl font-semibold">
               Ajouter un élève
@@ -1090,6 +1102,7 @@ export default function StudentsPage() {
               </button>
             </form>
           </div>
+          )}
 
           <div className="rounded-xl border bg-background p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">

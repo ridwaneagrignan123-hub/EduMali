@@ -291,19 +291,41 @@ export type NavItem = {
 
 const PEDAGOGIE = [...ENCADREMENT, "teacher"]
 
+const SURVEILLANTS = ["surveillant", "surveillant_general"]
+
 /*
- * Les statistiques sont ouvertes à tous, y compris au comptable et au
- * surveillant : elles ne portent que des moyennes agrégées, jamais une
- * note nominative. C'est la raison d'être des fonctions stats_* en base,
- * qui ne rendent rien d'autre que des agrégats.
+ * LE COMPTABLE NE VOIT QUE TROIS CHOSES : la Comptabilité, les Classes
+ * et la liste des Élèves. Rien d'autre.
+ *
+ * Les Classes et les Élèves ne sont pas un agrément : sans eux, il ne
+ * peut rattacher ni un frais ni un paiement à qui que ce soit. Le RLS
+ * lui donne d'ailleurs exactement ces lectures, et aucune donnée
+ * pédagogique — ni note, ni évaluation, ni présence.
+ *
+ * Les STATISTIQUES lui sont retirées. Elles ne portent pourtant que des
+ * agrégats, jamais une note nominative — mais « rien d'autre » veut dire
+ * rien d'autre, et un écran de moyennes de classe n'est pas son métier.
  */
-const TOUS = [...PEDAGOGIE, "comptable", "surveillant", "surveillant_general"]
+const COMPTABLE_VOIT = [...ENCADREMENT, "comptable"]
+
+/*
+ * Le tableau de bord reste ouvert à tous : c'est la page d'accueil, et
+ * la retirer à quelqu'un le laisserait sans point d'entrée.
+ */
+const TOUS = [...PEDAGOGIE, "comptable", ...SURVEILLANTS]
+
+/*
+ * Les statistiques ne portent que des moyennes agrégées, jamais une note
+ * nominative — c'est la raison d'être des fonctions stats_* en base. Le
+ * surveillant y a donc droit ; le comptable, non (voir ci-dessus).
+ */
+const STATISTIQUES = [...PEDAGOGIE, ...SURVEILLANTS]
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Tableau de bord", path: "/dashboard", roles: TOUS },
-  { label: "Statistiques", path: "/statistics", roles: TOUS },
+  { label: "Statistiques", path: "/statistics", roles: STATISTIQUES },
   { label: "Surveillance", path: "/supervision", roles: SURVEILLANCE },
-  { label: "Élèves", path: "/students", roles: ENCADREMENT },
+  { label: "Élèves", path: "/students", roles: COMPTABLE_VOIT },
   /*
    * Le pic de ressaisie de l'année : réinscrire tout un effectif à la
    * rentrée. Mêmes rôles que la gestion des élèves.
@@ -311,7 +333,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Passage de classe", path: "/promotion", roles: ENCADREMENT },
   { label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
   { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
-  { label: "Classes", path: "/classes", roles: ENCADREMENT },
+  { label: "Classes", path: "/classes", roles: COMPTABLE_VOIT },
   { label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
   { label: "Matières", path: "/subjects", roles: DIRECTION_GENERALE },
   { label: "Classes / Matières", path: "/class_subjects", roles: ENCADREMENT },

@@ -52,6 +52,7 @@ export default function ClassesPage() {
   /* Role de la personne connectee : seul le directeur regle « qui note ». */
   const [role, setRole] = useState("")
   const [reglageEnCours, setReglageEnCours] = useState<string | null>(null)
+  const peutGerer = can(role, "classes.gerer")
 
   useEffect(() => {
     loadClasses()
@@ -225,6 +226,12 @@ export default function ClassesPage() {
         )}
 
         <div className="grid gap-8 lg:grid-cols-[380px_1fr]">
+          {/*
+            Le comptable LIT les classes — il en a besoin pour rattacher
+            un frais — mais ne les cree pas : elles appartiennent au
+            directeur de leur direction.
+          */}
+          {peutGerer && (
           <div className="rounded-xl border bg-background p-6">
             <h3 className="text-xl font-semibold">
               Ajouter une classe
@@ -312,6 +319,7 @@ export default function ClassesPage() {
               </button>
             </form>
           </div>
+          )}
 
           <div className="rounded-xl border bg-background p-6">
             <h3 className="text-xl font-semibold">
@@ -351,7 +359,7 @@ export default function ClassesPage() {
                         l'enseignant qui se demande pourquoi la page
                         Notes lui est fermée.
                       */}
-                      {can(role, "classes.gerer") ? (
+                      {peutGerer ? (
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <label
                             htmlFor={`qui-note-${classItem.id}`}
@@ -383,6 +391,7 @@ export default function ClassesPage() {
                       )}
                     </div>
 
+                    {peutGerer && (
                     <button
                       type="button"
                       onClick={() =>
@@ -396,6 +405,7 @@ export default function ClassesPage() {
                         ? "Fermer les devoirs"
                         : "Devoirs à la maison"}
                     </button>
+                    )}
                   </div>
                 ))}
               </div>
