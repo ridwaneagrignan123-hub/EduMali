@@ -4,8 +4,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import {
+  CYCLES,
+  CYCLE_LABELS,
   FILIERES,
   FILIERE_LABELS,
+  cycleLabel,
   hasFiliere,
   toSchoolType,
 } from "@/src/lib/etablissement"
@@ -23,6 +26,12 @@ type Directeur = {
 type Direction = {
   id: string
   name: string
+  /*
+   * Le cycle auquel la direction appartient. Un MEME cycle peut avoir
+   * plusieurs directions — d'ou une colonne de rattachement et non une
+   * table de correspondance.
+   */
+  cycle: string | null
   created_at: string
 }
 
@@ -61,6 +70,7 @@ export default function DirectionsPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
 
   const [newName, setNewName] = useState("")
+  const [newCycle, setNewCycle] = useState("")
   const [creating, setCreating] = useState(false)
 
   const [pendingClassId, setPendingClassId] = useState<string | null>(null)
@@ -129,7 +139,7 @@ export default function DirectionsPage() {
       await Promise.all([
       supabase
         .from("directions")
-        .select("id, name, created_at")
+        .select("id, name, cycle, created_at")
         .eq("school_id", currentSchoolId)
         .order("name"),
 
@@ -191,6 +201,7 @@ export default function DirectionsPage() {
     const { error } = await supabase.from("directions").insert({
       school_id: schoolId,
       name: newName.trim(),
+      cycle: newCycle || null,
     })
 
     if (error) {
@@ -207,6 +218,7 @@ export default function DirectionsPage() {
     }
 
     setNewName("")
+    setNewCycle("")
     await loadDirectionsAndClasses(schoolId)
 
     setActionMessage("Direction créée.")
@@ -437,6 +449,25 @@ export default function DirectionsPage() {
               />
             </div>
 
+            <div className="space-y-2" style={{ minWidth: "14rem" }}>
+              <label htmlFor="direction-cycle">Cycle</label>
+
+              <select
+                id="direction-cycle"
+                value={newCycle}
+                onChange={(event) => setNewCycle(event.target.value)}
+                className="w-full rounded-md border bg-background px-3 py-2"
+              >
+                <option value="">Non défini</option>
+
+                {CYCLES.map((value) => (
+                  <option key={value} value={value}>
+                    {CYCLE_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               type="submit"
               disabled={creating}
@@ -504,6 +535,8 @@ export default function DirectionsPage() {
                         </p>
 
                         <p className="mt-1 text-sm text-muted-foreground">
+                          {cycleLabel(direction.cycle)}
+                          {" — "}
                           {attached.length} classe(s) rattachée(s)
                         </p>
 

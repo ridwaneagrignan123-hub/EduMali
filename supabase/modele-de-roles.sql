@@ -85,6 +85,50 @@
 -- comptable, quelle que soit la valeur du drapeau.
 
 
+-- ---------------------------------------------------------------------
+-- TÂCHE 2 — LES DIRECTIONS ONT UN CYCLE, LES DIRECTEURS SONT PAIRS
+-- ---------------------------------------------------------------------
+--
+-- `directions.cycle` est une COLONNE et non une table de correspondance :
+-- un cycle peut avoir plusieurs directions, mais une direction n'
+-- appartient qu'à un cycle. C'est un rattachement, pas une relation à
+-- deux sens. Même vocabulaire que `classes.cycle`, délibérément — deux
+-- énumérations parallèles finiraient par diverger.
+--
+-- AUCUNE HIÉRARCHIE ENTRE DIRECTEURS. Il n'existe nulle part de test
+-- « directeur A au-dessus de directeur B » : chacun est borné à sa
+-- direction par `current_direction_id()`, et deux directions ne se
+-- voient pas. C'est ce qui les rend pairs — non pas une règle ajoutée,
+-- mais l'absence de toute règle qui les ordonnerait.
+--
+-- « SES » ENSEIGNANTS SE LISENT, ILS NE SE STOCKENT PAS. Un enseignant
+-- n'a pas de direction en propre : il en tient une par les classes où il
+-- intervient. Une colonne `teachers.direction_id` aurait dû être
+-- corrigée à chaque affectation, et aurait menti dès la première
+-- omission.
+--
+-- LE CAS QUI COMPTE : un enseignant affecté NULLE PART est visible de
+-- tous les directeurs. Sans cela, celui qui vient de le créer ne
+-- pourrait plus le rouvrir pour l'affecter — la fiche serait perdue
+-- entre sa création et sa première classe.
+--
+-- L'INSERTION D'UN ÉLÈVE reste bornée à l'école et non à la direction,
+-- volontairement : un élève qu'on vient de créer n'est inscrit dans
+-- aucune classe, donc il n'a encore aucune direction à comparer. La
+-- vraie porte est `student_class_enrollments`, déjà cloisonnée.
+--
+-- LA SUPPRESSION garde le directeur général en recours, pour les élèves
+-- et les classes rattachés à aucune direction. Bornée aux seuls
+-- directeurs, plus personne n'aurait pu les supprimer.
+--
+-- FRANCO-ARABE : RIEN N'EST RECLOISONNÉ. La filière NOMME la
+-- responsabilité et ne restreint aucun périmètre RLS — décision de
+-- `franco-arabe.sql`, laissée intacte. Les deux directeurs partagent la
+-- même direction, donc le dossier de l'élève (effectif, frais, absences)
+-- reste entier. Ajouter la filière aux bornes de `students` l'aurait
+-- coupé en deux, ce qui est exactement ce qu'il ne faut pas.
+
+
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
 -- =====================================================================
@@ -101,3 +145,13 @@
 --   fonctions citant 'admin' ....................... 0
 --   profils portant le rôle admin .................. 0
 --   policies d'écriture citant le promoteur ........ 0
+--
+-- Sous de vraies réclamations JWT d'un directeur de la direction A,
+-- avec une direction B voisine (données réelles, transaction annulée) :
+--   classes visibles ................. 1 sur 2
+--   enseignants visibles ............. 1 sur 2
+--   créneaux de la direction B ....... 0
+--   modifier la classe d'à côté ...... refusé (0 ligne)
+--   modifier sa propre classe ........ 1 ligne
+--   modifier l'enseignant d'à côté ... refusé (0 ligne)
+--   modifier son enseignant .......... 1 ligne
