@@ -1,12 +1,17 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { matchesSearch } from "@/src/lib/search"
 import { EditDialog } from "@/components/edit-dialog"
 import { AccessLinkNotice } from "@/components/access-link-notice"
-import { ROLE_LABELS, can, canAssignRole } from "@/src/lib/roles"
+import {
+  ROLE_LABELS,
+  assignableRoles,
+  can,
+  canAssignRole,
+} from "@/src/lib/roles"
 import {
   CYCLES,
   CYCLE_LABELS,
@@ -49,8 +54,12 @@ type Direction = {
  */
 const roleLabels = ROLE_LABELS
 
-/* Doit rester aligné sur la permission comptes.consulter. */
-const ROLES_AUTORISES = ["promoteur", "directeur_general"]
+/*
+ * Doit rester aligné sur la permission comptes.consulter — le directeur
+ * de direction y figure, et il en a besoin : c'est lui qui ajoute ses
+ * enseignants.
+ */
+const ROLES_AUTORISES = ["promoteur", "directeur_general", "directeur_direction"]
 
 // Seul rôle dont le périmètre est limité à une direction.
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
@@ -118,8 +127,27 @@ export default function UsersPage() {
     Record<string, string>
   >({})
 
+  /*
+   * AJOUT D'UN MEMBRE. Les roles proposes ne sont pas une liste ecrite
+   * ici : ce sont exactement ceux que NOMINE autorise a l'appelant. La
+   * route serveur refait le meme controle — l'ecran ne fait qu'eviter de
+   * proposer ce qui sera refuse.
+   */
+  const [ajoutOuvert, setAjoutOuvert] = useState(false)
+  const [nouveauPrenom, setNouveauPrenom] = useState("")
+  const [nouveauNom, setNouveauNom] = useState("")
+  const [nouvelEmail, setNouvelEmail] = useState("")
+  const [nouveauRole, setNouveauRole] = useState("")
+  const [nouvelleDirection, setNouvelleDirection] = useState("")
+  const [nouvelleFiliere, setNouvelleFiliere] = useState("")
+  const [nouveauCycle, setNouveauCycle] = useState("")
+  const [nouveauTelephone, setNouveauTelephone] = useState("")
+  const [ajoutEnCours, setAjoutEnCours] = useState(false)
+  const [ajoutErreur, setAjoutErreur] = useState<string | null>(null)
+
   const [schoolType, setSchoolType] = useState("classique")
   const avecFiliere = hasFiliere(schoolType)
+
 
   /* Le promoteur ouvre ou ferme la comptabilite a son directeur general. */
   const [dgVoitCompta, setDgVoitCompta] = useState(false)
@@ -135,6 +163,13 @@ export default function UsersPage() {
 
   /** Rôle de la personne connectée, pour n'afficher que ses commandes. */
   const [monRole, setMonRole] = useState("")
+
+  /*
+   * Ce que NOMINE autorise a l'appelant, et rien d'autre. La liste vide
+   * fait disparaitre le formulaire : un role qui ne nomme personne n'a
+   * pas a voir un bouton qui echouerait.
+   */
+  const rolesCreables = assignableRoles(monRole)
 
   /* Lien d'accès du dernier compte relancé, à transmettre à la main. */
   const [accessNotice, setAccessNotice] = useState<{
@@ -229,6 +264,75 @@ export default function UsersPage() {
     }
 
     setLoading(false)
+  }
+
+  function fermerAjout() {
+    setAjoutOuvert(false)
+    setAjoutErreur(null)
+    setNouveauPrenom("")
+    setNouveauNom("")
+    setNouvelEmail("")
+    setNouveauRole("")
+    setNouvelleDirection("")
+    setNouvelleFiliere("")
+    setNouveauCycle("")
+    setNouveauTelephone("")
+  }
+
+  async function ajouterMembre(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    setAjoutErreur(null)
+    setAjoutEnCours(true)
+
+    const accessToken = await getAccessToken()
+
+    if (!accessToken) {
+      return
+    }
+
+    const response = await fetch("/api/users", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        firstName: nouveauPrenom,
+        lastName: nouveauNom,
+        email: nouvelEmail,
+        role: nouveauRole,
+        directionId: nouvelleDirection || undefined,
+        filiere: nouvelleFiliere || undefined,
+        cycle: nouveauCycle || undefined,
+        phone: nouveauTelephone || undefined,
+      }),
+    })
+
+    const resultat = await response.json()
+    setAjoutEnCours(false)
+
+    if (!response.ok) {
+      setAjoutErreur(resultat.error ?? "Le compte n'a pas pu être créé.")
+      return
+    }
+
+    /*
+     * Le lien d'acces s'affiche tout de suite : tant qu'aucun service
+     * d'envoi n'est branche, c'est le seul chemin reel vers le compte.
+     */
+    setAccessNotice({
+      email: resultat.email,
+      emailAttempted: resultat.emailAttempted,
+      accessLink: resultat.accessLink,
+    })
+
+    setActionMessage(
+      `${nouveauNom.toUpperCase()} ${nouveauPrenom} a été ajouté comme ${roleLabels[nouveauRole] ?? nouveauRole}.`
+    )
+
+    fermerAjout()
+    await loadUsers()
   }
 
   async function basculerComptaDuDg(autorise: boolean) {
@@ -682,6 +786,247 @@ export default function UsersPage() {
                 </strong>
               </p>
             </div>
+          </div>
+        )}
+
+        {/*
+          AJOUTER UN MEMBRE.
+          Les rôles proposés viennent de NOMINE, jamais d'une liste
+          écrite ici : le promoteur voit directeur général et comptable,
+          le directeur général ses directeurs et surveillants, le
+          directeur ses enseignants. La route serveur refait le même
+          contrôle — cet écran évite seulement de proposer ce qui sera
+          refusé.
+        */}
+        {rolesCreables.length > 0 && (
+          <div className="rounded-xl border bg-background p-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold">Ajouter un membre</h3>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Crée le compte, le rattache à votre établissement et
+                  produit son lien d&apos;accès.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  ajoutOuvert ? fermerAjout() : setAjoutOuvert(true)
+                }
+                className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+              >
+                {ajoutOuvert ? "Annuler" : "Ajouter un membre"}
+              </button>
+            </div>
+
+            {ajoutOuvert && (
+              <form onSubmit={ajouterMembre} className="mt-6 space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label htmlFor="membre-prenom">Prénom *</label>
+
+                    <input
+                      id="membre-prenom"
+                      value={nouveauPrenom}
+                      onChange={(event) => setNouveauPrenom(event.target.value)}
+                      required
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="membre-nom">Nom *</label>
+
+                    <input
+                      id="membre-nom"
+                      value={nouveauNom}
+                      onChange={(event) => setNouveauNom(event.target.value)}
+                      required
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="membre-email">Adresse email *</label>
+
+                  <input
+                    id="membre-email"
+                    type="email"
+                    value={nouvelEmail}
+                    onChange={(event) => setNouvelEmail(event.target.value)}
+                    required
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                  />
+
+                  <p className="text-xs text-muted-foreground">
+                    C&apos;est son identifiant de connexion, et l&apos;adresse
+                    à laquelle son lien d&apos;accès sera rattaché.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="membre-role">Rôle *</label>
+
+                  <select
+                    id="membre-role"
+                    value={nouveauRole}
+                    onChange={(event) => {
+                      setNouveauRole(event.target.value)
+                      setNouvelleDirection("")
+                      setNouvelleFiliere("")
+                      setNouveauCycle("")
+                    }}
+                    required
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                  >
+                    <option value="">Choisir...</option>
+
+                    {rolesCreables.map((valeur) => (
+                      <option key={valeur} value={valeur}>
+                        {roleLabels[valeur] ?? valeur}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Le périmètre, pour les rôles qui en ont un. */}
+                {nouveauRole === DIRECTION_SCOPED_ROLE && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label htmlFor="membre-direction">Direction *</label>
+
+                      <select
+                        id="membre-direction"
+                        value={nouvelleDirection}
+                        onChange={(event) =>
+                          setNouvelleDirection(event.target.value)
+                        }
+                        required
+                        className="w-full rounded-md border bg-background px-3 py-2"
+                      >
+                        <option value="">Choisir...</option>
+
+                        {directions.map((direction) => (
+                          <option key={direction.id} value={direction.id}>
+                            {direction.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      {directions.length === 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Aucune direction n&apos;existe encore.{" "}
+                          <button
+                            type="button"
+                            onClick={() => router.push("/directions")}
+                            className="font-medium text-primary underline"
+                          >
+                            En créer une
+                          </button>
+                        </p>
+                      )}
+                    </div>
+
+                    {avecFiliere && (
+                      <div className="space-y-2">
+                        <label htmlFor="membre-filiere">Filière</label>
+
+                        <select
+                          id="membre-filiere"
+                          value={nouvelleFiliere}
+                          onChange={(event) =>
+                            setNouvelleFiliere(event.target.value)
+                          }
+                          className="w-full rounded-md border bg-background px-3 py-2"
+                        >
+                          <option value="">Sans filière</option>
+
+                          {FILIERES.map((valeur) => (
+                            <option key={valeur} value={valeur}>
+                              {FILIERE_LABELS[valeur]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {nouveauRole === CYCLE_SCOPED_ROLE && (
+                  <div className="space-y-2">
+                    <label htmlFor="membre-cycle">Cycle surveillé *</label>
+
+                    <select
+                      id="membre-cycle"
+                      value={nouveauCycle}
+                      onChange={(event) => setNouveauCycle(event.target.value)}
+                      required
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                    >
+                      <option value="">Choisir...</option>
+
+                      {CYCLES.map((valeur) => (
+                        <option key={valeur} value={valeur}>
+                          {CYCLE_LABELS[valeur]}
+                        </option>
+                      ))}
+                    </select>
+
+                    <p className="text-xs text-muted-foreground">
+                      Un surveillant sans cycle ne voit aucune classe. Pour
+                      couvrir les trois, choisissez plutôt surveillant
+                      général.
+                    </p>
+                  </div>
+                )}
+
+                {/*
+                  L'enseignant reçoit aussi une FICHE, pas seulement un
+                  compte : sans elle il ne pourrait être affecté à aucune
+                  classe, ni pointé, ni payé. Le numéro WhatsApp devient
+                  donc obligatoire, comme partout où une fiche naît.
+                */}
+                {nouveauRole === "teacher" && (
+                  <div className="space-y-2">
+                    <label htmlFor="membre-tel">Numéro WhatsApp *</label>
+
+                    <input
+                      id="membre-tel"
+                      type="tel"
+                      value={nouveauTelephone}
+                      onChange={(event) =>
+                        setNouveauTelephone(event.target.value)
+                      }
+                      required
+                      placeholder="Exemple : 76 00 00 00"
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                    />
+
+                    <p className="text-xs text-muted-foreground">
+                      Une fiche enseignant est créée en même temps que le
+                      compte, et le numéro y est obligatoire.
+                    </p>
+                  </div>
+                )}
+
+                {ajoutErreur && (
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                    {ajoutErreur}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={ajoutEnCours}
+                  className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  {ajoutEnCours ? "Création..." : "Créer le compte"}
+                </button>
+              </form>
+            )}
           </div>
         )}
 
