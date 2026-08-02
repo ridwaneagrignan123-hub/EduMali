@@ -388,6 +388,12 @@ export const NAV_ITEMS: NavItem[] = [
    */
   { label: "Ma rémunération", path: "/my-pay", roles: PEDAGOGIE },
   { label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
+  /*
+   * La copie des données de l'école, réservée à son propriétaire. Ce
+   * n'est pas une capacité de gestion : c'est la garantie qu'il peut
+   * repartir avec ses données sans les demander à personne.
+   */
+  { label: "Sauvegarde", path: "/sauvegarde", roles: ["promoteur"] },
   { label: "Comptes utilisateurs", path: "/users", roles: ENCADREMENT },
   { label: "Paramètres", path: "/settings", roles: DG_ECRIT },
 ]
