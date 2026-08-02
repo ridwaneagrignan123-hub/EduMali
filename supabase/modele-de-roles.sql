@@ -268,6 +268,57 @@
 --      ne l'est pas.
 
 
+-- ---------------------------------------------------------------------
+-- TÂCHE 8 — INSCRIPTION D'UNE ÉCOLE SUR DEMANDE
+-- ---------------------------------------------------------------------
+--
+-- `school_access_requests` N'OUVRE AUCUNE PORTE. Elle ajoute une file
+-- d'attente DEVANT celle qui existait déjà :
+--
+--   1. l'école candidate dépose une demande, publiquement ;
+--   2. l'exploitant l'approuve ou la refuse ;
+--   3. l'approbation ÉMET une autorisation dans school_creation_grants ;
+--   4. l'école crée son compte par le flux existant — atomique, non
+--      rejouable, inchangé.
+--
+-- Une demande approuvée n'est donc qu'une invitation à passer par la
+-- porte d'avant. Aucune inscription publique libre.
+--
+-- ZÉRO POLICY, comme school_creation_grants et platform_operators.
+-- Une policy d'insertion publique avait d'abord été posée ; elle a été
+-- RETIRÉE. Le dépôt passe par /api/school-requests, qui valide le
+-- numéro, l'adresse et écarte les doublons ; la policy ouvrait EN PLUS
+-- une écriture directe depuis le navigateur, contournant ces trois
+-- contrôles. Une porte de service à côté de la porte d'entrée, pour
+-- aucun gain.
+--
+-- La LECTURE n'est ouverte à personne : la file porte des noms, des
+-- numéros et des adresses d'écoles candidates.
+--
+-- L'EMAIL EST OBLIGATOIRE dans la demande, bien que l'énoncé ne parle
+-- que d'un contact et d'un numéro : l'autorisation émise à l'étape 3 est
+-- NOMINATIVE PAR EMAIL — c'est ce que school_creation_grants compare au
+-- compte qui tente la création. Sans lui, l'approbation n'aurait rien à
+-- viser.
+--
+-- L'APPROBATION SE RÉCLAME EN UNE ÉCRITURE conditionnée sur
+-- `status = 'en_attente'`. Lire puis écrire aurait laissé deux clics
+-- simultanés approuver deux fois la même demande, donc émettre deux
+-- autorisations pour une seule école. Si l'émission échoue ensuite, la
+-- demande retourne en attente : une approbation sans autorisation ne se
+-- remarquerait jamais.
+
+
+-- ---------------------------------------------------------------------
+-- TÂCHE 9 — LA CLÉ MAÎTRESSE NE PEUT PLUS PARTIR AU NAVIGATEUR
+-- ---------------------------------------------------------------------
+--
+-- `import "server-only"` en tête de src/lib/supabaseAdmin.ts. Un import
+-- accidentel depuis un composant client fait désormais ÉCHOUER LA
+-- COMPILATION, au lieu d'embarquer SUPABASE_SERVICE_ROLE_KEY — la clé
+-- qui contourne tout le RLS — dans un paquet servi au public.
+
+
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
 -- =====================================================================
@@ -316,3 +367,13 @@
 -- un à son collègue :
 --   enseignant : créneaux visibles de sa classe ...... 1 sur 2
 --   enseignant : créneaux de son collègue ............ 0
+--
+-- Demandes d'accès, cycle complet (transaction annulée) :
+--   anon écrit directement dans la file .............. refusé
+--   anon relit la file ............................... 0
+--   un connecté relit la file ........................ 0
+--   la route dépose la demande ....................... passe
+--   réclamation de la demande ........................ 1 ligne
+--   seconde réclamation (double-clic) ................ 0 ligne
+--   autorisation réclamée une fois ................... 1 ligne
+--   autorisation rejouée ............................. 0 ligne

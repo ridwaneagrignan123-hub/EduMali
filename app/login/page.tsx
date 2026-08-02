@@ -63,6 +63,20 @@ export default function LoginPage() {
           <LoginForm />
         </div>
 
+        {/*
+          La porte d'entrée des écoles candidates. Elle mène à une
+          DEMANDE, pas à une inscription : rien ne se crée sans
+          autorisation nominative.
+        */}
+        <p className="text-center">
+          <Link
+            href="/demande-acces"
+            style={{ fontSize: 14, color: "oklch(95% 0.015 85 / 0.75)" }}
+          >
+            Votre école n&apos;a pas encore d&apos;accès ? Demandez-en un
+          </Link>
+        </p>
+
         <p className="text-center">
           <Link
             href="/"
