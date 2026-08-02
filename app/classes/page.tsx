@@ -11,12 +11,20 @@ import {
   CYCLE_LABELS,
   cycleLabel,
 } from "@/src/lib/etablissement"
+import { can } from "@/src/lib/roles"
 
 type ClassItem = {
   id: string
   name: string
   level: string | null
   cycle: string | null
+  /*
+   * « enseignant » ou « directeur ». Le reglage DEPLACE le droit de
+   * saisie, il ne l'ajoute pas : si la classe dit « directeur »,
+   * l'enseignant affecte ne peut plus noter. private.peut_noter_classe()
+   * fait foi en base.
+   */
+  notes_saisies_par: string
 }
 
 export default function ClassesPage() {
@@ -41,6 +49,10 @@ export default function ClassesPage() {
   const [level, setLevel] = useState("")
   const [cycle, setCycle] = useState("")
 
+  /* Role de la personne connectee : seul le directeur regle « qui note ». */
+  const [role, setRole] = useState("")
+  const [reglageEnCours, setReglageEnCours] = useState<string | null>(null)
+
   useEffect(() => {
     loadClasses()
   }, [])
@@ -60,7 +72,7 @@ export default function ClassesPage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("school_id")
+      .select("school_id, role")
       .eq("id", user.id)
       .maybeSingle()
 
@@ -70,10 +82,11 @@ export default function ClassesPage() {
     }
 
     setSchoolId(profile.school_id)
+    setRole(profile.role ?? "")
 
     const { data, error } = await supabase
       .from("classes")
-      .select("id, name, level, cycle")
+      .select("id, name, level, cycle, notes_saisies_par")
       .eq("school_id", profile.school_id)
       .order("created_at", { ascending: false })
 
@@ -86,6 +99,37 @@ export default function ClassesPage() {
 
     setClasses(data ?? [])
     setLoading(false)
+  }
+
+  /*
+   * « Qui note » se règle classe par classe, et non école par école :
+   * une même école fait souvent les deux — saisie directe au second
+   * cycle, recopie par la direction au premier, où l'enseignant rend
+   * une feuille.
+   */
+  async function reglerQuiNote(classItem: ClassItem, valeur: string) {
+    setReglageEnCours(classItem.id)
+
+    const { error } = await supabase
+      .from("classes")
+      .update({ notes_saisies_par: valeur })
+      .eq("id", classItem.id)
+
+    setReglageEnCours(null)
+
+    if (error) {
+      console.error("Erreur réglage « qui note » :", error)
+      alert(error.message)
+      return
+    }
+
+    setClasses((liste) =>
+      liste.map((item) =>
+        item.id === classItem.id
+          ? { ...item, notes_saisies_par: valeur }
+          : item
+      )
+    )
   }
 
   async function createClass(event: React.FormEvent) {
@@ -299,6 +343,44 @@ export default function ClassesPage() {
                         {" — "}
                         {cycleLabel(classItem.cycle)}
                       </p>
+
+                      {/*
+                        Le réglage n'apparaît qu'au directeur, seul à
+                        pouvoir le poser. Pour les autres, la phrase
+                        indique simplement qui saisit — utile à
+                        l'enseignant qui se demande pourquoi la page
+                        Notes lui est fermée.
+                      */}
+                      {can(role, "classes.gerer") ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <label
+                            htmlFor={`qui-note-${classItem.id}`}
+                            className="text-xs text-muted-foreground"
+                          >
+                            Les notes sont saisies par
+                          </label>
+
+                          <select
+                            id={`qui-note-${classItem.id}`}
+                            value={classItem.notes_saisies_par}
+                            onChange={(event) =>
+                              reglerQuiNote(classItem, event.target.value)
+                            }
+                            disabled={reglageEnCours === classItem.id}
+                            className="rounded-md border bg-background px-2 py-1 text-xs disabled:opacity-60"
+                          >
+                            <option value="enseignant">l&apos;enseignant</option>
+                            <option value="directeur">le directeur</option>
+                          </select>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Notes saisies par{" "}
+                          {classItem.notes_saisies_par === "directeur"
+                            ? "le directeur"
+                            : "l'enseignant"}
+                        </p>
+                      )}
                     </div>
 
                     <button

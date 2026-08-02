@@ -129,6 +129,26 @@
 -- coupé en deux, ce qui est exactement ce qu'il ne faut pas.
 
 
+-- ---------------------------------------------------------------------
+-- TÂCHE 3 — « QUI NOTE » : LE DIRECTEUR DÉCIDE
+-- ---------------------------------------------------------------------
+--
+-- `classes.notes_saisies_par` vaut « enseignant » (défaut) ou
+-- « directeur ». Porté par la CLASSE et non par l'école : une même
+-- école fait souvent les deux — saisie directe au second cycle, recopie
+-- par la direction au premier, où l'enseignant rend une feuille.
+--
+-- LE RÉGLAGE DÉPLACE LE DROIT, IL NE L'AJOUTE PAS. Si la classe dit
+-- « directeur », l'enseignant affecté NE PEUT PLUS noter. C'est tout
+-- l'intérêt : un réglage qui n'aurait fait qu'ouvrir une porte de plus
+-- ne changerait rien pour l'enseignant, et ne servirait donc à rien.
+--
+-- Une seule porte, `private.peut_noter_classe()`, à laquelle les trois
+-- policies de `grades` s'adossent. Elles ne nomment plus l'encadrement
+-- en bloc : un directeur général n'a pas à saisir une note, et un
+-- directeur ne le fait que sur les classes qu'il a réglées ainsi.
+
+
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
 -- =====================================================================
@@ -155,3 +175,10 @@
 --   modifier sa propre classe ........ 1 ligne
 --   modifier l'enseignant d'à côté ... refusé (0 ligne)
 --   modifier son enseignant .......... 1 ligne
+--
+-- « Qui note », le tableau de vérité complet, sous de vraies
+-- réclamations JWT (données réelles, transaction annulée) :
+--   réglage « enseignant » / l'enseignant note ..... passe
+--   réglage « enseignant » / le directeur note ..... refusé
+--   réglage « directeur »  / l'enseignant note ..... refusé
+--   réglage « directeur »  / le directeur note ..... passe
