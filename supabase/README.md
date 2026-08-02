@@ -22,18 +22,18 @@ automatiquement synchronisée.
 ## Ce que contient ce dossier
 
 **`schema.sql`** — état de référence complet, obtenu par introspection de la
-base de production le **2026-08-01** (lecture de `pg_catalog`).
+base de production le **2026-08-02** (lecture de `pg_catalog`).
 
 | | |
 |---|---|
-| Tables | **33** |
-| Colonnes | 287 |
-| Contraintes | 180 |
-| Tables avec RLS active | **33 sur 33** |
+| Tables | **35** |
+| Colonnes | 306 |
+| Contraintes | 190 |
+| Tables avec RLS active | **35 sur 35** |
 | Policies | 118 |
-| Index | 73 |
+| Index | 76 |
 | Fonctions `public` | 17 |
-| Fonctions `private` | 39 |
+| Fonctions `private` | 49 |
 | Déclencheurs | 50 |
 
 Les déclencheurs incluent `on_auth_user_created`, posé sur `auth.users` et
@@ -42,7 +42,14 @@ non sur `public`.
 Chaque régénération se contrôle **inventaire par inventaire, dans les deux
 sens** : aucun objet de la base absent du fichier, aucun objet du fichier
 absent de la base. C'est ce contrôle qui avait révélé, le 30 juillet, une
-fonction décrite dans le fichier mais absente de la base.
+fonction décrite dans le fichier mais absente de la base — et, le 2 août,
+huit fonctions qu'une substitution trop large venait d'effacer du fichier
+sans que le décompte total ne le laisse voir. Les TOTAUX ne suffisent pas :
+la comparaison se fait NOM PAR NOM.
+
+Pour les policies, dont les noms sont nombreux, la comparaison se fait par
+empreinte : `md5(string_agg(tablename||' :: '||policyname, …))` en base,
+la même sur les noms extraits du fichier. Les deux doivent coïncider.
 
 Il porte désormais une **section 5 : droits par colonne**. Le RLS travaille
 par ligne et ne masque pas une colonne — sans ce bloc, une base recréée
@@ -70,6 +77,7 @@ sur la production échouerait, les objets existant déjà.
 | `messages-parents-et-discipline.sql` | `sms_logs` devient la file d'envoi ; `lesson_attendance`, `detentions`, `school_rules`, `rule_violations` (2026-07-31) |
 | `plafond-et-matieres-notables.sql` | on ne verse pas plus que le dû ; on ne note que les matières de la classe (2026-08-01) |
 | `devoirs-maison.sql` | table `homework`, bucket `homework-photos`, `sms_logs.event_type` accueille `devoir` (2026-08-01) |
+| `modele-de-roles.sql` | le promoteur passe en lecture seule, « admin » disparaît, directions par cycle, « qui note », surveillance par cycle, demandes d'accès (2026-08-02) |
 
 > ⚠️ **Ne jamais exécuter `schema.sql` sur la base de production.**
 > Il sert à recréer une base **vierge** : environnement local, base de test,

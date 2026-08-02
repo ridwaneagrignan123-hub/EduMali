@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Ridwane — état de référence de la base
 -- =====================================================================
--- OBTENU PAR INTROSPECTION de pg_catalog le 2026-08-01.
+-- OBTENU PAR INTROSPECTION de pg_catalog le 2026-08-02.
 -- Ni écrit de mémoire, ni recopié des scripts du dossier : c'est ce qui
 -- fait sa valeur, et ce qui a manqué les fois où il a divergé.
 --
@@ -158,6 +158,10 @@ create table classes (
   -- Colonne structuree, et NON `level` qui est un texte libre : c'est
   -- elle qui decide du mode d'affectation des enseignants.
   cycle text,
+  -- « enseignant » (defaut) ou « directeur ». Le reglage DEPLACE le droit
+  -- de saisie des notes, il ne l'ajoute pas.
+  notes_saisies_par text default 'enseignant'::text not null,
+  constraint classes_notes_saisies_par_check CHECK ((notes_saisies_par = ANY (ARRAY['enseignant'::text, 'directeur'::text]))),
   constraint classes_cycle_check CHECK (((cycle IS NULL) OR (cycle = ANY (ARRAY['premier_cycle'::text, 'second_cycle'::text, 'lycee'::text])))),
   constraint classes_pkey PRIMARY KEY (id),
   constraint classes_direction_id_fkey FOREIGN KEY (direction_id) REFERENCES public.directions(id) ON DELETE SET NULL,
@@ -202,6 +206,10 @@ create table directions (
   updated_at timestamp with time zone default now() not null,
   school_id uuid not null,
   name text not null,
+  -- Un cycle peut avoir PLUSIEURS directions, une direction n'appartient
+  -- qu'a un cycle : un rattachement, pas une relation a deux sens.
+  cycle text,
+  constraint directions_cycle_check CHECK (((cycle IS NULL) OR (cycle = ANY (ARRAY['premier_cycle'::text, 'second_cycle'::text, 'lycee'::text])))),
   constraint directions_unique_name UNIQUE (school_id, name),
   constraint directions_pkey PRIMARY KEY (id),
   constraint directions_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE
@@ -386,6 +394,23 @@ create table payroll_closings (
   constraint payroll_closings_year_check CHECK (((year >= 2000) AND (year <= 2200)))
 );
 
+-- L'EXPLOITANT DE LA PLATEFORME, au-dessus des ecoles.
+--
+-- Une TABLE et non une valeur de profiles.role : un profil appartient a
+-- une ecole (school_id), l'exploitant non. Dans la meme enumeration, il
+-- serait devenu un « exploitant de l'ecole X », et chaque liste
+-- `role in (...)` aurait du penser a l'exclure.
+--
+-- AUCUNE POLICY, deliberement. RLS active et zero policy ferme la table
+-- a `authenticated` : seule la cle service role y accede.
+create table platform_operators (
+  user_id uuid not null,
+  created_at timestamp with time zone default now() not null,
+  note text,
+  constraint platform_operators_pkey PRIMARY KEY (user_id),
+  constraint platform_operators_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
 create table profiles (
   id uuid default auth.uid() not null,
   created_at timestamp with time zone default now() not null,
@@ -400,12 +425,16 @@ create table profiles (
   -- la responsabilite et ne restreint AUCUN perimetre RLS : voir la note
   -- de supabase/franco-arabe.sql.
   filiere text,
+  -- Cycle du surveillant rattache. Nul pour tout autre role, y compris
+  -- le surveillant general, qui voit les trois.
+  cycle text,
+  constraint profiles_cycle_check CHECK (((cycle IS NULL) OR (cycle = ANY (ARRAY['premier_cycle'::text, 'second_cycle'::text, 'lycee'::text])))),
   constraint profiles_filiere_check CHECK (((filiere IS NULL) OR (filiere = ANY (ARRAY['francais'::text, 'arabe'::text])))),
   constraint profiles_pkey PRIMARY KEY (id),
   constraint profiles_direction_id_fkey FOREIGN KEY (direction_id) REFERENCES public.directions(id) ON DELETE SET NULL,
   constraint profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE,
   constraint profiles_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id),
-  constraint profiles_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'teacher'::text, 'promoteur'::text, 'directeur_general'::text, 'directeur_direction'::text, 'comptable'::text, 'surveillant'::text])))
+  constraint profiles_role_check CHECK ((role = ANY (ARRAY['teacher'::text, 'promoteur'::text, 'directeur_general'::text, 'directeur_direction'::text, 'comptable'::text, 'surveillant'::text, 'surveillant_general'::text])))
 );
 
 -- Autorisation nominative d'ouvrir un etablissement. Consommee par
@@ -426,6 +455,40 @@ create table rule_violations (
   constraint rule_violations_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES public.school_rules(id) ON DELETE RESTRICT,
   constraint rule_violations_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id) ON DELETE CASCADE,
   constraint rule_violations_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id) ON DELETE CASCADE
+);
+
+-- DEMANDES D'ACCES DES ECOLES.
+--
+-- Cette table n'ouvre AUCUNE porte : elle ajoute une file d'attente
+-- devant school_creation_grants. L'approbation emet une autorisation
+-- nominative a usage unique ; l'ecole se cree ensuite par le flux
+-- existant, atomique et non rejouable.
+--
+-- AUCUNE POLICY, comme platform_operators. Le depot passe par
+-- /api/school-requests, qui valide et ecarte les doublons ; une policy
+-- d'insertion publique aurait ouvert EN PLUS une ecriture directe
+-- contournant ces controles. La lecture n'est ouverte a personne : la
+-- file porte des noms, des numeros et des adresses.
+create table school_access_requests (
+  id uuid default gen_random_uuid() not null,
+  created_at timestamp with time zone default now() not null,
+  school_name text not null,
+  contact_name text not null,
+  phone text not null,
+  -- Obligatoire : l'autorisation emise a l'approbation est NOMINATIVE
+  -- PAR EMAIL. Sans lui, l'approbation n'aurait rien a viser.
+  email text not null,
+  message text,
+  status text default 'en_attente'::text not null,
+  reviewed_at timestamp with time zone,
+  reviewed_by uuid,
+  decision_note text,
+  grant_id uuid,
+  constraint school_access_requests_pkey PRIMARY KEY (id),
+  constraint school_access_requests_grant_id_fkey FOREIGN KEY (grant_id) REFERENCES public.school_creation_grants(id) ON DELETE SET NULL,
+  constraint school_access_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES auth.users(id) ON DELETE SET NULL,
+  constraint school_access_requests_status_check CHECK ((status = ANY (ARRAY['en_attente'::text, 'approuvee'::text, 'refusee'::text]))),
+  constraint school_access_requests_contenu_check CHECK (((btrim(school_name) <> ''::text) AND (btrim(contact_name) <> ''::text) AND (btrim(phone) <> ''::text) AND (btrim(email) <> ''::text)))
 );
 
 create table school_creation_grants (
@@ -486,6 +549,10 @@ create table schools (
   -- d'avance, or plus rien n'est paye d'avance. Voir paie-au-pointage.sql.
   -- Pilote l'affichage : `franco_arabe` debloque l'axe filiere.
   school_type text default 'classique'::text not null,
+  -- Le promoteur decide si son directeur general voit la comptabilite.
+  -- Un DRAPEAU D'ECOLE et non un second role : porte par l'etablissement,
+  -- le reglage survit au remplacement du directeur general.
+  dg_voit_comptabilite boolean default false not null,
   constraint schools_school_type_check CHECK ((school_type = ANY (ARRAY['classique'::text, 'franco_arabe'::text]))),
   constraint schools_pkey PRIMARY KEY (id),
   constraint schools_appreciation_order_check CHECK (((appreciation_excellent > appreciation_very_good) AND (appreciation_very_good > appreciation_good) AND (appreciation_good > appreciation_fair) AND (appreciation_fair >= (0)::numeric) AND (appreciation_excellent <= grading_scale))),
@@ -678,6 +745,7 @@ CREATE INDEX homework_classe_date_idx ON public.homework USING btree (class_id, 
 CREATE INDEX lesson_attendance_classe_jour_idx ON public.lesson_attendance USING btree (class_id, lesson_date DESC);
 CREATE INDEX lesson_attendance_eleve_jour_idx ON public.lesson_attendance USING btree (student_id, lesson_date DESC);
 CREATE INDEX rule_violations_eleve_date_idx ON public.rule_violations USING btree (student_id, violation_date DESC);
+CREATE INDEX school_access_requests_statut_idx ON public.school_access_requests USING btree (status, created_at DESC);
 CREATE INDEX sms_logs_school_status_idx ON public.sms_logs USING btree (school_id, status, created_at DESC);
 CREATE INDEX daily_reminders_school_date_idx ON public.daily_reminders USING btree (school_id, reminder_date DESC);
 CREATE INDEX fee_payments_school_date_idx ON public.fee_payments USING btree (school_id, payment_date DESC);
@@ -718,12 +786,15 @@ alter table homework enable row level security;
 alter table lesson_attendance enable row level security;
 alter table lineup_themes enable row level security;
 alter table payroll_closings enable row level security;
+-- Zero policy, comme school_creation_grants : voie de service role.
+alter table platform_operators enable row level security;
 alter table profiles enable row level security;
 -- ⚠️ school_creation_grants n'a AUCUNE policy, deliberement : RLS active
 -- et zero policy ferme la table a `authenticated` depuis tout client.
 -- Seule la cle service role y accede, ce qui en fait une voie de
 -- confiance. Lui ajouter une policy de lecture revelerait qui est attendu.
 alter table rule_violations enable row level security;
+alter table school_access_requests enable row level security;
 alter table school_creation_grants enable row level security;
 alter table school_holidays enable row level security;
 alter table school_rules enable row level security;
@@ -741,12 +812,12 @@ alter table timetable_slots enable row level security;
 -- 4. POLICIES
 
 create policy "Direction generale supprime les periodes" on academic_periods for delete to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale cree les periodes" on academic_periods for insert to {authenticated}
-  with check ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -756,20 +827,20 @@ create policy "Users can view academic periods from their school" on academic_pe
   WHERE (profiles.id = auth.uid()))));
 
 create policy "Direction generale modifie les periodes" on academic_periods for update to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))))
-  with check ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale supprime les annees scolaires" on academic_years for delete to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale cree les annees scolaires" on academic_years for insert to {authenticated}
-  with check ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -779,29 +850,29 @@ create policy "Users can view academic years from their school" on academic_year
   WHERE (profiles.id = auth.uid()))));
 
 create policy "Direction generale modifie les annees scolaires" on academic_years for update to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))))
-  with check ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Journal d'activite lu par la direction" on activity_log for select to {authenticated}
   using (((school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND (private.is_promoteur() OR private.is_admin() OR (private.is_direction_generale() AND (entity <> ALL (ARRAY['paiement'::text, 'frais'::text, 'montant_reference'::text]))))));
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND (private.is_promoteur() OR (private.is_direction_generale() AND (private.can_see_money() OR (entity <> ALL (ARRAY['paiement'::text, 'frais'::text, 'montant_reference'::text])))))));
 
 
 
 
 
 create policy "Presences supprimees par l'encadrement" on attendance for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Presences saisies par l'enseignant ou l'encadrement" on attendance for insert to {authenticated}
-  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -811,10 +882,10 @@ create policy "Presences visibles selon le role" on attendance for select to {au
   WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR (private.is_direction_scoped() AND (private.class_direction_id(class_id) = private.current_direction_id())) OR private.teaches_class(class_id))));
 
 create policy "Presences corrigees par l'enseignant ou l'encadrement" on attendance for update to {authenticated}
-  using (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))))
-  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -823,35 +894,35 @@ create policy "Presences corrigees par l'enseignant ou l'encadrement" on attenda
 
 
 create policy "Direction generale supprime les classes" on classes for delete to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (direction_id = private.current_direction_id()))));
 
 create policy "Encadrement cree les classes" on classes for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (direction_id = private.current_direction_id()))));
 
 create policy "Classes visibles selon le role" on classes for select to {authenticated}
   using (((school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR private.can_see_money() OR private.is_surveillant() OR (private.is_direction_scoped() AND (direction_id = private.current_direction_id())) OR private.teaches_class(id))));
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR private.can_see_money() OR private.surveille_classe(id) OR (private.is_direction_scoped() AND (direction_id = private.current_direction_id())) OR private.teaches_class(id))));
 
 create policy "Encadrement modifie les classes" on classes for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (direction_id = private.current_direction_id()))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (direction_id = private.current_direction_id()))));
 
 create policy "Rappels effaces par la vie scolaire" on daily_reminders for delete to {authenticated}
-  using (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Rappels ecrits par la vie scolaire" on daily_reminders for insert to {authenticated}
-  with check (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -861,10 +932,10 @@ create policy "Rappels lus dans son ecole" on daily_reminders for select to {aut
   WHERE (profiles.id = auth.uid()))));
 
 create policy "Rappels modifies par la vie scolaire" on daily_reminders for update to {authenticated}
-  using (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))))
-  with check (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -892,8 +963,8 @@ create policy "Admins can update directions from their school" on directions for
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['admin'::text, 'promoteur'::text, 'directeur_general'::text]))))));
 
 create policy "Frais supprimes par l'admin" on fee_assessments for delete to {authenticated}
-  using ((private.is_admin() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
+  using ((private.can_write_money() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Frais crees par la comptabilite" on fee_assessments for insert to {authenticated}
@@ -960,12 +1031,12 @@ create policy "Paiements corriges par la comptabilite" on fee_payments for updat
 
 
 create policy "Themes au rang effaces par la vie scolaire" on lineup_themes for delete to {authenticated}
-  using (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Themes au rang ecrits par la vie scolaire" on lineup_themes for insert to {authenticated}
-  with check (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -975,10 +1046,10 @@ create policy "Themes au rang lus dans son ecole" on lineup_themes for select to
   WHERE (profiles.id = auth.uid()))));
 
 create policy "Themes au rang modifies par la vie scolaire" on lineup_themes for update to {authenticated}
-  using (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))))
-  with check (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -1026,18 +1097,18 @@ create policy "Admins can update their school" on schools for update to {authent
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = 'admin'::text)))));
 
 create policy "Journal SMS alimente par l'encadrement" on sms_logs for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 
 create policy "Encadrement retire les inscriptions" on student_class_enrollments for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 
 create policy "Encadrement inscrit en classe" on student_class_enrollments for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 
@@ -1047,21 +1118,21 @@ create policy "Inscriptions visibles selon le role" on student_class_enrollments
   WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR private.can_see_money() OR (private.is_direction_scoped() AND (private.class_direction_id(class_id) = private.current_direction_id())) OR private.teaches_class(class_id))));
 
 create policy "Encadrement modifie les inscriptions" on student_class_enrollments for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale supprime les eleves" on students for delete to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR private.student_in_my_direction(id))));
 
 create policy "Encadrement inscrit les eleves" on students for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
+  with check ((private.is_direction_scoped() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Eleves visibles selon le role" on students for select to {authenticated}
@@ -1070,20 +1141,20 @@ create policy "Eleves visibles selon le role" on students for select to {authent
   WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR private.can_see_money() OR (private.is_direction_scoped() AND private.student_in_my_direction(id)) OR private.teaches_student(id))));
 
 create policy "Encadrement modifie les eleves" on students for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR private.student_in_my_direction(id))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
+  using ((private.is_direction_scoped() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND private.student_in_my_direction(id)))
+  with check ((private.is_direction_scoped() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale supprime les matieres" on subjects for delete to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale cree les matieres" on subjects for insert to {authenticated}
-  with check ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -1097,20 +1168,20 @@ create policy "Users can view subjects from their school" on subjects for select
   WHERE (profiles.id = auth.uid()))));
 
 create policy "Direction generale modifie les matieres" on subjects for update to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))))
-  with check ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Retards enseignants effaces par la vie scolaire" on teacher_attendance for delete to {authenticated}
-  using (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Retards enseignants saisis par la vie scolaire" on teacher_attendance for insert to {authenticated}
-  with check (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
@@ -1122,34 +1193,34 @@ create policy "Retards enseignants visibles" on teacher_attendance for select to
   WHERE (t.profile_id = auth.uid()))))));
 
 create policy "Retards enseignants corriges par la vie scolaire" on teacher_attendance for update to {authenticated}
-  using (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))))
-  with check (((private.is_surveillant() OR private.is_encadrement()) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.is_surveillant() OR private.encadrement_ecrit()) AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Direction generale supprime les enseignants" on teachers for delete to {authenticated}
-  using ((private.is_direction_generale() AND (school_id IN ( SELECT profiles.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Encadrement cree les enseignants" on teachers for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
    FROM public.profiles
   WHERE (profiles.id = auth.uid())))));
 
 create policy "Users can view teachers from their school" on teachers for select to {authenticated}
-  using ((school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid()))));
+  using (((school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR private.can_see_money() OR private.is_surveillant() OR (private.is_direction_scoped() AND private.enseignant_de_ma_direction(id)) OR (profile_id = auth.uid()))));
 
 create policy "Encadrement modifie les enseignants" on teachers for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
+  WHERE (profiles.id = auth.uid()))) AND private.enseignant_de_ma_direction(id)))
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
+   FROM profiles
   WHERE (profiles.id = auth.uid())))));
 
 
@@ -1157,18 +1228,18 @@ create policy "Encadrement modifie les enseignants" on teachers for update to {a
 
 
 create policy "Evaluations creees par l'enseignant ou l'encadrement" on assessments for insert to {authenticated}
-  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 create policy "Evaluations modifiees par l'enseignant ou l'encadrement" on assessments for update to {authenticated}
-  using (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))))
-  with check (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+  with check (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid())))));
 create policy "Evaluations supprimees par l'enseignant ou l'encadrement" on assessments for delete to {authenticated}
-  using (((private.is_encadrement() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
+  using (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 create policy "Evaluations visibles selon le role" on assessments for select to {authenticated}
@@ -1176,18 +1247,18 @@ create policy "Evaluations visibles selon le role" on assessments for select to 
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND (private.is_direction_generale() OR (private.is_direction_scoped() AND (private.class_direction_id(class_id) = private.current_direction_id()) AND private.mon_programme(subject_id)) OR private.teaches_class(class_id))));
 create policy "Encadrement change les titulaires" on class_head_teachers for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))));
 create policy "Encadrement nomme les titulaires" on class_head_teachers for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))));
 create policy "Encadrement retire les titulaires" on class_head_teachers for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((NOT private.is_direction_scoped()) OR (private.ma_filiere() IS NULL) OR (NOT (filiere IS DISTINCT FROM private.ma_filiere())))));
 create policy "Titulaires lus dans son ecole" on class_head_teachers for select to {authenticated}
@@ -1195,18 +1266,18 @@ create policy "Titulaires lus dans son ecole" on class_head_teachers for select 
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 create policy "Encadrement affecte les matieres aux classes" on class_subjects for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
 create policy "Encadrement modifie les affectations" on class_subjects for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND private.mon_programme(subject_id)));
 create policy "Encadrement retire les affectations" on class_subjects for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
 -- L'en-tete de la grille cree la matiere : le titulaire doit pouvoir la
@@ -1224,18 +1295,18 @@ create policy "Users can view class subjects from their school" on class_subject
    FROM profiles
   WHERE (profiles.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id()))));
 create policy "Notes corrigees par l'enseignant de la classe" on grades for update to {authenticated}
-  using (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+  using ((private.peut_noter_assessment(assessment_id) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid())))))
-  with check (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.peut_noter_assessment(assessment_id) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid())))));
 create policy "Notes saisies par l'enseignant de la classe" on grades for insert to {authenticated}
-  with check (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+  with check ((private.peut_noter_assessment(assessment_id) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid())))));
 create policy "Notes supprimees par l'enseignant de la classe" on grades for delete to {authenticated}
-  using (((private.is_admin() OR private.teaches_assessment(assessment_id)) AND (school_id IN ( SELECT profiles.school_id
+  using ((private.peut_noter_assessment(assessment_id) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid())))));
 create policy "Notes visibles selon le role" on grades for select to {authenticated}
@@ -1247,18 +1318,18 @@ create policy "Cloture lue par les roles financiers" on payroll_closings for sel
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND (private.can_see_money() OR private.is_encadrement() OR private.is_surveillant())));
 create policy "Cloture posee par l'admin" on payroll_closings for insert to {authenticated}
-  with check ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+  with check ((private.can_write_money() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))));
 create policy "Pointage annule par la vie scolaire" on timetable_checkins for update to {authenticated}
-  using (((private.is_encadrement() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
+  using (((private.encadrement_ecrit() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))))
-  with check (((private.is_encadrement() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
+  with check (((private.encadrement_ecrit() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))));
 create policy "Pointage pose par la vie scolaire" on timetable_checkins for insert to {authenticated}
-  with check (((private.is_encadrement() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
+  with check (((private.encadrement_ecrit() OR private.is_surveillant()) AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))));
 create policy "Pointages lus par l'encadrement, la vie scolaire et la paie" on timetable_checkins for select to {authenticated}
@@ -1268,64 +1339,61 @@ create policy "Pointages lus par l'encadrement, la vie scolaire et la paie" on t
    FROM teachers t
   WHERE ((t.id = timetable_checkins.teacher_id) AND (t.profile_id = auth.uid())))))));
 create policy "Emploi du temps allege par l'encadrement" on timetable_slots for delete to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
 create policy "Emploi du temps compose par l'encadrement" on timetable_slots for insert to {authenticated}
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)));
 create policy "Emploi du temps lu dans son ecole" on timetable_slots for select to {authenticated}
-  using ((school_id IN ( SELECT profiles.school_id
+  using (((school_id IN ( SELECT profiles.school_id
    FROM profiles
-  WHERE (profiles.id = auth.uid()))));
+  WHERE (profiles.id = auth.uid()))) AND (private.is_direction_generale() OR private.is_surveillant() OR (private.is_direction_scoped() AND (private.class_direction_id(class_id) = private.current_direction_id())) OR (teacher_id IN ( SELECT t.id
+   FROM teachers t
+  WHERE (t.profile_id = auth.uid()))))));
 create policy "Emploi du temps modifie par l'encadrement" on timetable_slots for update to {authenticated}
-  using ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND private.mon_programme(subject_id)))
-  with check ((private.is_encadrement() AND (school_id IN ( SELECT p.school_id
+  with check ((private.encadrement_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))) AND private.mon_programme(subject_id)));
 
 create policy "Retenue corrigee par la vie scolaire" on detentions for update to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant())))
+  WHERE (p.id = auth.uid()))) AND (private.encadrement_ecrit() OR private.is_surveillant())))
   with check ((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))));
 create policy "Retenue effacee par l'encadrement" on detentions for delete to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND private.is_encadrement()));
+  WHERE (p.id = auth.uid()))) AND private.encadrement_ecrit()));
 create policy "Retenue posee par la vie scolaire ou l'enseignant" on detentions for insert to {authenticated}
   with check (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+  WHERE (p.id = auth.uid()))) AND (private.encadrement_ecrit() OR private.surveille_eleve(student_id))));
 create policy "Retenues lues selon le role" on detentions for select to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
--- DEVOIRS : l'enseignant de la classe — teaches_class() inclut le
--- titulaire de premier cycle — et l'encadrement. Le directeur de
--- direction reste borne a sa direction et, en franco-arabe, a son
--- programme quand la matiere est renseignee : on ne donne pas un devoir
--- d'arabe depuis la direction francaise.
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.surveille_eleve(student_id) OR private.teaches_student(student_id))));
 create policy "Devoir corrige par l'enseignant de la classe" on homework for update to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.is_encadrement())))
+  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.encadrement_ecrit())))
   with check ((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))));
 create policy "Devoir donne par l'enseignant de la classe" on homework for insert to {authenticated}
   with check (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.is_admin() OR (private.is_encadrement() AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((subject_id IS NULL) OR private.mon_programme(subject_id))))));
+  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR (private.encadrement_ecrit() AND ((NOT private.is_direction_scoped()) OR (private.class_direction_id(class_id) = private.current_direction_id())) AND ((subject_id IS NULL) OR private.mon_programme(subject_id))))));
 create policy "Devoir retire par l'enseignant de la classe" on homework for delete to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.is_encadrement())));
+  WHERE (p.id = auth.uid()))) AND (private.teaches_class(class_id) OR private.encadrement_ecrit())));
 create policy "Devoirs lus dans son ecole" on homework for select to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
@@ -1333,18 +1401,18 @@ create policy "Devoirs lus dans son ecole" on homework for select to {authentica
 create policy "Presence par lecon corrigee par l'enseignant du creneau" on lesson_attendance for update to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.enseigne_ce_creneau(slot_id) OR private.is_admin() OR (private.is_encadrement() AND private.mon_programme(subject_id)))))
+  WHERE (p.id = auth.uid()))) AND (private.enseigne_ce_creneau(slot_id) OR (private.encadrement_ecrit() AND private.mon_programme(subject_id)))))
   with check ((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))));
 create policy "Presence par lecon effacee par l'encadrement" on lesson_attendance for delete to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.enseigne_ce_creneau(slot_id))));
+  WHERE (p.id = auth.uid()))) AND (private.encadrement_ecrit() OR private.enseigne_ce_creneau(slot_id))));
 create policy "Presence par lecon saisie par l'enseignant du creneau" on lesson_attendance for insert to {authenticated}
   with check (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.enseigne_ce_creneau(slot_id) OR private.is_admin() OR (private.is_encadrement() AND private.mon_programme(subject_id)))));
+  WHERE (p.id = auth.uid()))) AND (private.enseigne_ce_creneau(slot_id) OR (private.encadrement_ecrit() AND private.mon_programme(subject_id)))));
 create policy "Presences par lecon visibles selon le role" on lesson_attendance for select to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
@@ -1352,24 +1420,24 @@ create policy "Presences par lecon visibles selon le role" on lesson_attendance 
 create policy "Violation constatee par la vie scolaire ou l'enseignant" on rule_violations for insert to {authenticated}
   with check (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+  WHERE (p.id = auth.uid()))) AND (private.encadrement_ecrit() OR private.surveille_eleve(student_id))));
 create policy "Violation corrigee par la vie scolaire" on rule_violations for update to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant())))
+  WHERE (p.id = auth.uid()))) AND (private.encadrement_ecrit() OR private.is_surveillant())))
   with check ((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))));
 create policy "Violation effacee par l'encadrement" on rule_violations for delete to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND private.is_encadrement()));
+  WHERE (p.id = auth.uid()))) AND private.encadrement_ecrit()));
 create policy "Violations lues selon le role" on rule_violations for select to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.is_surveillant() OR private.teaches_student(student_id))));
+  WHERE (p.id = auth.uid()))) AND (private.is_encadrement() OR private.surveille_eleve(student_id) OR private.teaches_student(student_id))));
 create policy "Reglement ecrit par l'administration" on school_rules for insert to {authenticated}
-  with check ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))));
 create policy "Reglement lu dans son ecole" on school_rules for select to {authenticated}
@@ -1377,14 +1445,14 @@ create policy "Reglement lu dans son ecole" on school_rules for select to {authe
    FROM profiles p
   WHERE (p.id = auth.uid()))));
 create policy "Reglement modifie par l'administration" on school_rules for update to {authenticated}
-  using ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))))
-  with check ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+  with check ((private.dg_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))));
 create policy "Reglement supprime par l'administration" on school_rules for delete to {authenticated}
-  using ((private.is_admin() AND (school_id IN ( SELECT p.school_id
+  using ((private.dg_ecrit() AND (school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid())))));
 create policy "Messages parents lus par l'encadrement et l'enseignant" on sms_logs for select to {authenticated}
@@ -2042,16 +2110,22 @@ CREATE OR REPLACE FUNCTION private.can_see_money()
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select coalesce((select p.role in ('admin','promoteur','comptable') from profiles p where p.id = auth.uid()), false); $function$
-;
+AS $function$
+  select coalesce((
+    select p.role in ('promoteur','comptable')
+        or (p.role = 'directeur_general'
+            and exists (select 1 from schools s
+                        where s.id = p.school_id and s.dg_voit_comptabilite))
+    from profiles p where p.id = auth.uid()), false);
+$function$
 
 CREATE OR REPLACE FUNCTION private.can_write_money()
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select coalesce((select p.role in ('admin','comptable') from profiles p where p.id = auth.uid()), false); $function$
-;
+AS $function$ select coalesce((select p.role = 'comptable'
+                       from profiles p where p.id = auth.uid()), false); $function$
 
 CREATE OR REPLACE FUNCTION private.class_direction_id(target_class_id uuid)
  RETURNS uuid
@@ -2119,21 +2193,13 @@ AS $function$
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION private.is_admin()
- RETURNS boolean
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$ select coalesce((select p.role = 'admin' from profiles p where p.id = auth.uid()), false); $function$
-;
-
 CREATE OR REPLACE FUNCTION private.is_direction_generale()
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select coalesce((select p.role in ('admin','promoteur','directeur_general') from profiles p where p.id = auth.uid()), false); $function$
-;
+AS $function$ select coalesce((select p.role in ('promoteur','directeur_general')
+                       from profiles p where p.id = auth.uid()), false); $function$
 
 CREATE OR REPLACE FUNCTION private.is_direction_scoped()
  RETURNS boolean
@@ -2153,8 +2219,8 @@ CREATE OR REPLACE FUNCTION private.is_encadrement()
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select coalesce((select p.role in ('admin','promoteur','directeur_general','directeur_direction') from profiles p where p.id = auth.uid()), false); $function$
-;
+AS $function$ select coalesce((select p.role in ('promoteur','directeur_general','directeur_direction')
+                       from profiles p where p.id = auth.uid()), false); $function$
 
 CREATE OR REPLACE FUNCTION private.is_promoteur()
  RETURNS boolean
@@ -2169,8 +2235,8 @@ CREATE OR REPLACE FUNCTION private.is_surveillant()
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select coalesce((select p.role = 'surveillant' from profiles p where p.id = auth.uid()), false); $function$
-;
+AS $function$ select coalesce((select p.role in ('surveillant','surveillant_general')
+                       from profiles p where p.id = auth.uid()), false); $function$
 
 CREATE OR REPLACE FUNCTION private.is_teacher()
  RETURNS boolean
@@ -2978,6 +3044,135 @@ AS $function$
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION private.cycle_de_la_classe(target_class_id uuid)
+ RETURNS text
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select coalesce(c.cycle, d.cycle)
+  from classes c left join directions d on d.id = c.direction_id
+  where c.id = target_class_id;
+$function$
+
+CREATE OR REPLACE FUNCTION private.dg_ecrit()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$ select coalesce((select p.role = 'directeur_general'
+                       from profiles p where p.id = auth.uid()), false); $function$
+
+CREATE OR REPLACE FUNCTION private.encadrement_ecrit()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$ select coalesce((select p.role in ('directeur_general','directeur_direction')
+                       from profiles p where p.id = auth.uid()), false); $function$
+
+CREATE OR REPLACE FUNCTION private.enseignant_de_ma_direction(target_teacher_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select case
+    when not private.is_direction_scoped() then true
+    else exists (
+           select 1 from class_subjects cs
+           join classes c on c.id = cs.class_id
+           where cs.teacher_id = target_teacher_id
+             and c.direction_id = private.current_direction_id())
+      or exists (
+           select 1 from class_head_teachers h
+           join classes c on c.id = h.class_id
+           where h.teacher_id = target_teacher_id
+             and c.direction_id = private.current_direction_id())
+      or not exists (
+           select 1 from class_subjects cs where cs.teacher_id = target_teacher_id)
+     and not exists (
+           select 1 from class_head_teachers h where h.teacher_id = target_teacher_id)
+  end;
+$function$
+
+CREATE OR REPLACE FUNCTION private.is_platform_operator()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$ select exists (select 1 from platform_operators o where o.user_id = auth.uid()); $function$
+
+CREATE OR REPLACE FUNCTION private.is_surveillant_general()
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$ select coalesce((select p.role = 'surveillant_general'
+                       from profiles p where p.id = auth.uid()), false); $function$
+
+CREATE OR REPLACE FUNCTION private.mon_cycle()
+ RETURNS text
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$ select p.cycle from profiles p where p.id = auth.uid(); $function$
+
+CREATE OR REPLACE FUNCTION private.peut_noter_assessment(target_assessment_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select coalesce((
+    select private.peut_noter_classe(a.class_id)
+    from assessments a where a.id = target_assessment_id), false);
+$function$
+
+CREATE OR REPLACE FUNCTION private.peut_noter_classe(target_class_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select case (select c.notes_saisies_par from classes c where c.id = target_class_id)
+    when 'directeur' then
+      private.is_direction_scoped()
+      and private.class_direction_id(target_class_id) = private.current_direction_id()
+    else
+      private.teaches_class(target_class_id)
+  end;
+$function$
+
+CREATE OR REPLACE FUNCTION private.surveille_classe(target_class_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select case
+    when private.is_surveillant_general() then true
+    when not private.is_surveillant() then false
+    else private.mon_cycle() is not null
+         and private.cycle_de_la_classe(target_class_id) = private.mon_cycle()
+  end;
+$function$
+
+CREATE OR REPLACE FUNCTION private.surveille_eleve(target_student_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  select case
+    when private.is_surveillant_general() then true
+    when not private.is_surveillant() then false
+    else exists (
+      select 1 from student_class_enrollments e
+      where e.student_id = target_student_id
+        and private.surveille_classe(e.class_id))
+  end;
+$function$
 
 -- 7. DECLENCHEURS
 
