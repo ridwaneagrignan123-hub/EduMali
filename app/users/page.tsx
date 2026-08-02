@@ -1078,7 +1078,15 @@ export default function UsersPage() {
                             }
                             className="rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Renvoyer un lien d'accès
+                            {/*
+                              Le mot change selon la situation : celui
+                              qui ne s'est jamais connecté attend une
+                              INVITATION, pas un lien de secours. C'est
+                              le cas le plus fréquent d'un lien expiré.
+                            */}
+                            {user.hasSignedIn
+                              ? "Renvoyer un lien d'accès"
+                              : "Renvoyer l'invitation"}
                           </button>
 
                           <button

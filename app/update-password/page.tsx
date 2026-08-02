@@ -52,6 +52,20 @@ function UpdatePasswordForm() {
    */
   const compromisedCount = searchParams.get("compromis")
 
+  /*
+   * Le jeton d'un lien d'accès. Il n'est PAS échangé au chargement :
+   * voir src/lib/lien-acces.ts — les antivirus et aperçus de lien des
+   * messageries ouvrent les adresses d'un courriel avant son
+   * destinataire, et consommaient ainsi le jeton à sa place.
+   *
+   * L'échange attend donc un clic, c'est-à-dire un humain.
+   */
+  const tokenHash = searchParams.get("token_hash")
+  const typeJeton = searchParams.get("type") === "invite" ? "invite" : "recovery"
+
+  const [activation, setActivation] = useState(false)
+  const [erreurActivation, setErreurActivation] = useState<string | null>(null)
+
   const [checkingSession, setCheckingSession] = useState(true)
   const [hasSession, setHasSession] = useState(false)
 
@@ -143,6 +157,12 @@ function UpdatePasswordForm() {
      * référence capturée ne suivrait pas les rendus suivants.
      */
     async function checkSession() {
+      /*
+       * Le fragment reste géré pour les liens DÉJÀ envoyés sous
+       * l'ancienne forme : ils portent les jetons dans « # » et
+       * doivent continuer de fonctionner. Les nouveaux passent par
+       * token_hash et attendent le clic.
+       */
       await consommerFragment()
 
       const {
@@ -158,6 +178,45 @@ function UpdatePasswordForm() {
 
     return () => subscription.unsubscribe()
   }, [])
+
+  /*
+   * L'échange du jeton, déclenché à la main. C'est tout l'objet : un
+   * robot qui charge la page ne clique pas, et n'exécute pas non plus le
+   * JavaScript qui le ferait.
+   */
+  async function activerLAcces() {
+    if (!tokenHash) {
+      return
+    }
+
+    setActivation(true)
+    setErreurActivation(null)
+
+    const { data, error: verifyError } = await supabase.auth.verifyOtp({
+      type: typeJeton,
+      token_hash: tokenHash,
+    })
+
+    setActivation(false)
+
+    if (verifyError || !data.session) {
+      console.error("Erreur d'activation du lien :", verifyError)
+
+      setErreurActivation(
+        "Ce lien a expiré ou a déjà servi. Demandez à votre établissement de vous en renvoyer un."
+      )
+      return
+    }
+
+    setHasSession(true)
+    setUserEmail(data.session.user.email ?? "")
+
+    /*
+     * Le jeton sort de la barre d'adresse une fois consommé : il n'a pas
+     * à rester dans l'historique ni à repartir dans un lien copié.
+     */
+    window.history.replaceState(null, "", window.location.pathname)
+  }
 
   async function updatePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -271,11 +330,40 @@ function UpdatePasswordForm() {
 
           {checkingSession ? (
             <p className="mt-4 text-muted-foreground">Vérification du lien...</p>
+          ) : !hasSession && tokenHash ? (
+            /*
+              LE JETON N'EST PAS ENCORE ÉCHANGÉ, ET C'EST VOULU.
+              Les messageries d'entreprise ouvrent les liens d'un courriel
+              avant leur destinataire, pour les contrôler. Quand le lien
+              consommait le jeton à l'ouverture, ce contrôle le brûlait, et
+              la personne lisait « lien invalide » sur un lien tout neuf.
+              Ce bouton demande un geste humain : un robot ne clique pas.
+            */
+            <div className="mt-4 space-y-4">
+              <p className="text-muted-foreground">
+                Cliquez pour ouvrir votre accès, puis choisissez votre mot de
+                passe.
+              </p>
+
+              {erreurActivation && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {erreurActivation}
+                </div>
+              )}
+
+              <button
+                onClick={activerLAcces}
+                disabled={activation}
+                className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {activation ? "Ouverture..." : "Ouvrir mon accès"}
+              </button>
+            </div>
           ) : !hasSession ? (
             <div className="mt-4 space-y-4">
               <p className="text-muted-foreground">
                 Ce lien n&apos;est plus valide ou a déjà été utilisé. Demandez à
-                votre administrateur de vous en envoyer un nouveau.
+                votre établissement de vous en envoyer un nouveau.
               </p>
 
               <button

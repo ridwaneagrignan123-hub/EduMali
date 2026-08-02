@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
+import { lienAcces, origineDuSite } from "@/src/lib/lien-acces"
 import {
   requireManageableTarget,
   requirePermission,
@@ -15,22 +16,6 @@ import {
  * puisque le profil existe. On envoie donc un lien de récupération, qui
  * couvre les deux situations.
  */
-
-function resolveSiteOrigin(request: Request) {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL
-
-  if (configured) {
-    return configured.replace(/\/$/, "")
-  }
-
-  const originHeader = request.headers.get("origin")
-
-  if (originHeader) {
-    return originHeader.replace(/\/$/, "")
-  }
-
-  return new URL(request.url).origin
-}
 
 export async function POST(
   request: Request,
@@ -73,7 +58,8 @@ export async function POST(
       )
     }
 
-    const redirectTo = `${resolveSiteOrigin(request)}/update-password`
+    const origine = origineDuSite(request)
+    const redirectTo = `${origine}/update-password`
 
     const { error: recoveryError } =
       await supabaseAdmin.auth.resetPasswordForEmail(authUser.user.email, {
@@ -101,7 +87,11 @@ export async function POST(
       console.error("Erreur génération du lien d'accès :", generateError)
     }
 
-    const accessLink = generated?.properties?.action_link ?? null
+    const accessLink = lienAcces(
+      origine,
+      generated?.properties?.hashed_token,
+      "recovery"
+    )
 
     // Ni envoi ni lien : là, il n'y a plus rien à proposer.
     if (recoveryError && !accessLink) {

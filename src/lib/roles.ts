@@ -79,8 +79,11 @@ const ENCADREMENT = [...DIRECTION_GENERALE, "directeur_direction"]
  * fonctions `private.encadrement_ecrit()` et `private.dg_ecrit()` en
  * base, et l'on peut vérifier d'un coup d'œil qu'aucune écriture ne
  * nomme le promoteur.
+ *
+ * Côté écran, le pendant tient en deux listes : DG_ECRIT pour ce qui
+ * est commun à l'école, DIRECTEUR_ECRIT pour ce qui appartient à une
+ * direction.
  */
-const ENCADREMENT_ECRIT = ["directeur_general", "directeur_direction"]
 const DG_ECRIT = ["directeur_general"]
 const DIRECTEUR_ECRIT = ["directeur_direction"]
 
@@ -176,7 +179,19 @@ const PERMISSIONS: Record<Permission, string[]> = {
    * nommer un directeur. La nomination a donc sa propre table, NOMINE.
    */
   "comptes.consulter": ENCADREMENT,
-  "comptes.gerer": ENCADREMENT_ECRIT,
+
+  /*
+   * LE PROMOTEUR EST ICI, et il le faut : c'est par cette route que
+   * passent la nomination du directeur général et celle du comptable —
+   * ses deux seules écritures. L'en exclure les lui aurait retirées,
+   * alors qu'elles sont la raison d'être de son rôle.
+   *
+   * Ce n'est pas un blanc-seing : NOMINE borne à DEUX rôles les comptes
+   * sur lesquels il peut agir, et forbidRoleEscalation() le vérifie
+   * aussi sur le rôle que la cible porte DÉJÀ. Il administre exactement
+   * les deux comptes qu'il nomme, et aucun autre.
+   */
+  "comptes.gerer": ENCADREMENT,
 }
 
 /*

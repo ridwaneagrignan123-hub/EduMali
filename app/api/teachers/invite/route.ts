@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
+import { lienAcces, origineDuSite } from "@/src/lib/lien-acces"
 import { requirePermission } from "@/src/lib/apiAuth"
 
 /*
@@ -45,22 +46,6 @@ import { requirePermission } from "@/src/lib/apiAuth"
  * redirection autorisées du projet. Sinon il la remplace silencieusement
  * par l'URL du site, sans le signaler.
  */
-function resolveSiteOrigin(request: Request) {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL
-
-  if (configured) {
-    return configured.replace(/\/$/, "")
-  }
-
-  const originHeader = request.headers.get("origin")
-
-  if (originHeader) {
-    return originHeader.replace(/\/$/, "")
-  }
-
-  return new URL(request.url).origin
-}
-
 /*
  * Distingue un refus d'acheminement d'une vraie erreur de création. Dans
  * le premier cas le compte doit quand même être créé : sans quoi une
@@ -150,7 +135,8 @@ export async function POST(request: Request) {
     }
 
     const normalizedEmail = String(email).trim().toLowerCase()
-    const redirectTo = `${resolveSiteOrigin(request)}/update-password`
+    const origine = origineDuSite(request)
+    const redirectTo = `${origine}/update-password`
 
     const metadata = {
       first_name: teacher.first_name,
@@ -204,7 +190,7 @@ export async function POST(request: Request) {
       }
 
       teacherUserId = generated.user.id
-      accessLink = generated.properties?.action_link ?? null
+      accessLink = lienAcces(origine, generated.properties?.hashed_token, "invite")
       emailAttempted = false
       deliveryNote = inviteError.message
     } else {
@@ -234,7 +220,7 @@ export async function POST(request: Request) {
         console.error("Erreur génération du lien d'accès :", generateError)
       }
 
-      accessLink = generated?.properties?.action_link ?? null
+      accessLink = lienAcces(origine, generated?.properties?.hashed_token, "recovery")
     }
 
     const { error: profileInsertError } = await supabaseAdmin

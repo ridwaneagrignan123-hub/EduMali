@@ -235,6 +235,39 @@
 -- siens : ses créneaux portent son identifiant d'enseignant.
 
 
+-- ---------------------------------------------------------------------
+-- TÂCHE 7 — LES LIENS D'INVITATION QUI EXPIRAIENT AVANT D'ÊTRE OUVERTS
+-- ---------------------------------------------------------------------
+--
+-- AUCUN CHANGEMENT EN BASE. Le détail est dans src/lib/lien-acces.ts ;
+-- il est rappelé ici parce que la cause n'était pas celle qu'on croyait.
+--
+-- On envoyait le `action_link` de Supabase, qui pointe sur
+-- `/auth/v1/verify?token=…` — une adresse qui CONSOMME le jeton dès
+-- qu'elle est appelée. Or les messageries d'entreprise et les antivirus
+-- ouvrent les liens d'un courriel avant son destinataire, pour les
+-- contrôler. Ce contrôle brûlait le jeton, et la personne lisait « lien
+-- invalide » sur un lien émis quelques secondes plus tôt.
+--
+-- CE N'ÉTAIT DONC PAS UNE AFFAIRE DE DURÉE. Rallonger l'expiration
+-- n'aurait rien changé : le jeton était consommé immédiatement.
+--
+-- On construit désormais notre propre adresse à partir du
+-- `hashed_token`, vers /update-password. L'ouvrir ne consomme rien ;
+-- l'échange attend un clic, donc un humain. Un robot ne clique pas, et
+-- n'exécute pas le JavaScript qui le ferait.
+--
+-- L'ancienne forme (jetons dans le fragment `#`) reste gérée : les
+-- liens déjà envoyés doivent continuer de fonctionner.
+--
+-- ⚠️ DEUX RÉGLAGES RESTENT DANS LE TABLEAU DE BORD SUPABASE, hors code :
+--   1. Authentication → URL Configuration → Redirect URLs doit contenir
+--      l'URL de production. Sans elle, la redirection est refusée.
+--   2. Authentication → Email OTP expiration : une invitation se lit
+--      parfois le lendemain. 24 h est raisonnable, l'heure par défaut
+--      ne l'est pas.
+
+
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
 -- =====================================================================
