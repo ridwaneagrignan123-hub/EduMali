@@ -160,11 +160,12 @@ export function LoginForm() {
       </div>
 
       {/*
-        Google mène à /auth/callback, qui refuse un compte non rattaché à
-        un établissement. Sans ce détour, n'importe quel titulaire d'un
-        compte Gmail créerait une école : le déclencheur handle_new_user
-        pose un profil sans école, et le tableau de bord renvoie alors
-        vers /setup-school.
+        Google mène à /auth/callback, qui AIGUILLE au lieu de refuser :
+        espace de son école, écran d'exploitation, création
+        d'établissement si une autorisation l'attend, état de sa demande,
+        ou dépôt d'une demande. Google prouve une adresse ; il ne crée
+        aucune école — celle-ci reste fermée derrière une autorisation
+        nominative.
       */}
       <button
         type="button"

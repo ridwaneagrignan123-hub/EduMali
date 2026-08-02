@@ -65,6 +65,45 @@ export default function DashboardPage() {
     checkUserAndLoadDashboard()
   }, [])
 
+  /** Renvoie un compte sans école là où il doit aller. */
+  async function aiguiller() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      router.push("/login")
+      return
+    }
+
+    const response = await fetch("/api/auth/destination", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+
+    if (!response.ok) {
+      router.push("/demande-acces")
+      return
+    }
+
+    const destination = await response.json()
+
+    switch (destination.ou) {
+      case "exploitant":
+        router.push("/exploitant")
+        return
+      case "setup-school":
+        router.push("/setup-school")
+        return
+      case "demande-en-attente":
+      case "demande-refusee":
+        // La page de retour sait dire l'un et l'autre.
+        router.push("/auth/callback")
+        return
+      default:
+        router.push("/demande-acces")
+    }
+  }
+
   async function checkUserAndLoadDashboard() {
     setLoading(true)
     setLoadError(null)
@@ -104,17 +143,24 @@ export default function DashboardPage() {
       return
     }
 
-    if (!profileData) {
-      router.push("/setup-school")
+    /*
+     * SANS ÉCOLE, ON NE POUSSE PLUS VERS /setup-school EN AVEUGLE.
+     *
+     * Cette page n'est pas la seule destination possible d'un compte
+     * sans établissement : ce peut être l'exploitant de la plateforme,
+     * une école candidate dont la demande est en attente, ou quelqu'un
+     * qui n'a rien demandé. /setup-school les refusait tous les trois,
+     * faute d'autorisation, avec un message qui ne les concernait pas.
+     *
+     * L'aiguillage vit côté serveur, au même endroit que celui du retour
+     * de Google — une seule règle, deux portes d'entrée.
+     */
+    if (!profileData?.school_id) {
+      await aiguiller()
       return
     }
 
     setProfile(profileData)
-
-    if (!profileData.school_id) {
-      router.push("/setup-school")
-      return
-    }
 
     const schoolId =
       profileData.school_id
