@@ -210,6 +210,31 @@
 -- point d'entrée.
 
 
+-- ---------------------------------------------------------------------
+-- TÂCHE 6 — LA GRILLE D'EMPLOI DU TEMPS
+-- ---------------------------------------------------------------------
+--
+-- AUCUNE COLONNE AJOUTÉE. `timetable_slots` portait déjà les heures, la
+-- matière et l'enseignant : ce qui manquait était la grille, pas la
+-- donnée. Un tableau à deux dimensions parce qu'un emploi du temps se
+-- lit ainsi — on cherche « mardi à 10 h », pas « le troisième cours de
+-- mardi » — et parce qu'une liste par jour CACHE LES TROUS, qui sont
+-- précisément ce qu'on regarde en composant une grille.
+--
+-- Les lignes sont les plages RÉELLEMENT posées, et non une échelle de
+-- 8 h à 18 h : une école qui travaille de 7 h 30 à 12 h 30 n'a pas à
+-- faire défiler des heures vides.
+--
+-- SEUL CHANGEMENT EN BASE : l'enseignant ne voit plus que SES créneaux.
+-- La policy testait `teaches_class()`, si bien qu'il voyait toute la
+-- grille de chaque classe où il intervient — les heures de ses collègues
+-- comprises. Ce n'est pas son emploi du temps, c'est celui de la classe.
+--
+-- La comparaison porte sur `teacher_id`, donc un titulaire de premier
+-- cycle — qui n'a pas d'entrée dans `class_subjects` — voit bien les
+-- siens : ses créneaux portent son identifiant d'enseignant.
+
+
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
 -- =====================================================================
@@ -253,3 +278,8 @@
 --   enseignant : lit la retenue de son élève ......... 1
 --   enseignant : poser une retenue ................... refusé
 --   enseignant : constater une violation ............. refusé
+--
+-- Emploi du temps, deux créneaux dans LA MÊME classe — un à l'enseignant,
+-- un à son collègue :
+--   enseignant : créneaux visibles de sa classe ...... 1 sur 2
+--   enseignant : créneaux de son collègue ............ 0

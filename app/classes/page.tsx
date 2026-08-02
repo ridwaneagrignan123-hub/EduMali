@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 import { DevoirsMaison } from "@/components/devoirs-maison"
+import { EmploiDuTemps } from "@/components/emploi-du-temps"
 import {
   CYCLES,
   CYCLE_HINTS,
@@ -402,8 +403,8 @@ export default function ClassesPage() {
                       className="shrink-0 rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
                     >
                       {classeOuverte?.id === classItem.id
-                        ? "Fermer les devoirs"
-                        : "Devoirs à la maison"}
+                        ? "Fermer"
+                        : "Emploi du temps et devoirs"}
                     </button>
                     )}
                   </div>
@@ -423,12 +424,22 @@ export default function ClassesPage() {
           exercices de la classe précédente.
         */}
         {classeOuverte && schoolId && (
-          <DevoirsMaison
-            key={classeOuverte.id}
-            schoolId={schoolId}
-            classId={classeOuverte.id}
-            className={classeOuverte.name}
-          />
+          <>
+            <EmploiDuTemps
+              key={`edt-${classeOuverte.id}`}
+              schoolId={schoolId}
+              classId={classeOuverte.id}
+              className={classeOuverte.name}
+              peutEcrire={peutGerer}
+            />
+
+            <DevoirsMaison
+              key={classeOuverte.id}
+              schoolId={schoolId}
+              classId={classeOuverte.id}
+              className={classeOuverte.name}
+            />
+          </>
         )}
       </section>
     </main>
