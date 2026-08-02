@@ -21,10 +21,11 @@ import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
  * L'ORDRE COMPTE, et il va du plus établi au plus incertain :
  *
  *   1. déjà rattaché à une école .... son espace
- *   2. autorisation non consommée ... création de l'établissement
- *   3. demande en attente ........... « demande reçue »
- *   4. demande refusée .............. le dire clairement
- *   5. rien ......................... déposer une demande
+ *   2. exploitant sans école ........ l'écran d'exploitation
+ *   3. autorisation non consommée ... création de l'établissement
+ *   4. demande en attente ........... « demande reçue »
+ *   5. demande refusée .............. le dire clairement
+ *   6. rien ......................... déposer une demande
  *
  * Le rattachement passe avant l'autorisation : quelqu'un qui a déjà une
  * école et à qui il resterait un grant inutilisé doit aller travailler,
@@ -32,6 +33,7 @@ import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
  */
 
 export type Destination =
+  | { ou: "exploitant" }
   | { ou: "espace" }
   | { ou: "setup-school" }
   | { ou: "demande-en-attente"; note: string | null }
@@ -78,6 +80,24 @@ export async function GET(request: Request) {
 
     if (profil?.school_id) {
       return NextResponse.json({ ou: "espace" } satisfies Destination)
+    }
+
+    /*
+     * L'EXPLOITANT sans école va à son écran, pas au formulaire de
+     * demande d'accès. Le contrôle vient APRÈS l'école : quelqu'un qui
+     * tient la plateforme ET dirige un établissement travaille d'abord
+     * dans le sien, et rejoint /exploitant par son adresse.
+     */
+    if (email) {
+      const { data: exploitant } = await supabaseAdmin
+        .from("platform_operators")
+        .select("email")
+        .eq("email", email)
+        .maybeSingle()
+
+      if (exploitant) {
+        return NextResponse.json({ ou: "exploitant" } satisfies Destination)
+      }
     }
 
     /*

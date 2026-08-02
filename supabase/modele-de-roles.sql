@@ -359,6 +359,33 @@
 
 
 -- ---------------------------------------------------------------------
+-- L'EXPLOITANT SE DÉSIGNE PAR SON ADRESSE — corrigé le 2026-08-02
+-- ---------------------------------------------------------------------
+--
+-- `platform_operators` était clé sur `user_id`, avec ON DELETE CASCADE
+-- vers auth.users. Le compte de l'exploitant a été supprimé le jour
+-- même, et sa qualité d'exploitant a disparu avec lui, EN SILENCE : la
+-- plateforme s'est retrouvée sans aucun exploitant, plus personne ne
+-- pouvait approuver une demande, et rien ne le signalait.
+--
+-- Le défaut n'était pas la suppression, c'était la clé. L'exploitant est
+-- une PERSONNE, identifiée par une adresse ; son compte
+-- d'authentification va et vient — il se supprime, se recrée, naît d'un
+-- mot de passe ou de Google. Clé sur le compte, on confondait la
+-- personne et le jeton.
+--
+-- La clé est donc l'ADRESSE, en minuscules. `user_id` reste en simple
+-- trace du compte reconnu, nullable et en ON DELETE SET NULL : sa
+-- disparition efface le lien, jamais la désignation.
+--
+-- EFFET DE BORD VOULU : on peut désigner un exploitant AVANT qu'il ait
+-- un compte. C'est ce qui débloque l'amorçage — sans quoi il faut un
+-- compte pour créer l'exploitant, et un exploitant pour ouvrir la
+-- première école. La reconnaissance vaut dès la première connexion,
+-- quel que soit le moyen.
+
+
+-- ---------------------------------------------------------------------
 -- TÂCHE 9 — LA CLÉ MAÎTRESSE NE PEUT PLUS PARTIR AU NAVIGATEUR
 -- ---------------------------------------------------------------------
 --

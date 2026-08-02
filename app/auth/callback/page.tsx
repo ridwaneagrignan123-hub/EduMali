@@ -97,6 +97,10 @@ export default function AuthCallbackPage() {
       }
 
       switch (destination.ou) {
+        case "exploitant":
+          router.push("/exploitant")
+          return
+
         case "espace":
           router.push("/dashboard")
           router.refresh()

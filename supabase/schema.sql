@@ -404,11 +404,31 @@ create table payroll_closings (
 -- AUCUNE POLICY, deliberement. RLS active et zero policy ferme la table
 -- a `authenticated` : seule la cle service role y accede.
 create table platform_operators (
-  user_id uuid not null,
+  -- LA CLE EST L'ADRESSE, PAS LE COMPTE.
+  --
+  -- La table etait clee sur `user_id` avec un ON DELETE CASCADE. Le
+  -- 2026-08-02, le compte de l'exploitant a ete supprime, et sa qualite
+  -- d'exploitant a disparu avec lui, en silence : plus personne ne
+  -- pouvait approuver une demande, et rien ne le signalait.
+  --
+  -- L'exploitant est une PERSONNE, identifiee par une adresse. Son
+  -- compte va et vient — il se supprime, se recree, nait d'un mot de
+  -- passe ou de Google. Le faire porter la designation confondait la
+  -- personne et le jeton.
+  --
+  -- Effet de bord voulu : on peut designer un exploitant AVANT qu'il ait
+  -- un compte. C'est ce qui debloque l'amorcage, sans quoi il faut un
+  -- compte pour creer l'exploitant et un exploitant pour ouvrir la
+  -- premiere ecole.
+  email text not null,
   created_at timestamp with time zone default now() not null,
+  -- Simple TRACE du compte reconnu, jamais la cle : ON DELETE SET NULL,
+  -- sa disparition efface le lien et non la designation.
+  user_id uuid,
   note text,
-  constraint platform_operators_pkey PRIMARY KEY (user_id),
-  constraint platform_operators_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+  constraint platform_operators_pkey PRIMARY KEY (email),
+  constraint platform_operators_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL,
+  constraint platform_operators_email_minuscule CHECK ((email = lower(btrim(email))))
 );
 
 create table profiles (
@@ -3128,7 +3148,11 @@ CREATE OR REPLACE FUNCTION private.is_platform_operator()
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
-AS $function$ select exists (select 1 from platform_operators o where o.user_id = auth.uid()); $function$
+AS $function$
+  select exists (
+    select 1 from platform_operators o
+    where o.email = lower(btrim(coalesce(auth.jwt() ->> 'email', ''))));
+$function$
 
 CREATE OR REPLACE FUNCTION private.is_surveillant_general()
  RETURNS boolean

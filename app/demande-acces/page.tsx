@@ -70,6 +70,11 @@ export default function DemandeAccesPage() {
     if (response.ok) {
       const destination = await response.json()
 
+      if (destination.ou === "exploitant") {
+        router.push("/exploitant")
+        return
+      }
+
       if (destination.ou === "espace") {
         router.push("/dashboard")
         return

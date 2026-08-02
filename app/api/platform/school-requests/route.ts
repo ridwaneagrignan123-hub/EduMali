@@ -17,6 +17,16 @@ import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
  *
  * Un promoteur, fût-il celui de la plus grande école, n'entre pas ici.
  * ---------------------------------------------------------------------
+ *
+ * LA DÉSIGNATION PORTE SUR L'ADRESSE, PAS SUR LE COMPTE
+ *
+ * La table était clé sur `user_id` : le jour où le compte de
+ * l'exploitant a été supprimé, la plateforme s'est retrouvée sans aucun
+ * exploitant, en silence. L'exploitant est une personne, identifiée par
+ * une adresse ; son compte va et vient.
+ *
+ * On reconnaît donc l'adresse du jeton, et on note au passage le compte
+ * qui l'a présentée — une trace, pas la clé.
  */
 
 type Exploitant = { userId: string }
@@ -59,11 +69,15 @@ async function exigerExploitant(
     }
   }
 
-  const { data: operateur } = await supabaseAdmin
-    .from("platform_operators")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle()
+  const email = (user.email ?? "").trim().toLowerCase()
+
+  const { data: operateur } = email
+    ? await supabaseAdmin
+        .from("platform_operators")
+        .select("email, user_id")
+        .eq("email", email)
+        .maybeSingle()
+    : { data: null }
 
   if (!operateur) {
     /*
@@ -74,6 +88,19 @@ async function exigerExploitant(
       ok: false,
       response: NextResponse.json({ error: "Introuvable." }, { status: 404 }),
     }
+  }
+
+  /*
+   * On rattache le compte à la désignation la première fois qu'il se
+   * présente. C'est une commodité de lecture — savoir qui s'est
+   * connecté — et non un contrôle : la reconnaissance se fait sur
+   * l'adresse, à chaque appel.
+   */
+  if (operateur.user_id !== user.id) {
+    await supabaseAdmin
+      .from("platform_operators")
+      .update({ user_id: user.id })
+      .eq("email", email)
   }
 
   return { ok: true, exploitant: { userId: user.id } }
