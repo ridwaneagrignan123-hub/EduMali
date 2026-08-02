@@ -136,10 +136,10 @@ export async function POST(request: Request) {
     /*
      * Prévenir une famille relève du suivi de l'élève. « notes.saisir »
      * ouvre la porte à l'enseignant, qui marque les absences de sa
-     * leçon ; « vie_scolaire.tenir » à l'encadrement et au surveillant.
+     * leçon ; « surveillance.tenir » à l'encadrement et au surveillant.
      */
     if (
-      !can(profile.role, "vie_scolaire.tenir") &&
+      !can(profile.role, "surveillance.tenir") &&
       !can(profile.role, "notes.saisir")
     ) {
       return NextResponse.json(

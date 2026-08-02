@@ -137,7 +137,7 @@ export async function POST(request: Request) {
      * Les autres messages — absence, bulletin — relèvent du suivi des
      * élèves. Un comptable n'a pas à écrire aux familles à ce sujet.
      */
-    if (eventType !== "fee_overdue" && !can(profile.role, "vie_scolaire.tenir")) {
+    if (eventType !== "fee_overdue" && !can(profile.role, "surveillance.tenir")) {
       return NextResponse.json(
         { error: "Votre rôle ne permet pas d'envoyer ce message." },
         { status: 403 }

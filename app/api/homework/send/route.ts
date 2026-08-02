@@ -127,9 +127,9 @@ export async function POST(request: Request) {
 
     // Le même contrôle que pour les autres messages aux parents :
     // l'enseignant par « notes.saisir », l'encadrement par
-    // « vie_scolaire.tenir ».
+    // « surveillance.tenir ».
     if (
-      !can(profile.role, "vie_scolaire.tenir") &&
+      !can(profile.role, "surveillance.tenir") &&
       !can(profile.role, "notes.saisir")
     ) {
       return NextResponse.json(

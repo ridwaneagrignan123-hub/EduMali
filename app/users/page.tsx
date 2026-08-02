@@ -8,6 +8,8 @@ import { EditDialog } from "@/components/edit-dialog"
 import { AccessLinkNotice } from "@/components/access-link-notice"
 import { ROLE_LABELS, can, canAssignRole } from "@/src/lib/roles"
 import {
+  CYCLES,
+  CYCLE_LABELS,
   FILIERES,
   FILIERE_LABELS,
   filiereLabel,
@@ -24,6 +26,8 @@ type UserAccount = {
   directionId: string | null
   /* Filière du directeur de direction. Nulle hors école franco-arabe. */
   filiere: string | null
+  /* Cycle du surveillant rattaché. Nul pour tout autre rôle. */
+  cycle: string | null
   phone: string | null
   isActive: boolean
   createdAt: string
@@ -50,6 +54,12 @@ const ROLES_AUTORISES = ["promoteur", "directeur_general"]
 
 // Seul rôle dont le périmètre est limité à une direction.
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
+
+/*
+ * Le surveillant est rattache a UN cycle. Le surveillant GENERAL voit
+ * les trois : il n'a donc pas de cycle a choisir.
+ */
+const CYCLE_SCOPED_ROLE = "surveillant"
 
 /*
  * Informations personnelles modifiables. L'email n'en fait pas partie :
@@ -100,6 +110,11 @@ export default function UsersPage() {
 
   /* Filière choisie en attente — école franco-arabe seulement. */
   const [pendingFiliereByUserId, setPendingFiliereByUserId] = useState<
+    Record<string, string>
+  >({})
+
+  /* Cycle choisi en attente — surveillant rattaché seulement. */
+  const [pendingCycleByUserId, setPendingCycleByUserId] = useState<
     Record<string, string>
   >({})
 
@@ -259,6 +274,7 @@ export default function UsersPage() {
       isActive?: boolean
       directionId?: string
       filiere?: string | null
+      cycle?: string | null
     },
     successMessage: string
   ) {
@@ -336,9 +352,47 @@ export default function UsersPage() {
      * Directeur de direction : on attend le choix de la direction.
      * Tout autre rôle s'applique immédiatement, comme avant.
      */
-    if (role !== DIRECTION_SCOPED_ROLE) {
+    if (role !== DIRECTION_SCOPED_ROLE && role !== CYCLE_SCOPED_ROLE) {
       applyRole(user, role, null)
     }
+  }
+
+  /*
+   * Le cycle d'un surveillant se valide en meme temps que son role : la
+   * route refuse un surveillant sans cycle, parce qu'il ne verrait
+   * aucune classe.
+   */
+  async function applyCycle(user: UserAccount, cycle: string) {
+    const confirmed = window.confirm(
+      `Faire de ${getFullName(user)} le surveillant du ${
+        CYCLE_LABELS[cycle as keyof typeof CYCLE_LABELS] ?? cycle
+      } ? Il ne verra que la surveillance de ce cycle.`
+    )
+
+    if (!confirmed) {
+      setPendingRoleByUserId((current) => {
+        const next = { ...current }
+        delete next[user.id]
+        return next
+      })
+      return
+    }
+
+    await updateUser(
+      user.id,
+      { role: CYCLE_SCOPED_ROLE, cycle },
+      `${getFullName(user)} surveille désormais le ${
+        CYCLE_LABELS[cycle as keyof typeof CYCLE_LABELS] ?? cycle
+      }.`
+    )
+
+    setPendingCycleByUserId((current) => {
+      const next = { ...current }
+      delete next[user.id]
+      return next
+    })
+
+    await loadUsers()
   }
 
   async function applyRole(
@@ -712,6 +766,11 @@ export default function UsersPage() {
                   const needsDirection =
                     selectedRole === DIRECTION_SCOPED_ROLE
 
+                  const needsCycle = selectedRole === CYCLE_SCOPED_ROLE
+
+                  const chosenCycle =
+                    pendingCycleByUserId[user.id] ?? user.cycle ?? ""
+
                   const chosenDirectionId =
                     pendingDirectionByUserId[user.id] ??
                     user.directionId ??
@@ -853,6 +912,56 @@ export default function UsersPage() {
                                 ))}
                             </select>
                           </div>
+
+                          {needsCycle && !user.isSelf && (
+                            <div className="space-y-1">
+                              <label
+                                htmlFor={`cycle-${user.id}`}
+                                className="block text-xs text-muted-foreground"
+                              >
+                                Cycle surveillé
+                              </label>
+
+                              <div className="flex items-center gap-2">
+                                <select
+                                  id={`cycle-${user.id}`}
+                                  value={chosenCycle}
+                                  onChange={(event) =>
+                                    setPendingCycleByUserId((current) => ({
+                                      ...current,
+                                      [user.id]: event.target.value,
+                                    }))
+                                  }
+                                  disabled={isPending}
+                                  className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  <option value="">Choisir...</option>
+
+                                  {CYCLES.map((value) => (
+                                    <option key={value} value={value}>
+                                      {CYCLE_LABELS[value]}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <button
+                                  onClick={() =>
+                                    applyCycle(user, chosenCycle)
+                                  }
+                                  disabled={isPending || !chosenCycle}
+                                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Valider
+                                </button>
+                              </div>
+
+                              <p className="text-xs text-muted-foreground">
+                                Un surveillant sans cycle ne voit aucune
+                                classe. Pour couvrir les trois, nommez-le
+                                plutôt surveillant général.
+                              </p>
+                            </div>
+                          )}
 
                           {needsDirection && !user.isSelf && (
                             <div className="space-y-1">

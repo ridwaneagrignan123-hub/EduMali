@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
-import { VIE_SCOLAIRE } from "@/src/lib/roles"
+import { SURVEILLANCE } from "@/src/lib/roles"
 import { AccesRefuse, ChargementPage, useRoleGate } from "@/components/role-gate"
 import {
   COULEUR_STATUT,
@@ -126,7 +126,7 @@ type Onglet = "retards" | "pointage" | "discipline" | "themes" | "rappels"
 
 export default function SupervisionPage() {
   const router = useRouter()
-  const gate = useRoleGate(VIE_SCOLAIRE)
+  const gate = useRoleGate(SURVEILLANCE)
 
   const [onglet, setOnglet] = useState<Onglet>("retards")
   const [chargement, setChargement] = useState(true)
@@ -831,7 +831,7 @@ export default function SupervisionPage() {
       <section className="mx-auto max-w-6xl space-y-6 p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="font-heading text-3xl font-bold">Vie scolaire</h1>
+            <h1 className="font-heading text-3xl font-bold">Surveillance</h1>
 
             <p className="mt-2 text-muted-foreground">
               Retards des enseignants, thèmes au rang et rappels du jour.

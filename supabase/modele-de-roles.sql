@@ -149,6 +149,42 @@
 -- directeur ne le fait que sur les classes qu'il a réglées ainsi.
 
 
+-- ---------------------------------------------------------------------
+-- TÂCHE 4 — SURVEILLANCE PAR CYCLE, ET SURVEILLANT GÉNÉRAL
+-- ---------------------------------------------------------------------
+--
+-- « Vie scolaire » devient « Surveillance », à l'écran comme dans la
+-- permission (`surveillance.tenir`).
+--
+-- `profiles.cycle` rattache un surveillant à UN cycle. Le surveillant
+-- GÉNÉRAL, rôle nouveau, voit les trois : il n'a donc pas de cycle, et
+-- lui en donner un le rétrécirait.
+--
+-- UN SURVEILLANT SANS CYCLE NE SURVEILLE RIEN, délibérément. Mieux vaut
+-- une page vide, qui pousse à renseigner le rattachement, qu'un accès
+-- silencieux à toute l'école — le défaut permissif est celui qu'on ne
+-- découvre jamais.
+--
+-- LE CYCLE D'UNE CLASSE SE REPLIE SUR SA DIRECTION. `classes.cycle` est
+-- un texte posé à la création, souvent oublié. Depuis que les directions
+-- portent un cycle (tâche 2), `cycle_de_la_classe()` s'y replie : une
+-- classe rattachée à une direction de premier cycle EST du premier
+-- cycle, même si sa propre colonne est vide. Sans ce repli, un
+-- surveillant ne verrait rien d'un effectif pourtant bien organisé.
+--
+-- L'ENSEIGNANT PERD L'ÉCRITURE sur les retenues et les violations : sa
+-- vue de surveillance est en LECTURE, bornée à ses propres élèves.
+-- Poser une sanction est un acte de la surveillance, pas de
+-- l'enseignement. La capacité change de main — surveillant et directeur
+-- la gardent — elle ne disparaît pas.
+--
+-- CE QUI N'EST PAS CLOISONNÉ PAR CYCLE, ET POURQUOI : les thèmes au rang
+-- (`lineup_themes`) et les rappels du jour (`daily_reminders`) sont des
+-- annonces d'établissement. Elles n'ont pas de cycle auquel se
+-- rattacher, et leur en inventer un dépasserait la demande. Elles
+-- restent donc communes à l'école.
+
+
 -- =====================================================================
 -- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-02)
 -- =====================================================================
@@ -182,3 +218,13 @@
 --   réglage « enseignant » / le directeur note ..... refusé
 --   réglage « directeur »  / l'enseignant note ..... refusé
 --   réglage « directeur »  / le directeur note ..... passe
+--
+-- Surveillance, sous de vraies réclamations JWT (classe du premier
+-- cycle SANS cycle propre, rattachée à une direction de premier cycle,
+-- pour éprouver le repli) :
+--   surveillant du 1er cycle : classes visibles ...... 1 sur 2
+--   surveillant du 1er cycle : poser une retenue ..... passe
+--   surveillant général : classes visibles ........... 2 sur 2
+--   enseignant : lit la retenue de son élève ......... 1
+--   enseignant : poser une retenue ................... refusé
+--   enseignant : constater une violation ............. refusé

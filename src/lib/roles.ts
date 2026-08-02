@@ -49,11 +49,20 @@ export const ROLE_LABELS: Record<string, string> = {
   teacher: "Enseignant",
   comptable: "Comptable",
   surveillant: "Surveillant",
+  surveillant_general: "Surveillant général",
 }
 
-/** Tient la vie scolaire : retards, thèmes au rang, rappels. */
-export const VIE_SCOLAIRE = ["promoteur", "directeur_general",
-  "directeur_direction", "surveillant"]
+/*
+ * La SURVEILLANCE : retards, retenues, violations du règlement, thèmes
+ * au rang, rappels. Anciennement « vie scolaire ».
+ *
+ * L'enseignant y figure en LECTURE SEULE, borné à ses propres élèves
+ * par le RLS : il voit ce qui est reproché à sa classe sans pouvoir
+ * poser lui-même une retenue. Poser une sanction est un acte de la
+ * surveillance, pas de l'enseignement.
+ */
+export const SURVEILLANCE = ["promoteur", "directeur_general",
+  "directeur_direction", "surveillant", "surveillant_general", "teacher"]
 
 /** Direction générale : vue d'ensemble de l'établissement. */
 const DIRECTION_GENERALE = ["promoteur", "directeur_general"]
@@ -96,8 +105,8 @@ export type Permission =
   | "activite.consulter"
   /** Modifier les paramètres de l'établissement. */
   | "parametres.gerer"
-  /** Noter les retards, poser les thèmes au rang et les rappels. */
-  | "vie_scolaire.tenir"
+  /** Poser retards, retenues, violations, thèmes au rang et rappels. */
+  | "surveillance.tenir"
   /** Voir la liste des comptes de l'établissement. */
   | "comptes.consulter"
   /** Modifier l'identité d'un compte et lui renvoyer un lien d'accès. */
@@ -151,7 +160,11 @@ const PERMISSIONS: Record<Permission, string[]> = {
    * ouvertes.
    */
   "activite.consulter": DIRECTION_GENERALE,
-  "vie_scolaire.tenir": ["directeur_direction", "surveillant"],
+  "surveillance.tenir": [
+    "directeur_direction",
+    "surveillant",
+    "surveillant_general",
+  ],
 
   /*
    * Les comptes, à granularité fine — et c'est délibéré.
@@ -184,7 +197,11 @@ const PERMISSIONS: Record<Permission, string[]> = {
  */
 export const NOMINE: Record<string, string[]> = {
   promoteur: ["directeur_general", "comptable"],
-  directeur_general: ["directeur_direction", "surveillant"],
+  directeur_general: [
+    "directeur_direction",
+    "surveillant",
+    "surveillant_general",
+  ],
   directeur_direction: ["teacher"],
 }
 
@@ -280,12 +297,12 @@ const PEDAGOGIE = [...ENCADREMENT, "teacher"]
  * note nominative. C'est la raison d'être des fonctions stats_* en base,
  * qui ne rendent rien d'autre que des agrégats.
  */
-const TOUS = [...PEDAGOGIE, "comptable", "surveillant"]
+const TOUS = [...PEDAGOGIE, "comptable", "surveillant", "surveillant_general"]
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Tableau de bord", path: "/dashboard", roles: TOUS },
   { label: "Statistiques", path: "/statistics", roles: TOUS },
-  { label: "Vie scolaire", path: "/supervision", roles: VIE_SCOLAIRE },
+  { label: "Surveillance", path: "/supervision", roles: SURVEILLANCE },
   { label: "Élèves", path: "/students", roles: ENCADREMENT },
   /*
    * Le pic de ressaisie de l'année : réinscrire tout un effectif à la

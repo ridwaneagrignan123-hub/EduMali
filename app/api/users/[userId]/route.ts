@@ -38,9 +38,18 @@ const ALLOWED_ROLES = [
   // Ajouté en même temps que la contrainte en base ; il manquait ici,
   // si bien qu'aucun surveillant ne pouvait être nommé depuis la page.
   "surveillant",
+  "surveillant_general",
 ]
 
 const DIRECTION_SCOPED_ROLE = "directeur_direction"
+
+/*
+ * Le surveillant est rattaché à UN cycle et n'y voit que la surveillance
+ * de celui-ci. Le surveillant GÉNÉRAL voit les trois : il n'a donc pas
+ * de cycle, et lui en donner un le rétrécirait.
+ */
+const CYCLE_SCOPED_ROLE = "surveillant"
+const CYCLES_ADMIS = ["premier_cycle", "second_cycle", "lycee"]
 
 export async function PATCH(
   request: Request,
@@ -62,8 +71,16 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { role, isActive, directionId, filiere, firstName, lastName, phone } =
-      body
+    const {
+      role,
+      isActive,
+      directionId,
+      filiere,
+      cycle,
+      firstName,
+      lastName,
+      phone,
+    } = body
 
     /*
      * Le plafond d'attribution s'applique dès qu'on touche au rôle ou à
@@ -247,6 +264,31 @@ export async function PATCH(
     }
 
     /*
+     * Le CYCLE d'un surveillant. Exigé au moment où on lui donne le
+     * rôle : un surveillant sans cycle ne surveille rien — la fonction
+     * private.surveille_classe() le laisse volontairement les mains
+     * vides plutôt que de lui ouvrir toute l'école par défaut.
+     */
+    let nextCycle: string | null | undefined = undefined
+
+    if (role === CYCLE_SCOPED_ROLE) {
+      if (!cycle || !CYCLES_ADMIS.includes(cycle)) {
+        return NextResponse.json(
+          {
+            error:
+              "Choisissez le cycle de ce surveillant : sans lui, il ne verrait aucune classe.",
+          },
+          { status: 400 }
+        )
+      }
+
+      nextCycle = cycle
+    } else if (role !== undefined) {
+      // Tout autre rôle, surveillant général compris : pas de cycle.
+      nextCycle = null
+    }
+
+    /*
      * L'opération Auth passe en premier : si elle réussit et que la mise à
      * jour du profil échoue, un compte désactivé reste bloqué à la connexion
      * (échec sûr) plutôt que l'inverse.
@@ -276,6 +318,7 @@ export async function PATCH(
       is_active?: boolean
       direction_id?: string | null
       filiere?: string | null
+      cycle?: string | null
       first_name?: string
       last_name?: string
       phone?: string | null
@@ -304,6 +347,10 @@ export async function PATCH(
 
     if (nextFiliere !== undefined) {
       updates.filiere = nextFiliere
+    }
+
+    if (nextCycle !== undefined) {
+      updates.cycle = nextCycle
     }
 
     const { error: updateError } = await supabaseAdmin
