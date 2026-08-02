@@ -278,12 +278,29 @@ export default function StudentHistoryPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => router.push("/students")}
-            className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
-          >
-            ← Élèves
-          </button>
+          <div className="flex flex-wrap gap-3">
+            {/*
+              Le rapport reprend le mois choisi ici : on passe d'un survol
+              a un document, sans avoir a re-selectionner la periode.
+            */}
+            <button
+              onClick={() =>
+                router.push(
+                  `/students/${studentId}/rapport?annee=${annee}&mois=${mois}`
+                )
+              }
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
+              Rapport mensuel
+            </button>
+
+            <button
+              onClick={() => router.push("/students")}
+              className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
+            >
+              ← Élèves
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-3">
