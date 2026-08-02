@@ -477,17 +477,28 @@ create table school_access_requests (
   phone text not null,
   -- Obligatoire : l'autorisation emise a l'approbation est NOMINATIVE
   -- PAR EMAIL. Sans lui, l'approbation n'aurait rien a viser.
+  --
+  -- Elle est PROUVEE et non saisie : la route la lit sur la session, et
+  -- la policy de depot la compare au jeton. Un formulaire libre aurait
+  -- laisse demander un acces au nom de l'ecole d'a cote.
   email text not null,
-  message text,
   status text default 'en_attente'::text not null,
   reviewed_at timestamp with time zone,
   reviewed_by uuid,
   decision_note text,
   grant_id uuid,
+  -- Le compte qui a depose. Sans lui, une demande n'appartenait a
+  -- personne : ni « sa propre demande » dans une policy, ni aiguillage
+  -- au retour de Google.
+  user_id uuid not null,
+  city text,
+  school_type text,
   constraint school_access_requests_pkey PRIMARY KEY (id),
   constraint school_access_requests_grant_id_fkey FOREIGN KEY (grant_id) REFERENCES public.school_creation_grants(id) ON DELETE SET NULL,
   constraint school_access_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES auth.users(id) ON DELETE SET NULL,
+  constraint school_access_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE,
   constraint school_access_requests_status_check CHECK ((status = ANY (ARRAY['en_attente'::text, 'approuvee'::text, 'refusee'::text]))),
+  constraint school_access_requests_school_type_check CHECK (((school_type IS NULL) OR (school_type = ANY (ARRAY['classique'::text, 'franco_arabe'::text])))),
   constraint school_access_requests_contenu_check CHECK (((btrim(school_name) <> ''::text) AND (btrim(contact_name) <> ''::text) AND (btrim(phone) <> ''::text) AND (btrim(email) <> ''::text)))
 );
 
@@ -745,6 +756,10 @@ CREATE INDEX homework_classe_date_idx ON public.homework USING btree (class_id, 
 CREATE INDEX lesson_attendance_classe_jour_idx ON public.lesson_attendance USING btree (class_id, lesson_date DESC);
 CREATE INDEX lesson_attendance_eleve_jour_idx ON public.lesson_attendance USING btree (student_id, lesson_date DESC);
 CREATE INDEX rule_violations_eleve_date_idx ON public.rule_violations USING btree (student_id, violation_date DESC);
+-- PARTIEL, et c'est tout l'interet : il couvre « en attente » et
+-- « approuvee », pas « refusee ». Le double-clic ne cree pas deux
+-- demandes, mais une ecole refusee peut redeposer.
+CREATE UNIQUE INDEX school_access_requests_email_vivante ON public.school_access_requests USING btree (lower(email)) WHERE (status = ANY (ARRAY['en_attente'::text, 'approuvee'::text]));
 CREATE INDEX school_access_requests_statut_idx ON public.school_access_requests USING btree (status, created_at DESC);
 CREATE INDEX sms_logs_school_status_idx ON public.sms_logs USING btree (school_id, status, created_at DESC);
 CREATE INDEX daily_reminders_school_date_idx ON public.daily_reminders USING btree (school_id, reminder_date DESC);
@@ -1060,6 +1075,18 @@ create policy "Users can update their own profile" on profiles for update to {au
   using ((auth.uid() = id))
   with check ((auth.uid() = id));
 
+-- LE DEPOT SE PROUVE, IL NE SE DECLARE PAS. Les deux egalites sont le
+-- coeur du garde-fou : `user_id = auth.uid()` empeche de deposer au nom
+-- d'un autre compte, `email = jwt.email` empeche de deposer sous une
+-- AUTRE ADRESSE — et c'est la seconde qui compte le plus, puisque
+-- l'autorisation emise a l'approbation est nominative par email.
+create policy "Depot de sa propre demande" on school_access_requests for insert to {authenticated}
+  with check (((user_id = auth.uid()) AND (lower(email) = lower((auth.jwt() ->> 'email'::text))) AND (status = 'en_attente'::text) AND (reviewed_at IS NULL) AND (reviewed_by IS NULL) AND (grant_id IS NULL)));
+create policy "Examen des demandes par l'exploitant" on school_access_requests for update to {authenticated}
+  using (private.is_platform_operator())
+  with check (private.is_platform_operator());
+create policy "Lecture de sa demande ou de toutes par l'exploitant" on school_access_requests for select to {authenticated}
+  using (((user_id = auth.uid()) OR private.is_platform_operator()));
 create policy "Admins can delete school holidays from their school" on school_holidays for delete to {authenticated}
   using ((school_id IN ( SELECT profiles.school_id
    FROM public.profiles

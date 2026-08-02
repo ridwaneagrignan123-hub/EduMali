@@ -6,28 +6,34 @@ import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
 
 /*
- * Retour de la connexion Google.
+ * Retour de la connexion Google — l'aiguillage.
  *
  * ---------------------------------------------------------------------
- * POURQUOI CETTE PAGE EXISTE, ET CE QU'ELLE EMPÊCHE
+ * CE QUI A CHANGÉ, ET POURQUOI
  *
- * Google authentifie n'importe quel titulaire d'un compte Gmail. Or le
- * déclencheur handle_new_user crée un profil SANS école ni rôle, et le
- * tableau de bord renvoie alors vers /setup-school — qui crée un
- * établissement.
+ * Cette page DÉCONNECTAIT autrefois tout compte Google rattaché à aucune
+ * école : l'inscription publique n'existait pas, et laisser entrer un
+ * inconnu l'aurait ouverte par la porte de service.
  *
- * Sans le contrôle ci-dessous, activer Google ouvrirait donc
- * l'inscription publique par la porte de service, alors qu'elle a été
- * volontairement reportée en attendant le service d'envoi.
+ * Depuis que la demande d'accès existe, un inconnu n'est plus une
+ * anomalie : c'est une école candidate qui n'a pas encore déposé sa
+ * demande. Le déconnecter reviendrait à lui claquer la porte au moment
+ * précis où il vient frapper. Il est donc aiguillé, pas éconduit.
  *
- * Google est ici un moyen de SE CONNECTER à un compte existant, pas de
- * s'en créer un. Un inconnu est déconnecté aussitôt.
+ * Ce qui n'a PAS changé : Google ne crée toujours aucune école. Il prouve
+ * une adresse, rien de plus. La création reste fermée derrière une
+ * autorisation nominative.
  * ---------------------------------------------------------------------
+ *
+ * L'ORDRE est décidé côté serveur, dans /api/auth/destination, parce
+ * qu'il dépend de `school_creation_grants` — table que le navigateur ne
+ * peut pas lire, et ne doit pas pouvoir sonder.
  */
 
 type Etat =
   | { statut: "verification" }
-  | { statut: "refuse"; email: string }
+  | { statut: "en_attente"; note: string | null }
+  | { statut: "refuse"; motif: string | null }
   | { statut: "erreur"; message: string }
 
 export default function AuthCallbackPage() {
@@ -67,45 +73,50 @@ export default function AuthCallbackPage() {
         return
       }
 
-      const courriel = session.user.email ?? ""
-
-      const { data: profil, error } = await supabase
-        .from("profiles")
-        .select("school_id")
-        .eq("id", session.user.id)
-        .maybeSingle()
+      const response = await fetch("/api/auth/destination", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
 
       if (annule) {
         return
       }
 
-      if (error) {
-        console.error("Erreur profil après Google :", error)
+      if (!response.ok) {
         setEtat({
           statut: "erreur",
           message:
-            "Votre profil n'a pas pu être lu. Réessayez dans un instant.",
+            "Votre accès n'a pas pu être vérifié. Réessayez dans un instant.",
         })
         return
       }
 
-      /*
-       * Aucune école rattachée : ce compte Google ne correspond à aucun
-       * membre d'un établissement. On le déconnecte plutôt que de le
-       * laisser en créer un.
-       */
-      if (!profil?.school_id) {
-        await supabase.auth.signOut()
+      const destination = await response.json()
 
-        if (!annule) {
-          setEtat({ statut: "refuse", email: courriel })
-        }
-
+      if (annule) {
         return
       }
 
-      router.push("/dashboard")
-      router.refresh()
+      switch (destination.ou) {
+        case "espace":
+          router.push("/dashboard")
+          router.refresh()
+          return
+
+        case "setup-school":
+          router.push("/setup-school")
+          return
+
+        case "demande-en-attente":
+          setEtat({ statut: "en_attente", note: destination.note ?? null })
+          return
+
+        case "demande-refusee":
+          setEtat({ statut: "refuse", motif: destination.motif ?? null })
+          return
+
+        default:
+          router.push("/demande-acces")
+      }
     }
 
     verifier()
@@ -124,35 +135,66 @@ export default function AuthCallbackPage() {
 
         <div className="rounded-xl border bg-background p-6">
           {etat.statut === "verification" && (
-            <p className="text-muted-foreground">Vérification de votre accès...</p>
+            <p className="text-muted-foreground">
+              Vérification de votre accès...
+            </p>
+          )}
+
+          {etat.statut === "en_attente" && (
+            <>
+              <h1 className="font-heading text-xl font-bold">
+                Votre demande est enregistrée
+              </h1>
+
+              <p className="mt-3 text-muted-foreground">
+                {etat.note ??
+                  "Nous l'examinons. Vous serez recontacté au numéro indiqué ; il n'y a rien à faire d'ici là."}
+              </p>
+
+              <button
+                onClick={() => router.push("/login")}
+                className="mt-6 rounded-md border px-6 py-3 font-medium hover:bg-muted"
+              >
+                Retour à la connexion
+              </button>
+            </>
           )}
 
           {etat.statut === "refuse" && (
             <>
               <h1 className="font-heading text-xl font-bold">
-                Ce compte Google n&apos;est rattaché à aucun établissement
+                Votre demande n&apos;a pas été retenue
               </h1>
 
+              {/*
+                Le motif, quand l'exploitant en a laissé un. Un refus sans
+                explication laisse recommencer à l'identique.
+              */}
               <p className="mt-3 text-muted-foreground">
-                Vous vous êtes bien identifié avec{" "}
-                <strong>{etat.email}</strong>, mais cette adresse ne
-                correspond à aucun membre d&apos;une école enregistrée sur
-                Ridwane.
+                {etat.motif ??
+                  "Aucun motif n'a été précisé. Vous pouvez nous recontacter pour en savoir plus."}
               </p>
 
               <p className="mt-2 text-muted-foreground">
-                Google permet de se connecter à un compte existant, pas
-                d&apos;en créer un. Demandez à la direction de votre
-                établissement de vous ouvrir un accès — vous pourrez
-                ensuite revenir par ce bouton.
+                Vous pouvez déposer une nouvelle demande si votre situation
+                a changé.
               </p>
 
-              <button
-                onClick={() => router.push("/login")}
-                className="mt-6 rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground"
-              >
-                Retour à la connexion
-              </button>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  onClick={() => router.push("/demande-acces")}
+                  className="rounded-md bg-primary px-6 py-3 font-medium text-primary-foreground"
+                >
+                  Déposer une nouvelle demande
+                </button>
+
+                <button
+                  onClick={() => router.push("/login")}
+                  className="rounded-md border px-6 py-3 font-medium hover:bg-muted"
+                >
+                  Retour à la connexion
+                </button>
+              </div>
             </>
           )}
 

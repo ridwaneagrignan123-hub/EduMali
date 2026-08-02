@@ -310,6 +310,55 @@
 
 
 -- ---------------------------------------------------------------------
+-- TÂCHE 8 bis — LA DEMANDE EST RATTACHÉE À UN COMPTE PROUVÉ
+-- ---------------------------------------------------------------------
+--
+-- `school_access_requests.user_id` est la pièce qui manquait. Sans elle
+-- une demande n'appartenait à personne : impossible d'écrire « sa propre
+-- demande » dans une policy, impossible d'aiguiller quelqu'un à son
+-- retour de Google.
+--
+-- L'ADRESSE SE PROUVE, ELLE NE SE SAISIT PAS. C'est LE point de la
+-- chaîne. L'autorisation émise à l'approbation est nominative par email,
+-- et c'est elle qui ouvre un établissement. Si l'adresse pouvait être
+-- choisie, n'importe qui déposerait au nom de l'école d'à côté et
+-- récupérerait son autorisation.
+--
+-- D'où trois verrous, au lieu d'un :
+--   1. l'écran demande l'identité AVANT le formulaire — non connecté,
+--      il n'y a qu'un bouton « Continuer avec Google » ;
+--   2. la route lit l'adresse sur `auth.getUser()` et ignore le corps
+--      du formulaire, qui ne porte que des faits sur l'établissement ;
+--   3. la policy RLS impose `user_id = auth.uid()` ET
+--      `lower(email) = lower(auth.jwt() ->> 'email')`, pour le jour où
+--      l'on écrirait sans passer par la route.
+--
+-- MÊME RÈGLE À L'APPROBATION : le grant est émis à partir de l'adresse
+-- lue sur la ligne réclamée, jamais d'un champ de /exploitant. Le corps
+-- de la requête ne porte que trois choses — quelle demande, quelle
+-- décision, quel motif.
+--
+-- L'INDEX D'UNICITÉ EST PARTIEL, et c'est tout son intérêt : il couvre
+-- « en attente » et « approuvée », pas « refusée ». Un double-clic ne
+-- peut donc pas créer deux demandes, mais une école refusée peut
+-- redéposer — un refus ne bannit pas à vie.
+--
+-- `lower(email)` : les adresses ne sont pas sensibles à la casse.
+--
+-- LE CALLBACK AIGUILLE AU LIEU D'ÉCONDUIRE. Il déconnectait tout compte
+-- Google sans école : l'inscription n'existait pas, et laisser entrer un
+-- inconnu l'aurait ouverte par la porte de service. Depuis la demande
+-- d'accès, un inconnu n'est plus une anomalie mais une école candidate ;
+-- le déconnecter serait lui claquer la porte au moment où il frappe.
+--
+-- L'ordre est décidé par /api/auth/destination, côté serveur, parce
+-- qu'il dépend de `school_creation_grants` — table sans policy, que le
+-- navigateur ne doit pas pouvoir SONDER : une lecture ouverte dirait
+-- quelles adresses sont attendues. La route rend une DESTINATION, pas
+-- les données qui y mènent.
+
+
+-- ---------------------------------------------------------------------
 -- TÂCHE 9 — LA CLÉ MAÎTRESSE NE PEUT PLUS PARTIR AU NAVIGATEUR
 -- ---------------------------------------------------------------------
 --

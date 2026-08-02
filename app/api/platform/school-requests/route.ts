@@ -90,8 +90,8 @@ export async function GET(request: Request) {
     const { data, error } = await supabaseAdmin
       .from("school_access_requests")
       .select(
-        `id, created_at, school_name, contact_name, phone, email, message,
-         status, reviewed_at, decision_note`
+        `id, created_at, school_name, city, school_type, contact_name,
+         phone, email, status, reviewed_at, decision_note`
       )
       .order("created_at", { ascending: false })
       .limit(200)
@@ -184,6 +184,15 @@ export async function PATCH(request: Request) {
     }
 
     /*
+     * L'ADRESSE VIENT DE LA LIGNE RÉCLAMÉE, jamais du corps de la
+     * requête. C'est le pendant exact du contrôle fait au dépôt : si
+     * /exploitant pouvait fournir une adresse, une demande approuvée
+     * émettrait une autorisation pour quelqu'un d'autre — et tout le
+     * caractère nominatif de l'autorisation tomberait.
+     *
+     * `body` ne porte donc que trois choses : quelle demande, quelle
+     * décision, quel motif.
+     *
      * L'APPROBATION ÉMET L'AUTORISATION, elle ne crée pas l'école.
      * L'établissement naîtra quand la personne se connectera et passera
      * par /setup-school, qui consomme l'autorisation en une écriture

@@ -1,37 +1,124 @@
 "use client"
 
-import { FormEvent, useState } from "react"
+import { FormEvent, useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
+import { SCHOOL_TYPES, SCHOOL_TYPE_LABELS } from "@/src/lib/etablissement"
 
 /*
  * Demande d'accès d'une école candidate.
  *
  * ---------------------------------------------------------------------
- * CE N'EST PAS UNE INSCRIPTION
+ * DEUX ÉTATS, ET UNE SEULE RAISON
  *
- * Rien n'est créé ici : ni compte, ni établissement. La page dépose une
- * demande dans une file, que l'exploitant examine. La création d'une
- * école reste fermée derrière une autorisation nominative à usage
- * unique, émise à la main.
+ * Non connecté : un bouton, « Continuer avec Google ». Connecté : le
+ * formulaire.
  *
- * Le dire clairement sur la page évite l'attente d'un accès immédiat,
- * puis la déception d'une connexion qui échoue.
+ * Cet ordre n'est pas cosmétique. L'autorisation émise en cas d'accord
+ * est NOMINATIVE PAR EMAIL, et cette adresse doit être PROUVÉE, pas
+ * saisie. Demander l'identité avant le formulaire, c'est ce qui empêche
+ * quelqu'un de déposer une demande au nom de l'école d'à côté et de
+ * récupérer son autorisation.
+ *
+ * L'adresse s'affiche donc en lecture seule : elle vient de la session,
+ * et le serveur la relit de son côté sans jamais regarder le formulaire.
  * ---------------------------------------------------------------------
+ *
+ * Rien n'est créé ici : ni compte d'école, ni établissement. La page
+ * dépose une demande dans une file, que l'exploitant examine.
  */
+
+type Etat =
+  | { statut: "chargement" }
+  | { statut: "anonyme" }
+  | { statut: "connecte"; email: string }
+  | { statut: "recue" }
 
 export default function DemandeAccesPage() {
   const router = useRouter()
+  const [etat, setEtat] = useState<Etat>({ statut: "chargement" })
 
   const [schoolName, setSchoolName] = useState("")
-  const [contactName, setContactName] = useState("")
+  const [city, setCity] = useState("")
+  const [schoolType, setSchoolType] = useState("classique")
   const [phone, setPhone] = useState("")
-  const [email, setEmail] = useState("")
-  const [message, setMessage] = useState("")
+  const [promoterName, setPromoterName] = useState("")
 
   const [envoi, setEnvoi] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
-  const [recue, setRecue] = useState(false)
+
+  const examiner = useCallback(async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      setEtat({ statut: "anonyme" })
+      return
+    }
+
+    /*
+     * Déjà une demande, une école ou une autorisation ? Le serveur le
+     * sait, et il vaut mieux le renvoyer là où il doit aller que de lui
+     * proposer un formulaire qui sera refusé.
+     */
+    const response = await fetch("/api/auth/destination", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+
+    if (response.ok) {
+      const destination = await response.json()
+
+      if (destination.ou === "espace") {
+        router.push("/dashboard")
+        return
+      }
+
+      if (destination.ou === "setup-school") {
+        router.push("/setup-school")
+        return
+      }
+
+      if (
+        destination.ou === "demande-en-attente" ||
+        destination.ou === "demande-refusee"
+      ) {
+        router.push("/auth/callback")
+        return
+      }
+    }
+
+    setEtat({ statut: "connecte", email: session.user.email ?? "" })
+  }, [router])
+
+  useEffect(() => {
+    async function lancer() {
+      await examiner()
+    }
+
+    lancer()
+  }, [examiner])
+
+  async function continuerAvecGoogle() {
+    setErreur(null)
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        // Retour ICI : la personne reprend là où elle s'est arrêtée,
+        // avec son adresse désormais prouvée.
+        redirectTo: `${window.location.origin}/demande-acces`,
+      },
+    })
+
+    if (error) {
+      console.error("Erreur connexion Google :", error)
+      setErreur(
+        "La connexion Google n'a pas pu démarrer. Réessayez dans un instant."
+      )
+    }
+  }
 
   async function deposer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -40,15 +127,31 @@ export default function DemandeAccesPage() {
     setErreur(null)
 
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session) {
+        setEtat({ statut: "anonyme" })
+        return
+      }
+
       const response = await fetch("/api/school-requests", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        /*
+         * Aucune adresse ici, délibérément. Le serveur la lit sur la
+         * session : ce corps ne porte que des faits sur l'établissement.
+         */
         body: JSON.stringify({
           schoolName,
-          contactName,
+          city,
+          schoolType,
           phone,
-          email,
-          message,
+          promoterName,
         }),
       })
 
@@ -59,7 +162,7 @@ export default function DemandeAccesPage() {
         return
       }
 
-      setRecue(true)
+      setEtat({ statut: "recue" })
     } catch (error) {
       console.error("Erreur dépôt :", error)
       setErreur("Le serveur n'a pas répondu. Réessayez.")
@@ -68,7 +171,15 @@ export default function DemandeAccesPage() {
     }
   }
 
-  if (recue) {
+  if (etat.statut === "chargement") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
+        <p className="text-muted-foreground">Chargement...</p>
+      </main>
+    )
+  }
+
+  if (etat.statut === "recue") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
         <div className="w-full max-w-md rounded-xl border bg-background p-6">
@@ -78,9 +189,9 @@ export default function DemandeAccesPage() {
 
           <p className="mt-3 text-muted-foreground">
             Nous vous recontacterons au numéro indiqué. Si votre demande est
-            acceptée, vous recevrez une autorisation à l&apos;adresse{" "}
-            <strong>{email}</strong> — c&apos;est avec cette adresse, et elle
-            seule, que vous pourrez ouvrir votre établissement.
+            acceptée, l&apos;autorisation sera rattachée au compte avec lequel
+            vous venez de vous identifier — reconnectez-vous alors avec le
+            même, et vous pourrez ouvrir votre établissement.
           </p>
 
           <button
@@ -94,22 +205,92 @@ export default function DemandeAccesPage() {
     )
   }
 
+  if (etat.statut === "anonyme") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
+        <div className="w-full max-w-md rounded-xl border bg-background p-6">
+          <Logo />
+
+          <h1 className="mt-6 text-2xl font-bold">Demander un accès</h1>
+
+          <p className="mt-3 text-sm text-muted-foreground">
+            Ridwane ne s&apos;ouvre pas librement : chaque établissement
+            entre par une autorisation nominative. Cette page transmet
+            votre demande, nous vous recontactons, et l&apos;ouverture se
+            fait ensuite avec cette autorisation.
+          </p>
+
+          {/*
+            L'identité AVANT le formulaire. L'autorisation sera rattachée
+            à l'adresse prouvée ici : la demander d'abord est ce qui
+            empêche de déposer au nom d'une autre école.
+          */}
+          <p className="mt-4 text-sm text-muted-foreground">
+            Commencez par vous identifier. L&apos;autorisation sera
+            rattachée à cette adresse, et à elle seule.
+          </p>
+
+          {erreur && (
+            <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              {erreur}
+            </div>
+          )}
+
+          <button
+            onClick={continuerAvecGoogle}
+            className="mt-6 w-full rounded-md bg-primary px-4 py-3 font-medium text-primary-foreground"
+          >
+            Continuer avec Google
+          </button>
+
+          <button
+            onClick={() => router.push("/login")}
+            className="mt-3 w-full text-sm text-muted-foreground underline"
+          >
+            J&apos;ai déjà un compte
+          </button>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
       <div className="w-full max-w-lg rounded-xl border bg-background p-6">
         <Logo />
 
-        <h1 className="mt-6 text-2xl font-bold">Demander un accès</h1>
+        <h1 className="mt-6 text-2xl font-bold">Votre établissement</h1>
 
         <p className="mt-3 text-sm text-muted-foreground">
-          Cette page ne crée pas de compte. Elle transmet votre demande ;
-          nous vous recontactons, et l&apos;ouverture de votre établissement
-          se fait ensuite avec une autorisation nominative.
+          Ces informations servent à examiner votre demande. Rien
+          n&apos;est créé pour l&apos;instant.
         </p>
 
         <form onSubmit={deposer} className="mt-6 space-y-4">
           <div className="space-y-2">
-            <label htmlFor="ecole">Nom de l&apos;école *</label>
+            <label htmlFor="email">Votre adresse</label>
+
+            {/*
+              En lecture seule, et pas seulement à l'écran : le serveur
+              ne lit même pas ce champ. Il relit l'adresse sur la
+              session, parce que c'est elle qui recevra l'autorisation.
+            */}
+            <input
+              id="email"
+              value={etat.email}
+              readOnly
+              disabled
+              className="w-full rounded-md border bg-muted px-3 py-2 text-muted-foreground"
+            />
+
+            <p className="text-xs text-muted-foreground">
+              Issue de votre connexion. L&apos;autorisation lui sera
+              rattachée.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="ecole">Nom de l&apos;établissement *</label>
 
             <input
               id="ecole"
@@ -121,19 +302,37 @@ export default function DemandeAccesPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="contact">Personne à contacter *</label>
+            <label htmlFor="ville">Ville *</label>
 
             <input
-              id="contact"
-              value={contactName}
-              onChange={(event) => setContactName(event.target.value)}
+              id="ville"
+              value={city}
+              onChange={(event) => setCity(event.target.value)}
               required
+              placeholder="Exemple : Bamako"
               className="w-full rounded-md border bg-background px-3 py-2"
             />
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="tel">Numéro de téléphone *</label>
+            <label htmlFor="type">Type d&apos;établissement *</label>
+
+            <select
+              id="type"
+              value={schoolType}
+              onChange={(event) => setSchoolType(event.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2"
+            >
+              {SCHOOL_TYPES.map((valeur) => (
+                <option key={valeur} value={valeur}>
+                  {SCHOOL_TYPE_LABELS[valeur]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="tel">Numéro WhatsApp *</label>
 
             <input
               id="tel"
@@ -147,37 +346,13 @@ export default function DemandeAccesPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="email">Adresse email *</label>
+            <label htmlFor="promoteur">Nom du promoteur *</label>
 
             <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              id="promoteur"
+              value={promoterName}
+              onChange={(event) => setPromoterName(event.target.value)}
               required
-              className="w-full rounded-md border bg-background px-3 py-2"
-            />
-
-            {/*
-              L'adresse n'est pas une coordonnée de plus : l'autorisation
-              émise en cas d'accord est nominative PAR EMAIL. C'est celle
-              qui devra ouvrir l'établissement.
-            */}
-            <p className="text-xs text-muted-foreground">
-              L&apos;autorisation sera délivrée à cette adresse, et
-              c&apos;est avec elle que vous devrez vous connecter.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="mot">Un mot sur votre établissement</label>
-
-            <textarea
-              id="mot"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              rows={3}
-              placeholder="Facultatif — effectif, cycles, ville."
               className="w-full rounded-md border bg-background px-3 py-2"
             />
           </div>
@@ -194,14 +369,6 @@ export default function DemandeAccesPage() {
             className="w-full rounded-md bg-primary px-4 py-3 font-medium text-primary-foreground disabled:opacity-50"
           >
             {envoi ? "Envoi..." : "Envoyer ma demande"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => router.push("/login")}
-            className="w-full text-sm text-muted-foreground underline"
-          >
-            J&apos;ai déjà un compte
           </button>
         </form>
       </div>
