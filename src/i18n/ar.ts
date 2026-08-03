@@ -65,6 +65,8 @@ export const ar: Traductions = {
   "connexion.avecGoogle": "المتابعة عبر Google",
   "connexion.retourAccueil": "← العودة إلى الصفحة الرئيسية",
   "connexion.pasDAcces": "مدرستك ليس لها حساب بعد؟ اطلب واحدًا",
+  "connexion.motDePassePlaceholder": "كلمة السر الخاصة بك",
+  "connexion.ou": "أو",
   "connexion.echec": "فشل الدخول. تحقق من بريدك وكلمة السر.",
 
   // ---- Demande d'accès ---------------------------------------------

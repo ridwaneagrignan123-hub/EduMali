@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { supabase } from "@/src/lib/supabase"
+import { useLangue } from "@/src/i18n/contexte"
 import {
   checkPasswordExposure,
   isPasswordWarningSnoozed,
@@ -25,6 +26,8 @@ import {
  */
 
 export function LoginForm() {
+  const { t } = useLangue()
+
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -84,7 +87,7 @@ export function LoginForm() {
       console.error(error.message)
       setLoginError(
         error.message === "Invalid login credentials"
-          ? "Adresse email ou mot de passe incorrect."
+          ? t("connexion.echec")
           : "Impossible de vous connecter. Réessayez dans un instant."
       )
       setSubmitting(false)
@@ -118,7 +121,7 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <label htmlFor="email">Adresse email</label>
+        <label htmlFor="email">{t("connexion.email")}</label>
 
         <Input
           id="email"
@@ -131,12 +134,12 @@ export function LoginForm() {
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="password">Mot de passe</label>
+        <label htmlFor="password">{t("connexion.motDePasse")}</label>
 
         <Input
           id="password"
           type="password"
-          placeholder="Votre mot de passe"
+          placeholder={t("connexion.motDePassePlaceholder")}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
@@ -150,12 +153,12 @@ export function LoginForm() {
       )}
 
       <Button type="submit" className="w-full" disabled={submitting}>
-        {submitting ? "Connexion..." : "Se connecter"}
+        {submitting ? t("connexion.connexionEnCours") : t("connexion.seConnecter")}
       </Button>
 
       <div className="flex items-center gap-3 pt-2">
         <span className="h-px flex-1 bg-border" />
-        <span className="text-xs text-muted-foreground">ou</span>
+        <span className="text-xs text-muted-foreground">{t("connexion.ou")}</span>
         <span className="h-px flex-1 bg-border" />
       </div>
 
@@ -192,7 +195,9 @@ export function LoginForm() {
           />
         </svg>
 
-        {googleLoading ? "Ouverture de Google..." : "Continuer avec Google"}
+        {googleLoading
+          ? t("connexion.connexionEnCours")
+          : t("connexion.avecGoogle")}
       </button>
 
       {googleError && (

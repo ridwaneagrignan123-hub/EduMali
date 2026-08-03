@@ -1,3 +1,5 @@
+import { CleDeTraduction } from "@/src/i18n/fr"
+
 /*
  * Ce que chaque rôle a le droit de faire.
  *
@@ -296,6 +298,12 @@ export function roleLabel(role: string | null | undefined) {
  * Notes, Moyennes et Bulletins.
  */
 export type NavItem = {
+  /*
+   * La cle de traduction. Le `label` francais reste a cote : il sert de
+   * repli si la cle manquait, et rend ce tableau lisible sans avoir a
+   * ouvrir le dictionnaire.
+   */
+  cle: CleDeTraduction
   label: string
   path: string
   roles: string[]
@@ -337,28 +345,28 @@ const TOUS = [...PEDAGOGIE, "comptable", ...SURVEILLANTS]
 const STATISTIQUES = [...PEDAGOGIE, ...SURVEILLANTS]
 
 export const NAV_ITEMS: NavItem[] = [
-  { label: "Tableau de bord", path: "/dashboard", roles: TOUS },
-  { label: "Statistiques", path: "/statistics", roles: STATISTIQUES },
-  { label: "Surveillance", path: "/supervision", roles: SURVEILLANCE },
-  { label: "Élèves", path: "/students", roles: COMPTABLE_VOIT },
+  { cle: "nav.tableauDeBord", label: "Tableau de bord", path: "/dashboard", roles: TOUS },
+  { cle: "nav.statistiques", label: "Statistiques", path: "/statistics", roles: STATISTIQUES },
+  { cle: "nav.surveillance", label: "Surveillance", path: "/supervision", roles: SURVEILLANCE },
+  { cle: "nav.eleves", label: "Élèves", path: "/students", roles: COMPTABLE_VOIT },
   /*
    * Le pic de ressaisie de l'année : réinscrire tout un effectif à la
    * rentrée. Mêmes rôles que la gestion des élèves.
    */
-  { label: "Passage de classe", path: "/promotion", roles: ENCADREMENT },
-  { label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
-  { label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
-  { label: "Classes", path: "/classes", roles: COMPTABLE_VOIT },
-  { label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
-  { label: "Matières", path: "/subjects", roles: DIRECTION_GENERALE },
-  { label: "Classes / Matières", path: "/class_subjects", roles: ENCADREMENT },
-  { label: "Année scolaire", path: "/academic", roles: DIRECTION_GENERALE },
-  { label: "Emploi du temps", path: "/timetable", roles: PEDAGOGIE },
-  { label: "Évaluations", path: "/assessments", roles: PEDAGOGIE },
-  { label: "Notes", path: "/grades", roles: PEDAGOGIE },
-  { label: "Moyennes", path: "/averages", roles: PEDAGOGIE },
-  { label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
-  { label: "Présences", path: "/attendance", roles: PEDAGOGIE },
+  { cle: "nav.passageDeClasse", label: "Passage de classe", path: "/promotion", roles: ENCADREMENT },
+  { cle: "nav.cartesScolaires", label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
+  { cle: "nav.enseignants", label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
+  { cle: "nav.classes", label: "Classes", path: "/classes", roles: COMPTABLE_VOIT },
+  { cle: "nav.directions", label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
+  { cle: "nav.matieres", label: "Matières", path: "/subjects", roles: DIRECTION_GENERALE },
+  { cle: "nav.classesMatieres", label: "Classes / Matières", path: "/class_subjects", roles: ENCADREMENT },
+  { cle: "nav.anneeScolaire", label: "Année scolaire", path: "/academic", roles: DIRECTION_GENERALE },
+  { cle: "nav.emploiDuTemps", label: "Emploi du temps", path: "/timetable", roles: PEDAGOGIE },
+  { cle: "nav.evaluations", label: "Évaluations", path: "/assessments", roles: PEDAGOGIE },
+  { cle: "nav.notes", label: "Notes", path: "/grades", roles: PEDAGOGIE },
+  { cle: "nav.moyennes", label: "Moyennes", path: "/averages", roles: PEDAGOGIE },
+  { cle: "nav.bulletins", label: "Bulletins", path: "/report-card", roles: PEDAGOGIE },
+  { cle: "nav.presences", label: "Présences", path: "/attendance", roles: PEDAGOGIE },
   /*
    * UNE SEULE ENTRÉE FINANCIÈRE.
    *
@@ -375,6 +383,7 @@ export const NAV_ITEMS: NavItem[] = [
    * de rémunération de `teachers` sont fermées au rôle `authenticated`.
    */
   {
+    cle: "nav.comptabilite",
     label: "Comptabilité",
     path: "/accounting",
     roles: ["promoteur", "comptable"],
@@ -386,16 +395,16 @@ export const NAV_ITEMS: NavItem[] = [
    * my_payroll_month() se borne d'elle-même aux fiches de l'appelant, et
    * l'écran ne montre rien à qui n'en a aucune.
    */
-  { label: "Ma rémunération", path: "/my-pay", roles: PEDAGOGIE },
-  { label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
+  { cle: "nav.maRemuneration", label: "Ma rémunération", path: "/my-pay", roles: PEDAGOGIE },
+  { cle: "nav.activite", label: "Activité", path: "/activity", roles: DIRECTION_GENERALE },
   /*
    * La copie des données de l'école, réservée à son propriétaire. Ce
    * n'est pas une capacité de gestion : c'est la garantie qu'il peut
    * repartir avec ses données sans les demander à personne.
    */
-  { label: "Sauvegarde", path: "/sauvegarde", roles: ["promoteur"] },
-  { label: "Comptes utilisateurs", path: "/users", roles: ENCADREMENT },
-  { label: "Paramètres", path: "/settings", roles: DG_ECRIT },
+  { cle: "nav.sauvegarde", label: "Sauvegarde", path: "/sauvegarde", roles: ["promoteur"] },
+  { cle: "nav.comptes", label: "Comptes utilisateurs", path: "/users", roles: ENCADREMENT },
+  { cle: "nav.parametres", label: "Paramètres", path: "/settings", roles: DG_ECRIT },
 ]
 
 /**

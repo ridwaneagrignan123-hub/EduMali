@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { useLangue } from "@/src/i18n/contexte"
 import { can } from "@/src/lib/roles"
 import { matchesSearch, normalizeSearchText } from "@/src/lib/search"
 import { parseSpreadsheetDate } from "@/src/lib/excel"
@@ -150,6 +151,8 @@ function parseGender(value: string) {
 
 
 export default function StudentsPage() {
+  const { t } = useLangue()
+
   const router = useRouter()
 
   const [students, setStudents] = useState<Student[]>([])
@@ -896,7 +899,7 @@ export default function StudentsPage() {
           {peutGererLesEleves && (
           <div className="rounded-xl border bg-background p-6">
             <h3 className="text-xl font-semibold">
-              Ajouter un élève
+              {t("eleves.ajouter")}
             </h3>
 
             <form
@@ -906,7 +909,7 @@ export default function StudentsPage() {
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                 <div className="space-y-2">
                   <label htmlFor="firstName">
-                    Prénom *
+                    {t("eleves.prenom")} *
                   </label>
 
                   <input
@@ -1108,7 +1111,7 @@ export default function StudentsPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h3 className="text-xl font-semibold">
-                  Liste des élèves
+                  {t("eleves.liste")}
                 </h3>
 
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -1120,7 +1123,7 @@ export default function StudentsPage() {
 
               <div className="w-full sm:w-72">
                 <label htmlFor="student-search" className="sr-only">
-                  Rechercher un élève
+                  {t("eleves.rechercherUnEleve")}
                 </label>
 
                 <input
@@ -1130,7 +1133,7 @@ export default function StudentsPage() {
                   onChange={(event) =>
                     setSearchTerm(event.target.value)
                   }
-                  placeholder="Rechercher un élève..."
+                  placeholder={`${t("eleves.rechercherUnEleve")}...`}
                   className="w-full rounded-md border bg-background px-3 py-2"
                 />
               </div>

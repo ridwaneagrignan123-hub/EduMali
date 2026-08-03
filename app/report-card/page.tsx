@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { useLangue } from "@/src/i18n/contexte"
 import { matchesSearch } from "@/src/lib/search"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 import {
@@ -88,6 +89,8 @@ type ReportCardStudent = {
 }
 
 export default function ReportCardPage() {
+  const { t } = useLangue()
+
   const router = useRouter()
 
   const [school, setSchool] = useState<School | null>(null)
@@ -1666,7 +1669,7 @@ export default function ReportCardPage() {
                       <div className="rounded-lg border p-5">
 
                         <p className="text-sm text-muted-foreground">
-                          Moyenne générale
+                          {t("bulletin.moyenneGenerale")}
                         </p>
 
                         <p className="mt-2 text-2xl font-bold">

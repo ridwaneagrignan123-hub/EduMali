@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
 import { SCHOOL_TYPES, SCHOOL_TYPE_LABELS } from "@/src/lib/etablissement"
+import { useLangue } from "@/src/i18n/contexte"
 
 /*
  * Demande d'accès d'une école candidate.
@@ -12,7 +13,7 @@ import { SCHOOL_TYPES, SCHOOL_TYPE_LABELS } from "@/src/lib/etablissement"
  * ---------------------------------------------------------------------
  * DEUX ÉTATS, ET UNE SEULE RAISON
  *
- * Non connecté : un bouton, « Continuer avec Google ». Connecté : le
+ * Non connecté : un bouton, « {t("connexion.avecGoogle")} ». Connecté : le
  * formulaire.
  *
  * Cet ordre n'est pas cosmétique. L'autorisation émise en cas d'accord
@@ -37,6 +38,7 @@ type Etat =
 
 export default function DemandeAccesPage() {
   const router = useRouter()
+  const { t } = useLangue()
   const [etat, setEtat] = useState<Etat>({ statut: "chargement" })
 
   const [schoolName, setSchoolName] = useState("")
@@ -190,7 +192,7 @@ export default function DemandeAccesPage() {
         <div className="w-full max-w-md rounded-xl border bg-background p-6">
           <Logo />
 
-          <h1 className="mt-6 text-xl font-bold">Demande reçue</h1>
+          <h1 className="mt-6 text-xl font-bold">{t("demande.recueTitre")}</h1>
 
           <p className="mt-3 text-muted-foreground">
             Nous vous recontacterons au numéro indiqué. Si votre demande est
@@ -203,7 +205,7 @@ export default function DemandeAccesPage() {
             onClick={() => router.push("/login")}
             className="mt-6 rounded-md border px-4 py-2 text-sm hover:bg-muted"
           >
-            Retour à la connexion
+            {t("demande.retourConnexion")}
           </button>
         </div>
       </main>
@@ -216,7 +218,7 @@ export default function DemandeAccesPage() {
         <div className="w-full max-w-md rounded-xl border bg-background p-6">
           <Logo />
 
-          <h1 className="mt-6 text-2xl font-bold">Demander un accès</h1>
+          <h1 className="mt-6 text-2xl font-bold">{t("demande.titre")}</h1>
 
           <p className="mt-3 text-sm text-muted-foreground">
             Ridwane ne s&apos;ouvre pas librement : chaque établissement
@@ -245,14 +247,14 @@ export default function DemandeAccesPage() {
             onClick={continuerAvecGoogle}
             className="mt-6 w-full rounded-md bg-primary px-4 py-3 font-medium text-primary-foreground"
           >
-            Continuer avec Google
+            {t("connexion.avecGoogle")}
           </button>
 
           <button
             onClick={() => router.push("/login")}
             className="mt-3 w-full text-sm text-muted-foreground underline"
           >
-            J&apos;ai déjà un compte
+            {t("demande.jAiUnCompte")}
           </button>
         </div>
       </main>
@@ -264,7 +266,7 @@ export default function DemandeAccesPage() {
       <div className="w-full max-w-lg rounded-xl border bg-background p-6">
         <Logo />
 
-        <h1 className="mt-6 text-2xl font-bold">Votre établissement</h1>
+        <h1 className="mt-6 text-2xl font-bold">{t("demande.titreFormulaire")}</h1>
 
         <p className="mt-3 text-sm text-muted-foreground">
           Ces informations servent à examiner votre demande. Rien
@@ -273,7 +275,7 @@ export default function DemandeAccesPage() {
 
         <form onSubmit={deposer} className="mt-6 space-y-4">
           <div className="space-y-2">
-            <label htmlFor="email">Votre adresse</label>
+            <label htmlFor="email">{t("demande.votreAdresse")}</label>
 
             {/*
               En lecture seule, et pas seulement à l'écran : le serveur
@@ -295,7 +297,7 @@ export default function DemandeAccesPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="ecole">Nom de l&apos;établissement *</label>
+            <label htmlFor="ecole">{t("demande.nomEcole")} *</label>
 
             <input
               id="ecole"
@@ -307,7 +309,7 @@ export default function DemandeAccesPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="ville">Ville *</label>
+            <label htmlFor="ville">{t("demande.ville")} *</label>
 
             <input
               id="ville"
@@ -320,7 +322,7 @@ export default function DemandeAccesPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="type">Type d&apos;établissement *</label>
+            <label htmlFor="type">{t("demande.typeEcole")} *</label>
 
             <select
               id="type"
@@ -337,7 +339,7 @@ export default function DemandeAccesPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="tel">Numéro WhatsApp *</label>
+            <label htmlFor="tel">{t("demande.whatsapp")} *</label>
 
             <input
               id="tel"
@@ -351,7 +353,7 @@ export default function DemandeAccesPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="promoteur">Nom du promoteur *</label>
+            <label htmlFor="promoteur">{t("demande.nomPromoteur")} *</label>
 
             <input
               id="promoteur"
@@ -373,7 +375,7 @@ export default function DemandeAccesPage() {
             disabled={envoi}
             className="w-full rounded-md bg-primary px-4 py-3 font-medium text-primary-foreground disabled:opacity-50"
           >
-            {envoi ? "Envoi..." : "Envoyer ma demande"}
+            {envoi ? t("demande.envoiEnCours") : t("demande.envoyer")}
           </button>
         </form>
       </div>

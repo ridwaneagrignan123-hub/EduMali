@@ -78,6 +78,8 @@ export const fr = {
   "connexion.retourAccueil": "← Retour à l'accueil",
   "connexion.pasDAcces":
     "Votre école n'a pas encore d'accès ? Demandez-en un",
+  "connexion.motDePassePlaceholder": "Votre mot de passe",
+  "connexion.ou": "ou",
   "connexion.echec":
     "La connexion a échoué. Vérifiez votre adresse et votre mot de passe.",
 

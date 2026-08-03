@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { supabase } from "@/src/lib/supabase"
+import { useLangue } from "@/src/i18n/contexte"
 import {
   FILIERES,
   FILIERE_LABELS,
@@ -84,6 +85,8 @@ export function GrilleNotes({
   /** Faux pour un simple lecteur : la grille s'affiche sans se saisir. */
   peutModifier: boolean
 }) {
+  const { t } = useLangue()
+
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -839,9 +842,9 @@ export function GrilleNotes({
                   </th>
                 ))}
 
-                <th className="border-s px-3 py-2">Total</th>
-                <th className="px-3 py-2">Moyenne</th>
-                <th className="px-3 py-2">Rang</th>
+                <th className="border-s px-3 py-2">{t("notes.total")}</th>
+                <th className="px-3 py-2">{t("notes.moyenne")}</th>
+                <th className="px-3 py-2">{t("notes.rang")}</th>
               </tr>
             </thead>
 

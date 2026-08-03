@@ -1,5 +1,8 @@
+"use client"
+
 import Link from "next/link"
 import { SelecteurLangue } from "@/components/selecteur-langue"
+import { useLangue } from "@/src/i18n/contexte"
 import { LoginForm } from "@/components/auth/login-form"
 import { Logo } from "@/components/logo"
 
@@ -14,6 +17,8 @@ const GOLD = "oklch(80% 0.15 78)"
 const LINE = "oklch(95% 0.015 85 / 0.09)"
 
 export default function LoginPage() {
+  const { t } = useLangue()
+
   return (
     <main
       className="flex min-h-screen flex-col items-center justify-center p-6"
@@ -53,7 +58,7 @@ export default function LoginPage() {
           <Logo size="lg" dark />
 
           <p style={{ color: "oklch(95% 0.015 85 / 0.62)", fontSize: 15 }}>
-            Connectez-vous à votre espace scolaire
+            {t("connexion.sousTitre")}
           </p>
         </div>
 
@@ -83,7 +88,7 @@ export default function LoginPage() {
             href="/demande-acces"
             style={{ fontSize: 14, color: "oklch(95% 0.015 85 / 0.75)" }}
           >
-            Votre école n&apos;a pas encore d&apos;accès ? Demandez-en un
+            {t("connexion.pasDAcces")}
           </Link>
         </p>
 
@@ -92,7 +97,7 @@ export default function LoginPage() {
             href="/"
             style={{ fontSize: 14, color: "oklch(95% 0.015 85 / 0.5)" }}
           >
-            ← Retour à l&apos;accueil
+            {t("connexion.retourAccueil")}
           </Link>
         </p>
       </div>

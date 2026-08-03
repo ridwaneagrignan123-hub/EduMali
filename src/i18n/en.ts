@@ -60,6 +60,8 @@ export const en: Traductions = {
   "connexion.avecGoogle": "Continue with Google",
   "connexion.retourAccueil": "← Back to home",
   "connexion.pasDAcces": "Your school has no access yet? Request one",
+  "connexion.motDePassePlaceholder": "Your password",
+  "connexion.ou": "or",
   "connexion.echec": "Sign-in failed. Check your address and password.",
 
   // ---- Demande d'accès ---------------------------------------------

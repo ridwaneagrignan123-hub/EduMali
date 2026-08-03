@@ -7,6 +7,7 @@ import { Logo } from "@/components/logo"
 import { menuPour } from "@/src/lib/roles"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 import { SelecteurLangue } from "@/components/selecteur-langue"
+import { useLangue } from "@/src/i18n/contexte"
 
 type Profile = {
   school_id: string | null
@@ -32,6 +33,7 @@ type School = {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const { t } = useLangue()
 
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -497,7 +499,11 @@ export default function DashboardPage() {
                 : undefined
             }
           >
-            {item.label}
+            {/*
+              La cle, jamais le libelle : `label` reste dans NAV_ITEMS
+              comme repli lisible, mais c'est la traduction qui s'affiche.
+            */}
+            {t(item.cle)}
           </button>
         )
       })
@@ -610,7 +616,7 @@ export default function DashboardPage() {
               }}
               className="mt-4 w-full shrink-0 rounded-lg border border-white/15 px-4 py-3 text-start text-sm font-medium text-white/80 transition hover:bg-white/10"
             >
-              Déconnexion
+              {t("nav.deconnexion")}
             </button>
           </aside>
         </div>
