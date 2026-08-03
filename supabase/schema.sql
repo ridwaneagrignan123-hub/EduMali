@@ -590,6 +590,13 @@ create table schools (
   -- Un DRAPEAU D'ECOLE et non un second role : porte par l'etablissement,
   -- le reglage survit au remplacement du directeur general.
   dg_voit_comptabilite boolean default false not null,
+  -- La langue dans laquelle cette ecole s'adresse aux familles quand
+  -- rien d'autre ne tranche. Une DECISION, distincte du fait enregistre
+  -- dans sms_logs.language. Defaut 'fr' : c'est la langue de tous les
+  -- messages deja partis, et poser autre chose changerait
+  -- retroactivement le sens des lignes existantes.
+  default_language text default 'fr'::text not null,
+  constraint schools_default_language_check CHECK ((default_language = ANY (ARRAY['fr'::text, 'en'::text, 'ar'::text]))),
   constraint schools_school_type_check CHECK ((school_type = ANY (ARRAY['classique'::text, 'franco_arabe'::text]))),
   constraint schools_pkey PRIMARY KEY (id),
   constraint schools_appreciation_order_check CHECK (((appreciation_excellent > appreciation_very_good) AND (appreciation_very_good > appreciation_good) AND (appreciation_good > appreciation_fair) AND (appreciation_fair >= (0)::numeric) AND (appreciation_excellent <= grading_scale))),
@@ -615,6 +622,17 @@ create table sms_logs (
   -- Le nom du parent AU MOMENT du declenchement : la fiche eleve peut
   -- changer, le message s'adressait a cette personne-la.
   parent_name text,
+  -- La langue dans laquelle CE message-ci a ete compose. Un FAIT, non
+  -- une redite du reglage de l'ecole : une ecole franco-arabe envoie les
+  -- deux, et le reglage peut changer apres coup. Sans cette colonne, un
+  -- message arabe et un message francais seraient indistinguables dans
+  -- la file.
+  --
+  -- Nullable : les lignes ecrites avant cette colonne l'ont ete en
+  -- francais, mais leur poser 'fr' d'autorite affirmerait un choix qui
+  -- n'a jamais eu lieu.
+  language text,
+  constraint sms_logs_language_check CHECK (((language IS NULL) OR (language = ANY (ARRAY['fr'::text, 'en'::text, 'ar'::text])))),
   constraint sms_logs_pkey PRIMARY KEY (id),
   constraint sms_logs_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
   constraint sms_logs_channel_check CHECK ((channel = ANY (ARRAY['whatsapp'::text, 'sms'::text]))),

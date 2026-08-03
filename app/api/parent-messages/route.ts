@@ -3,6 +3,12 @@ import { createClient } from "@supabase/supabase-js"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { can } from "@/src/lib/roles"
 import { sendWhatsApp } from "@/src/lib/whatsapp"
+import {
+  TypeEvenement,
+  composerMessage,
+  dateDuMessage,
+  langueDuMessage,
+} from "@/src/lib/messages-parents"
 
 /*
  * Met un message dans la FILE D'ENVOI aux parents.
@@ -28,62 +34,12 @@ import { sendWhatsApp } from "@/src/lib/whatsapp"
  * l'écran le dit, plutôt que d'annoncer un envoi qui n'a pas eu lieu.
  */
 
-type TypeEvenement =
-  | "absence"
-  | "retard"
-  | "retenue"
-  | "violation_reglement"
-
 const TYPES_ADMIS: TypeEvenement[] = [
   "absence",
   "retard",
   "retenue",
   "violation_reglement",
 ]
-
-function texteDuMessage(
-  type: TypeEvenement,
-  ecole: string,
-  eleve: string,
-  details: Record<string, unknown>
-) {
-  const date =
-    typeof details.date === "string" && details.date
-      ? new Date(details.date).toLocaleDateString("fr-FR")
-      : ""
-
-  const matiere =
-    typeof details.matiere === "string" ? details.matiere : ""
-
-  if (type === "absence") {
-    // La leçon n'existe qu'au second cycle et au lycée : au premier
-    // cycle l'absence porte sur la journée entière.
-    return matiere
-      ? `Bonjour, votre enfant ${eleve} a manqué la leçon de ${matiere} du ${date} à ${ecole}.`
-      : `Bonjour, votre enfant ${eleve} a été absent(e) le ${date} à ${ecole}.`
-  }
-
-  if (type === "retard") {
-    return matiere
-      ? `Bonjour, votre enfant ${eleve} est arrivé(e) en retard à la leçon de ${matiere} du ${date} à ${ecole}.`
-      : `Bonjour, votre enfant ${eleve} est arrivé(e) en retard le ${date} à ${ecole}.`
-  }
-
-  if (type === "retenue") {
-    const motif = typeof details.motif === "string" ? details.motif : ""
-
-    return `Bonjour, votre enfant ${eleve} a été mis(e) en retenue le ${date} à ${ecole}${
-      motif ? ` — motif : ${motif}` : ""
-    }.`
-  }
-
-  const regle = typeof details.regle === "string" ? details.regle : ""
-  const note = typeof details.note === "string" ? details.note : ""
-
-  return `Bonjour, votre enfant ${eleve} n'a pas respecté le règlement intérieur de ${ecole} le ${date}${
-    regle ? ` — règle concernée : ${regle}` : ""
-  }${note ? `. ${note}` : "."}`
-}
 
 export async function POST(request: Request) {
   try {
@@ -188,15 +144,54 @@ export async function POST(request: Request) {
 
     const { data: ecole } = await supabaseAdmin
       .from("schools")
-      .select("name")
+      .select("name, default_language, school_type")
       .eq("id", profile.school_id)
       .maybeSingle()
 
-    const texte = texteDuMessage(
+    /*
+     * LA FILIÈRE VIENT DE LA BASE, PAS DU CORPS DE LA REQUÊTE.
+     *
+     * Le client nomme une MATIÈRE (`subjectId`), jamais une langue. Il ne
+     * peut donc pas choisir dans quelle langue partira le message : il
+     * peut seulement désigner une matière, qui doit appartenir à son
+     * école. La filière — et donc la langue — se lit ici.
+     */
+    let filiereMatiere: unknown = null
+
+    if (body.subjectId) {
+      const { data: matiere } = await supabaseAdmin
+        .from("subjects")
+        .select("filiere")
+        .eq("id", body.subjectId)
+        .eq("school_id", profile.school_id)
+        .maybeSingle()
+
+      filiereMatiere = matiere?.filiere ?? null
+    }
+
+    const langue = langueDuMessage({
+      langueEcole: ecole?.default_language,
+      typeEcole: ecole?.school_type,
+      filiereMatiere,
+    })
+
+    const details = (body.details ?? {}) as Record<string, unknown>
+
+    const texte = composerMessage(
+      langue,
       type,
-      ecole?.name || "votre établissement",
       `${eleve.first_name} ${eleve.last_name}`,
-      body.details ?? {}
+      ecole?.name || "votre établissement",
+      {
+        date: dateDuMessage(
+          typeof details.date === "string" ? details.date : "",
+          langue
+        ),
+        matiere: typeof details.matiere === "string" ? details.matiere : undefined,
+        motif: typeof details.motif === "string" ? details.motif : undefined,
+        regle: typeof details.regle === "string" ? details.regle : undefined,
+        note: typeof details.note === "string" ? details.note : undefined,
+      }
     )
 
     const { data: ligne, error: insertError } = await supabaseAdmin
@@ -210,6 +205,12 @@ export async function POST(request: Request) {
         parent_name: eleve.parent_name,
         phone: eleve.parent_phone,
         message: texte,
+        /*
+         * La langue est enregistrée AVEC le texte : sans elle, un message
+         * arabe et un message français seraient indistinguables dans la
+         * file, et rejouer un envoi obligerait à deviner.
+         */
+        language: langue,
         // Le déclencheur l'impose de toute façon : on l'écrit pour que
         // la lecture du code n'ait pas à le deviner.
         status: "en_attente",

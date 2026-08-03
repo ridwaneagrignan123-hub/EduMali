@@ -3,6 +3,11 @@ import { createClient } from "@supabase/supabase-js"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
 import { can } from "@/src/lib/roles"
 import { sendWhatsApp } from "@/src/lib/whatsapp"
+import {
+  composerMessage,
+  dateDuMessage,
+  langueDuMessage,
+} from "@/src/lib/messages-parents"
 
 /*
  * Met le devoir dans la FILE D'ENVOI, un message par parent.
@@ -39,42 +44,7 @@ type Devoir = {
   instructions: string | null
   photo_url: string | null
   classes: { name: string } | null
-  subjects: { name: string } | null
-}
-
-function texteDuDevoir(devoir: Devoir, ecole: string, eleve: string) {
-  const date = new Date(`${devoir.due_date}T00:00:00`).toLocaleDateString(
-    "fr-FR"
-  )
-
-  const classe = devoir.classes?.name ?? ""
-  const matiere = devoir.subjects?.name ?? ""
-
-  const morceaux = [
-    `Bonjour, devoir à la maison pour ${eleve}${
-      classe ? ` (${classe})` : ""
-    }${matiere ? ` en ${matiere}` : ""}, à rendre le ${date}.`,
-  ]
-
-  if (devoir.page) {
-    morceaux.push(`Page ${devoir.page}.`)
-  }
-
-  if (devoir.exercises) {
-    morceaux.push(`Exercices ${devoir.exercises}.`)
-  }
-
-  if (devoir.instructions) {
-    morceaux.push(devoir.instructions)
-  }
-
-  if (devoir.photo_url) {
-    morceaux.push(`Photo de l'exercice : ${devoir.photo_url}`)
-  }
-
-  morceaux.push(`— ${ecole}`)
-
-  return morceaux.join(" ")
+  subjects: { name: string; filiere: string | null } | null
 }
 
 export async function POST(request: Request) {
@@ -151,7 +121,7 @@ export async function POST(request: Request) {
       .from("homework")
       .select(
         `id, school_id, class_id, due_date, page, exercises, instructions,
-         photo_url, classes ( name ), subjects ( name )`
+         photo_url, classes ( name ), subjects ( name, filiere )`
       )
       .eq("id", body.homeworkId)
       .eq("school_id", profile.school_id)
@@ -251,11 +221,28 @@ export async function POST(request: Request) {
 
     const { data: ecole } = await supabaseAdmin
       .from("schools")
-      .select("name")
+      .select("name, default_language, school_type")
       .eq("id", profile.school_id)
       .maybeSingle()
 
     const nomEcole = ecole?.name || "votre établissement"
+
+    /*
+     * LA FILIÈRE DE LA MATIÈRE DÉCIDE. Un devoir d'arabe part en arabe,
+     * un devoir de français en français — dans la même classe, le même
+     * jour, aux mêmes familles. C'est le cas où la règle se voit le
+     * mieux : la famille reconnaît la matière dont on lui parle.
+     *
+     * Hors école franco-arabe, ou pour un devoir sans matière, l'école
+     * tranche avec sa langue par défaut.
+     */
+    const langue = langueDuMessage({
+      langueEcole: ecole?.default_language,
+      typeEcole: ecole?.school_type,
+      filiereMatiere: devoir.subjects?.filiere,
+    })
+
+    const dateRendu = dateDuMessage(devoir.due_date, langue)
 
     const { data: lignes, error: insertError } = await supabaseAdmin
       .from("sms_logs")
@@ -268,11 +255,22 @@ export async function POST(request: Request) {
           channel: "whatsapp",
           parent_name: eleve.parent_name,
           phone: eleve.parent_phone,
-          message: texteDuDevoir(
-            devoir,
+          message: composerMessage(
+            langue,
+            "devoir",
+            `${eleve.first_name} ${eleve.last_name}`,
             nomEcole,
-            `${eleve.first_name} ${eleve.last_name}`
+            {
+              date: dateRendu,
+              classe: devoir.classes?.name ?? undefined,
+              matiere: devoir.subjects?.name ?? undefined,
+              page: devoir.page ?? undefined,
+              exercices: devoir.exercises ?? undefined,
+              enonce: devoir.instructions ?? undefined,
+              lienPhoto: devoir.photo_url ?? undefined,
+            }
           ),
+          language: langue,
           // Le déclencheur l'impose de toute façon ; écrit ici pour que
           // la lecture du code n'ait pas à le deviner.
           status: "en_attente",
