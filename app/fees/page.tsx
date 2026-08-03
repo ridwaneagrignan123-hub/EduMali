@@ -1137,7 +1137,7 @@ export default function FeesPage() {
                               <h4 className="font-heading text-lg font-bold">
                                 {group.className}
 
-                                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                                <span className="ms-2 text-sm font-normal text-muted-foreground">
                                   {group.assessments.length} élève(s)
                                 </span>
                               </h4>
@@ -1153,7 +1153,7 @@ export default function FeesPage() {
                             </div>
 
                             <div className="overflow-x-auto">
-                              <table className="w-full text-left text-sm">
+                              <table className="w-full text-start text-sm">
                                 <thead className="border-b">
                                   <tr>
                                     <th className="px-4 py-3">Élève</th>
@@ -1250,7 +1250,7 @@ export default function FeesPage() {
                     </p>
                   ) : (
                     <div className="mt-6 overflow-x-auto">
-                      <table className="w-full text-left text-sm">
+                      <table className="w-full text-start text-sm">
                         <thead className="border-b">
                           <tr>
                             <th className="px-4 py-3">N° reçu</th>
@@ -1297,7 +1297,7 @@ export default function FeesPage() {
 
                                   {payment.cancelled_at && (
                                     <span
-                                      className="ml-2 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                      className="ms-2 rounded-full px-2 py-0.5 text-xs font-semibold"
                                       style={{
                                         color: "oklch(0.5 0.19 25)",
                                         background: "oklch(0.55 0.19 25 / 0.13)",
@@ -1329,7 +1329,7 @@ export default function FeesPage() {
                                   {getMethodLabel(payment.payment_method)}
                                 </td>
 
-                                <td className="px-4 py-4 text-right">
+                                <td className="px-4 py-4 text-end">
                                   {payment.cancelled_at ? (
                                     <span
                                       className="text-xs text-muted-foreground"

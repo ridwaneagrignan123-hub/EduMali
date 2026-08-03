@@ -937,7 +937,7 @@ export default function TeachersPage() {
               </p>
             ) : (
               <div className="mt-6 overflow-x-auto">
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-start text-sm">
                   <thead className="border-b">
                     <tr>
                       <th className="px-4 py-3">
@@ -956,7 +956,7 @@ export default function TeachersPage() {
                         Accès au logiciel
                       </th>
 
-                      <th className="px-4 py-3 text-right">
+                      <th className="px-4 py-3 text-end">
                         Actions
                       </th>
                     </tr>
@@ -998,7 +998,7 @@ export default function TeachersPage() {
                           )}
                         </td>
 
-                        <td className="px-4 py-4 text-right">
+                        <td className="px-4 py-4 text-end">
                           <div className="flex justify-end gap-2">
                             {!teacher.profile_id && (
                               <button

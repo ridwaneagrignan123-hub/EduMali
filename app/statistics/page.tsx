@@ -349,7 +349,7 @@ export default function StatisticsPage() {
             </div>
           </div>
 
-          <div className="ml-auto flex gap-2">
+          <div className="ms-auto flex gap-2">
             <button
               onClick={() => router.push("/dashboard")}
               className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
@@ -422,7 +422,7 @@ export default function StatisticsPage() {
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="bg-neutral-100">
-                    <th className="border border-black px-2 py-1.5 text-left">
+                    <th className="border border-black px-2 py-1.5 text-start">
                       Matière
                     </th>
                     <th className="border border-black px-2 py-1.5">
@@ -589,7 +589,7 @@ export default function StatisticsPage() {
                 <tr className="bg-neutral-100">
                   <th
                     rowSpan={2}
-                    className="border border-black px-2 py-1.5 text-left align-bottom"
+                    className="border border-black px-2 py-1.5 text-start align-bottom"
                   >
                     Matière
                   </th>
@@ -697,7 +697,7 @@ export default function StatisticsPage() {
             <div className="mt-16 border-t border-black" />
           </div>
 
-          <div className="w-64 text-right">
+          <div className="w-64 text-end">
             <p className="text-sm font-semibold">Le Directeur</p>
 
             <p className="mt-1 text-xs italic">Nom, signature et cachet</p>

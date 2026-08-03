@@ -1448,7 +1448,7 @@ export default function SettingsPage() {
                     <p className="font-medium">
                       {regle.label}
                       {!regle.is_active && (
-                        <span className="ml-2 text-xs text-muted-foreground">
+                        <span className="ms-2 text-xs text-muted-foreground">
                           (désactivée)
                         </span>
                       )}
@@ -1568,7 +1568,7 @@ export default function SettingsPage() {
           <div className="mt-8">
             <p className="font-medium">
               Périodes enregistrées
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
+              <span className="ms-2 text-sm font-normal text-muted-foreground">
                 {holidays.length}
               </span>
             </p>

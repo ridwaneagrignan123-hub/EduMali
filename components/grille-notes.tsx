@@ -805,7 +805,7 @@ export function GrilleNotes({
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b bg-muted/40">
-                <th className="sticky left-0 z-10 bg-muted/40 px-3 py-2 text-left">
+                <th className="sticky start-0 z-10 bg-muted/40 px-3 py-2 text-start">
                   Élève
                 </th>
 
@@ -839,7 +839,7 @@ export function GrilleNotes({
                   </th>
                 ))}
 
-                <th className="border-l px-3 py-2">Total</th>
+                <th className="border-s px-3 py-2">Total</th>
                 <th className="px-3 py-2">Moyenne</th>
                 <th className="px-3 py-2">Rang</th>
               </tr>
@@ -848,7 +848,7 @@ export function GrilleNotes({
             <tbody>
               {lignes.map((ligne) => (
                 <tr key={ligne.eleve.id} className="border-b last:border-0">
-                  <td className="sticky left-0 z-10 bg-background px-3 py-2 font-medium">
+                  <td className="sticky start-0 z-10 bg-background px-3 py-2 font-medium">
                     {ligne.eleve.last_name} {ligne.eleve.first_name}
                   </td>
 
@@ -878,7 +878,7 @@ export function GrilleNotes({
                     )
                   })}
 
-                  <td className="border-l px-3 py-2 text-center tabular-nums">
+                  <td className="border-s px-3 py-2 text-center tabular-nums">
                     {ligne.total.toLocaleString("fr-FR", {
                       maximumFractionDigits: 2,
                     })}

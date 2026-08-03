@@ -1541,7 +1541,7 @@ export default function ReportCardPage() {
 
                     <div className="overflow-x-auto">
 
-                      <table className="w-full border-collapse text-left">
+                      <table className="w-full border-collapse text-start">
 
                         <thead>
                           <tr className="border-b-2">
@@ -1763,7 +1763,7 @@ export default function ReportCardPage() {
 
                   </div>
 
-                  <div className="border-t p-6 text-right print-hidden">
+                  <div className="border-t p-6 text-end print-hidden">
 
                     <button
                       onClick={() =>

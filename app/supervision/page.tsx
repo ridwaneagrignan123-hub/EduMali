@@ -1726,13 +1726,13 @@ export default function SupervisionPage() {
               <div className="mt-6 overflow-x-auto">
                 <table className="w-full min-w-[720px] text-sm">
                   <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="pb-2 pr-4 font-medium">Enseignant</th>
+                    <tr className="border-b text-start text-muted-foreground">
+                      <th className="pb-2 pe-4 font-medium">Enseignant</th>
 
                       {jours.map((jour) => (
                         <th
                           key={jour.toISOString()}
-                          className="pb-2 pr-2 font-medium capitalize"
+                          className="pb-2 pe-2 font-medium capitalize"
                         >
                           {jour.toLocaleDateString("fr-FR", {
                             weekday: "short",
@@ -1746,7 +1746,7 @@ export default function SupervisionPage() {
                   <tbody>
                     {enseignants.map((enseignant) => (
                       <tr key={enseignant.id} className="border-b last:border-0">
-                        <td className="py-2 pr-4 font-medium">
+                        <td className="py-2 pe-4 font-medium">
                           {enseignant.last_name} {enseignant.first_name}
                         </td>
 
@@ -1759,7 +1759,7 @@ export default function SupervisionPage() {
                           )
 
                           return (
-                            <td key={cle} className="py-2 pr-2">
+                            <td key={cle} className="py-2 pe-2">
                               <input
                                 type="text"
                                 defaultValue={existant?.theme ?? ""}

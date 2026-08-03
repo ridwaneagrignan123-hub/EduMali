@@ -585,7 +585,7 @@ export default function AcademicPage() {
                             year.id
                           )
                         }
-                        className="text-left"
+                        className="text-start"
                       >
                         <p className="font-semibold">
                           {year.name}

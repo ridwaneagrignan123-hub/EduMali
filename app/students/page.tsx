@@ -1163,7 +1163,7 @@ export default function StudentsPage() {
                     </div>
 
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
+                      <table className="w-full text-start text-sm">
                         <thead className="border-b">
                           <tr>
                             <th className="px-4 py-3">
@@ -1186,7 +1186,7 @@ export default function StudentsPage() {
                               Téléphone
                             </th>
 
-                            <th className="px-4 py-3 text-right">
+                            <th className="px-4 py-3 text-end">
                               Actions
                             </th>
                           </tr>
@@ -1209,7 +1209,7 @@ export default function StudentsPage() {
                                   onClick={() =>
                                     router.push(`/students/${student.id}`)
                                   }
-                                  className="text-left font-medium text-primary hover:underline"
+                                  className="text-start font-medium text-primary hover:underline"
                                 >
                                   {student.first_name}{" "}
                                   {student.last_name}
@@ -1243,7 +1243,7 @@ export default function StudentsPage() {
                                 {student.parent_phone || "—"}
                               </td>
 
-                              <td className="px-4 py-4 text-right">
+                              <td className="px-4 py-4 text-end">
                                 <button
                                   onClick={() => startEditStudent(student)}
                                   className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"

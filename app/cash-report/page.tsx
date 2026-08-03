@@ -206,7 +206,7 @@ export default function CashReportPage() {
             />
           </div>
 
-          <div className="ml-auto flex gap-2">
+          <div className="ms-auto flex gap-2">
             <button
               onClick={() => router.push("/fees")}
               className="rounded-md border px-4 py-2 text-sm hover:bg-muted"
@@ -285,13 +285,13 @@ export default function CashReportPage() {
                     <td className="border border-black px-2 py-2 font-medium">
                       Total encaissé
                     </td>
-                    <td className="border border-black px-2 py-2 text-right text-base font-bold tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end text-base font-bold tabular-nums">
                       {montant(totaux?.encaisse)}
                     </td>
                     <td className="border border-black px-2 py-2 font-medium">
                       Reçus émis
                     </td>
-                    <td className="border border-black px-2 py-2 text-right tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end tabular-nums">
                       {totaux?.nombre ?? 0}
                     </td>
                   </tr>
@@ -300,13 +300,13 @@ export default function CashReportPage() {
                     <td className="border border-black px-2 py-2 font-medium">
                       Dont annulé
                     </td>
-                    <td className="border border-black px-2 py-2 text-right font-bold tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end font-bold tabular-nums">
                       {montant(totaux?.annule)}
                     </td>
                     <td className="border border-black px-2 py-2 font-medium">
                       Reçus annulés
                     </td>
-                    <td className="border border-black px-2 py-2 text-right tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end tabular-nums">
                       {totaux?.nombre_annule ?? 0}
                     </td>
                   </tr>
@@ -332,11 +332,11 @@ export default function CashReportPage() {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="bg-neutral-100">
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Mode
                       </th>
                       <th className="border border-black px-2 py-1.5">Reçus</th>
-                      <th className="border border-black px-2 py-1.5 text-right">
+                      <th className="border border-black px-2 py-1.5 text-end">
                         Montant
                       </th>
                     </tr>
@@ -351,7 +351,7 @@ export default function CashReportPage() {
                         <td className="border border-black px-2 py-1.5 text-center tabular-nums">
                           {ligne.nombre}
                         </td>
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {montant(ligne.total)}
                         </td>
                       </tr>
@@ -373,14 +373,14 @@ export default function CashReportPage() {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="bg-neutral-100">
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Personne
                       </th>
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Rôle
                       </th>
                       <th className="border border-black px-2 py-1.5">Reçus</th>
-                      <th className="border border-black px-2 py-1.5 text-right">
+                      <th className="border border-black px-2 py-1.5 text-end">
                         Montant
                       </th>
                     </tr>
@@ -399,7 +399,7 @@ export default function CashReportPage() {
                         <td className="border border-black px-2 py-1.5 text-center tabular-nums">
                           {ligne.nombre}
                         </td>
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {montant(ligne.total)}
                         </td>
                       </tr>
@@ -422,16 +422,16 @@ export default function CashReportPage() {
                   <thead>
                     <tr className="bg-neutral-100">
                       <th className="border border-black px-2 py-1.5">Reçu</th>
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Élève
                       </th>
-                      <th className="border border-black px-2 py-1.5 text-right">
+                      <th className="border border-black px-2 py-1.5 text-end">
                         Montant
                       </th>
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Annulé par
                       </th>
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Motif
                       </th>
                     </tr>
@@ -446,7 +446,7 @@ export default function CashReportPage() {
                         <td className="border border-black px-2 py-1.5">
                           {ligne.eleve}
                         </td>
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {montant(ligne.montant)}
                         </td>
                         <td className="border border-black px-2 py-1.5">
@@ -475,16 +475,16 @@ export default function CashReportPage() {
                   <thead>
                     <tr className="bg-neutral-100">
                       <th className="border border-black px-2 py-1.5">N°</th>
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Élève
                       </th>
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Mode
                       </th>
-                      <th className="border border-black px-2 py-1.5 text-left">
+                      <th className="border border-black px-2 py-1.5 text-start">
                         Encaissé par
                       </th>
-                      <th className="border border-black px-2 py-1.5 text-right">
+                      <th className="border border-black px-2 py-1.5 text-end">
                         Montant
                       </th>
                     </tr>
@@ -506,7 +506,7 @@ export default function CashReportPage() {
                         <td className="border border-black px-2 py-1.5">
                           {ligne.eleve}
                           {ligne.annule_le && (
-                            <span className="ml-2 text-xs font-bold">
+                            <span className="ms-2 text-xs font-bold">
                               ANNULÉ
                             </span>
                           )}
@@ -517,7 +517,7 @@ export default function CashReportPage() {
                         <td className="border border-black px-2 py-1.5">
                           {ligne.encaisseur}
                         </td>
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {montant(ligne.montant)}
                         </td>
                       </tr>
@@ -535,7 +535,7 @@ export default function CashReportPage() {
                 <div className="mt-14 border-t border-black" />
               </div>
 
-              <div className="w-64 text-right">
+              <div className="w-64 text-end">
                 <p className="text-sm font-semibold">Le Directeur</p>
                 <p className="mt-1 text-xs italic">
                   Nom, signature et cachet

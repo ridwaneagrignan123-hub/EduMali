@@ -707,12 +707,12 @@ export default function AttendancePage() {
                   Aucun élève inscrit dans cette classe.
                 </p>
               ) : (
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-start text-sm">
                   <thead className="border-b">
                     <tr>
                       <th className="px-4 py-3">Élève</th>
                       <th className="px-4 py-3">Statut</th>
-                      <th className="px-4 py-3 text-right">Parent</th>
+                      <th className="px-4 py-3 text-end">Parent</th>
                     </tr>
                   </thead>
 
@@ -762,7 +762,7 @@ export default function AttendancePage() {
                             de statut : marquer vingt absents enverrait
                             sinon vingt messages d'affilée.
                           */}
-                          <td className="px-4 py-4 text-right">
+                          <td className="px-4 py-4 text-end">
                             {currentStatus === "absent" ||
                             currentStatus === "late" ? (
                               <button

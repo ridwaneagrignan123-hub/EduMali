@@ -913,7 +913,7 @@ export default function AveragesPage() {
                         </p>
                       </div>
 
-                      <div className="text-right">
+                      <div className="text-end">
                         <p className="text-sm text-muted-foreground">
                           Moyenne générale
                         </p>
@@ -937,7 +937,7 @@ export default function AveragesPage() {
                       </p>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left">
+                        <table className="w-full text-start">
                           <thead className="border-b">
                             <tr>
                               <th className="px-4 py-3">

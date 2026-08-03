@@ -376,12 +376,12 @@ export function EmploiDuTemps({
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead>
               <tr>
-                <th className="border-b p-2 text-left font-medium">Heure</th>
+                <th className="border-b p-2 text-start font-medium">Heure</th>
 
                 {JOURS.map((item) => (
                   <th
                     key={item.valeur}
-                    className="border-b p-2 text-left font-medium"
+                    className="border-b p-2 text-start font-medium"
                   >
                     {item.nom}
                   </th>
@@ -392,7 +392,7 @@ export function EmploiDuTemps({
             <tbody>
               {plages.map((ligne) => (
                 <tr key={ligne.libelle}>
-                  <th className="whitespace-nowrap border-b p-2 text-left align-top font-normal text-muted-foreground">
+                  <th className="whitespace-nowrap border-b p-2 text-start align-top font-normal text-muted-foreground">
                     {heure(ligne.debut)} – {heure(ligne.fin)}
                   </th>
 

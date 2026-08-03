@@ -96,7 +96,7 @@ export default function AccountingPage() {
             <button
               key={tableau.chemin}
               onClick={() => router.push(tableau.chemin)}
-              className="block w-full rounded-xl border bg-background p-6 text-left hover:bg-muted/50"
+              className="block w-full rounded-xl border bg-background p-6 text-start hover:bg-muted/50"
             >
               <p className="font-heading text-lg font-bold">{tableau.titre}</p>
 

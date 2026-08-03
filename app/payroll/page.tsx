@@ -379,7 +379,7 @@ export default function PayrollPage() {
             </button>
           )}
 
-          <div className="ml-auto flex gap-2">
+          <div className="ms-auto flex gap-2">
             {/*
               Clôturer fige les pointages du mois — plus d'ajout, de
               réduction ni d'annulation. C'est l'équivalent de l'état de
@@ -505,7 +505,7 @@ export default function PayrollPage() {
             <span>
               <strong>Mois :</strong> {libelleMois}
               {moisCloture && (
-                <span className="ml-2 font-semibold">— mois clôturé</span>
+                <span className="ms-2 font-semibold">— mois clôturé</span>
               )}
             </span>
 
@@ -583,7 +583,7 @@ export default function PayrollPage() {
                         (vacances et jours fériés exclus)
                       </span>
                     </td>
-                    <td className="border border-black px-2 py-2 text-right tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end tabular-nums">
                       {heures(bulletin.heures_planifiees)}
                     </td>
                   </tr>
@@ -592,7 +592,7 @@ export default function PayrollPage() {
                     <td className="border border-black px-2 py-2">
                       Heures confirmées par pointage
                     </td>
-                    <td className="border border-black px-2 py-2 text-right tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end tabular-nums">
                       {heures(bulletin.heures_pointees)}
                     </td>
                   </tr>
@@ -604,7 +604,7 @@ export default function PayrollPage() {
                         (planifié non confirmé)
                       </span>
                     </td>
-                    <td className="border border-black px-2 py-2 text-right tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end tabular-nums">
                       {heures(bulletin.heures_non_assurees)}
                     </td>
                   </tr>
@@ -613,7 +613,7 @@ export default function PayrollPage() {
                     <td className="border border-black px-2 py-2">
                       Heures à payer
                     </td>
-                    <td className="border border-black px-2 py-2 text-right tabular-nums">
+                    <td className="border border-black px-2 py-2 text-end tabular-nums">
                       {heures(bulletin.heures_payees)}
                     </td>
                   </tr>
@@ -653,7 +653,7 @@ export default function PayrollPage() {
                     <td className="border-2 border-black px-3 py-4 text-base font-bold uppercase">
                       Net à payer
                     </td>
-                    <td className="border-2 border-black px-3 py-4 text-right text-xl font-bold tabular-nums">
+                    <td className="border-2 border-black px-3 py-4 text-end text-xl font-bold tabular-nums">
                       {montant(bulletin.montant)}
                     </td>
                   </tr>
@@ -678,7 +678,7 @@ export default function PayrollPage() {
                 <div className="mt-14 border-t border-black" />
               </div>
 
-              <div className="w-64 text-right">
+              <div className="w-64 text-end">
                 <p className="text-sm font-semibold">La Direction</p>
                 <p className="mt-1 text-xs italic">
                   Nom, signature et cachet
@@ -700,7 +700,7 @@ export default function PayrollPage() {
                   <table className="w-full min-w-[760px] border-collapse text-sm">
                     <thead>
                       <tr className="bg-neutral-100">
-                        <th className="border border-black px-2 py-1.5 text-left">
+                        <th className="border border-black px-2 py-1.5 text-start">
                           Enseignant
                         </th>
                         <th className="border border-black px-2 py-1.5">
@@ -718,7 +718,7 @@ export default function PayrollPage() {
                         <th className="border border-black px-2 py-1.5">
                           À payer
                         </th>
-                        <th className="border border-black px-2 py-1.5 text-right">
+                        <th className="border border-black px-2 py-1.5 text-end">
                           Montant
                         </th>
                         <th className="border border-black px-2 py-1.5 print-hidden" />
@@ -740,23 +740,23 @@ export default function PayrollPage() {
                                 : "—"}
                           </td>
 
-                          <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                          <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                             {heures(ligne.heures_planifiees)}
                           </td>
 
-                          <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                          <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                             {heures(ligne.heures_pointees)}
                           </td>
 
-                          <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                          <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                             {heures(ligne.heures_non_assurees)}
                           </td>
 
-                          <td className="border border-black px-2 py-1.5 text-right font-semibold tabular-nums">
+                          <td className="border border-black px-2 py-1.5 text-end font-semibold tabular-nums">
                             {heures(ligne.heures_payees)}
                           </td>
 
-                          <td className="border border-black px-2 py-1.5 text-right font-bold tabular-nums">
+                          <td className="border border-black px-2 py-1.5 text-end font-bold tabular-nums">
                             {montant(ligne.montant)}
                           </td>
 
@@ -775,17 +775,17 @@ export default function PayrollPage() {
                         <td className="border border-black px-2 py-1.5" colSpan={2}>
                           Total
                         </td>
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {heures(totaux.planifiees)}
                         </td>
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {heures(totaux.pointees)}
                         </td>
                         <td className="border border-black px-2 py-1.5" />
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {heures(totaux.payees)}
                         </td>
-                        <td className="border border-black px-2 py-1.5 text-right tabular-nums">
+                        <td className="border border-black px-2 py-1.5 text-end tabular-nums">
                           {montant(totaux.montant)}
                         </td>
                         <td className="border border-black px-2 py-1.5 print-hidden" />
@@ -813,7 +813,7 @@ export default function PayrollPage() {
                 <div className="mt-14 border-t border-black" />
               </div>
 
-              <div className="w-64 text-right">
+              <div className="w-64 text-end">
                 <p className="text-sm font-semibold">Le Directeur</p>
                 <p className="mt-1 text-xs italic">
                   Nom, signature et cachet

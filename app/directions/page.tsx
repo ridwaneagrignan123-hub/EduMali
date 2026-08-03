@@ -507,7 +507,7 @@ export default function DirectionsPage() {
           >
             <h3 className="font-heading text-xl font-bold">
               Classes non rattachées
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
+              <span className="ms-2 text-sm font-normal text-muted-foreground">
                 {unassignedClasses.length}
               </span>
             </h3>
@@ -527,7 +527,7 @@ export default function DirectionsPage() {
         <div className="rounded-xl border bg-background p-6">
           <h3 className="font-heading text-xl font-bold">
             Directions de l'établissement
-            <span className="ml-2 text-sm font-normal text-muted-foreground">
+            <span className="ms-2 text-sm font-normal text-muted-foreground">
               {directions.length}
             </span>
           </h3>

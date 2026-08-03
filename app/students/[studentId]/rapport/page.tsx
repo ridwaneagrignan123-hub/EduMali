@@ -643,7 +643,7 @@ function RapportEleve() {
                 <div className="mt-3 overflow-x-auto">
                   <table className="w-full border-collapse text-sm">
                     <thead>
-                      <tr className="border-b text-left">
+                      <tr className="border-b text-start">
                         <th className="p-2 font-medium">Jour</th>
                         <th className="p-2 font-medium">Date</th>
                         <th className="p-2 font-medium">Heure</th>

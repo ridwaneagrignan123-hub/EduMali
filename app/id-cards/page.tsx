@@ -1144,7 +1144,7 @@ export default function IdCardsPage() {
                   active.
                 </p>
               ) : (
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-start text-sm">
                   <thead className="border-b">
                     <tr>
                       <th className="px-4 py-3">Photo</th>

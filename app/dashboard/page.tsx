@@ -488,8 +488,8 @@ export default function DashboardPage() {
             }}
             className={
               isActive
-                ? "w-full rounded-lg px-4 py-3 text-left text-sm font-semibold text-white"
-                : "w-full rounded-lg px-4 py-3 text-left text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+                ? "w-full rounded-lg px-4 py-3 text-start text-sm font-semibold text-white"
+                : "w-full rounded-lg px-4 py-3 text-start text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
             }
             style={
               isActive
@@ -543,7 +543,7 @@ export default function DashboardPage() {
               {getUserName().charAt(0).toUpperCase() || "?"}
             </div>
 
-            <div className="hidden text-right sm:block">
+            <div className="hidden text-end sm:block">
               <p className="text-sm font-medium">
                 {getUserName()}
               </p>
@@ -578,7 +578,7 @@ export default function DashboardPage() {
             déconnexion passe sous le bord sans aucun moyen d'y accéder.
           */}
           <aside
-            className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col p-4 shadow-xl"
+            className="absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col p-4 shadow-xl"
             style={{ background: "oklch(0.24 0.02 60)" }}
           >
             <div className="mb-4 flex shrink-0 items-center justify-between px-1">
@@ -608,7 +608,7 @@ export default function DashboardPage() {
                 setMobileMenuOpen(false)
                 handleLogout()
               }}
-              className="mt-4 w-full shrink-0 rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
+              className="mt-4 w-full shrink-0 rounded-lg border border-white/15 px-4 py-3 text-start text-sm font-medium text-white/80 transition hover:bg-white/10"
             >
               Déconnexion
             </button>
@@ -643,7 +643,7 @@ export default function DashboardPage() {
 
             <button
               onClick={handleLogout}
-              className="mt-4 w-full shrink-0 rounded-lg border border-white/15 px-4 py-3 text-left text-sm font-medium text-white/80 transition hover:bg-white/10"
+              className="mt-4 w-full shrink-0 rounded-lg border border-white/15 px-4 py-3 text-start text-sm font-medium text-white/80 transition hover:bg-white/10"
             >
               Déconnexion
             </button>
@@ -696,7 +696,7 @@ export default function DashboardPage() {
                     "/students"
                   )
                 }
-                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
+                className="rounded-xl border border-border bg-card p-6 text-start transition hover:-translate-y-0.5 hover:shadow-lg"
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
@@ -727,7 +727,7 @@ export default function DashboardPage() {
                     "/teachers"
                   )
                 }
-                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
+                className="rounded-xl border border-border bg-card p-6 text-start transition hover:-translate-y-0.5 hover:shadow-lg"
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
@@ -758,7 +758,7 @@ export default function DashboardPage() {
                     "/classes"
                   )
                 }
-                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
+                className="rounded-xl border border-border bg-card p-6 text-start transition hover:-translate-y-0.5 hover:shadow-lg"
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
@@ -789,7 +789,7 @@ export default function DashboardPage() {
                     "/attendance"
                   )
                 }
-                className="rounded-xl border border-border bg-card p-6 text-left transition hover:-translate-y-0.5 hover:shadow-lg"
+                className="rounded-xl border border-border bg-card p-6 text-start transition hover:-translate-y-0.5 hover:shadow-lg"
               >
                 <div
                   className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"

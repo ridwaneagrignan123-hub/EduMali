@@ -201,7 +201,7 @@ export default function MyPayPage() {
                 <tbody>
                   <tr className="border-b">
                     <td className="py-2">Contrat</td>
-                    <td className="py-2 text-right font-medium">
+                    <td className="py-2 text-end font-medium">
                       {ligne.contrat === "permanent"
                         ? "Permanent"
                         : ligne.contrat === "vacataire"
@@ -214,13 +214,13 @@ export default function MyPayPage() {
                     <>
                       <tr className="border-b">
                         <td className="py-2">Heures confirmées</td>
-                        <td className="py-2 text-right font-medium tabular-nums">
+                        <td className="py-2 text-end font-medium tabular-nums">
                           {Number(ligne.heures_pointees).toLocaleString(
                             "fr-FR",
                             { minimumFractionDigits: 2 }
                           )}{" "}
                           h
-                          <span className="ml-2 text-xs text-muted-foreground">
+                          <span className="ms-2 text-xs text-muted-foreground">
                             ({ligne.nb_pointages} cours)
                           </span>
                         </td>
@@ -228,7 +228,7 @@ export default function MyPayPage() {
 
                       <tr className="border-b">
                         <td className="py-2">Taux horaire</td>
-                        <td className="py-2 text-right font-medium tabular-nums">
+                        <td className="py-2 text-end font-medium tabular-nums">
                           {montant(ligne.taux_horaire)}
                         </td>
                       </tr>
@@ -236,7 +236,7 @@ export default function MyPayPage() {
                   ) : (
                     <tr className="border-b">
                       <td className="py-2">Salaire mensuel</td>
-                      <td className="py-2 text-right font-medium tabular-nums">
+                      <td className="py-2 text-end font-medium tabular-nums">
                         {montant(ligne.salaire_mensuel)}
                       </td>
                     </tr>
@@ -246,7 +246,7 @@ export default function MyPayPage() {
                     <td className="py-3 font-semibold">
                       Ce que l&apos;école vous doit
                     </td>
-                    <td className="py-3 text-right text-lg font-bold tabular-nums">
+                    <td className="py-3 text-end text-lg font-bold tabular-nums">
                       {montant(ligne.montant)}
                     </td>
                   </tr>

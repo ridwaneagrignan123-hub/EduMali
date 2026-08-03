@@ -779,7 +779,7 @@ export default function ClassSubjectsPage() {
               </p>
             ) : (
               <div className="mt-6 overflow-x-auto">
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-start text-sm">
                   <thead className="border-b">
                     <tr>
                       <th className="px-4 py-3">

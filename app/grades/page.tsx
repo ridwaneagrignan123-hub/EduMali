@@ -1062,7 +1062,7 @@ export default function GradesPage() {
                   {entry.lastError && (
                     <>
                       <span
-                        className="ml-2"
+                        className="ms-2"
                         style={{ color: "oklch(0.577 0.245 27.325)" }}
                       >
                         échec : {entry.lastError}
@@ -1070,7 +1070,7 @@ export default function GradesPage() {
 
                       <button
                         onClick={() => discardPending(entry)}
-                        className="ml-2 underline"
+                        className="ms-2 underline"
                         style={{ color: "oklch(0.45 0.02 60)" }}
                       >
                         abandonner cette note
@@ -1290,7 +1290,7 @@ export default function GradesPage() {
                   Aucun élève inscrit dans cette classe.
                 </p>
               ) : (
-                <table className="w-full text-left text-sm">
+                <table className="w-full text-start text-sm">
                   <thead className="border-b">
                     <tr>
                       <th className="px-4 py-3">Élève</th>

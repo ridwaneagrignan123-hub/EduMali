@@ -194,7 +194,7 @@ export default function SauvegardePage() {
               <div className="mt-3 overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                   <thead>
-                    <tr className="border-b text-left">
+                    <tr className="border-b text-start">
                       <th className="p-2 font-medium">Feuille</th>
                       <th className="p-2 font-medium">Lignes</th>
                     </tr>
