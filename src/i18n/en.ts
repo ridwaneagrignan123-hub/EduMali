@@ -1,0 +1,173 @@
+import { Traductions } from "./fr"
+
+/*
+ * L'anglais. Typé `Traductions` — donc `Partial` du français : une clé
+ * absente retombe sur le français, une clé inventée ne compile pas.
+ */
+export const en: Traductions = {
+  // ---- Commun ------------------------------------------------------
+  "commun.chargement": "Loading...",
+  "commun.enregistrer": "Save",
+  "commun.annuler": "Cancel",
+  "commun.fermer": "Close",
+  "commun.modifier": "Edit",
+  "commun.supprimer": "Delete",
+  "commun.rechercher": "Search",
+  "commun.retour": "Back",
+  "commun.retourTableauDeBord": "Back to dashboard",
+  "commun.imprimer": "Print",
+  "commun.oui": "Yes",
+  "commun.non": "No",
+  "commun.aucunResultat": "No results.",
+  "commun.erreurChargement": "Loading failed. Please try again.",
+  "commun.langue": "Language",
+
+  // ---- Navigation --------------------------------------------------
+  "nav.tableauDeBord": "Dashboard",
+  "nav.statistiques": "Statistics",
+  "nav.surveillance": "Supervision",
+  "nav.eleves": "Students",
+  "nav.passageDeClasse": "Class promotion",
+  "nav.cartesScolaires": "Student cards",
+  "nav.enseignants": "Teachers",
+  "nav.classes": "Classes",
+  "nav.directions": "Divisions",
+  "nav.matieres": "Subjects",
+  "nav.classesMatieres": "Classes / Subjects",
+  "nav.anneeScolaire": "School year",
+  "nav.emploiDuTemps": "Timetable",
+  "nav.evaluations": "Assessments",
+  "nav.notes": "Grades",
+  "nav.moyennes": "Averages",
+  "nav.bulletins": "Report cards",
+  "nav.presences": "Attendance",
+  "nav.comptabilite": "Accounting",
+  "nav.maRemuneration": "My pay",
+  "nav.activite": "Activity",
+  "nav.comptes": "User accounts",
+  "nav.parametres": "Settings",
+  "nav.sauvegarde": "Backup",
+  "nav.deconnexion": "Sign out",
+  "nav.menu": "Menu",
+
+  // ---- Connexion ---------------------------------------------------
+  "connexion.titre": "Sign in",
+  "connexion.sousTitre": "Sign in to your school workspace",
+  "connexion.email": "Email address",
+  "connexion.motDePasse": "Password",
+  "connexion.seConnecter": "Sign in",
+  "connexion.connexionEnCours": "Signing in...",
+  "connexion.avecGoogle": "Continue with Google",
+  "connexion.retourAccueil": "← Back to home",
+  "connexion.pasDAcces": "Your school has no access yet? Request one",
+  "connexion.echec": "Sign-in failed. Check your address and password.",
+
+  // ---- Demande d'accès ---------------------------------------------
+  "demande.titre": "Request access",
+  "demande.intro":
+    "Ridwane is not open to all: every school enters through a named authorisation. This page sends us your request, we get back to you, and your school is then opened with that authorisation.",
+  "demande.identifiezVous":
+    "Start by identifying yourself. The authorisation will be tied to this address, and to it alone.",
+  "demande.jAiUnCompte": "I already have an account",
+  "demande.titreFormulaire": "Your school",
+  "demande.introFormulaire":
+    "This information is used to review your request. Nothing is created yet.",
+  "demande.votreAdresse": "Your address",
+  "demande.adresseAide":
+    "Taken from your sign-in. The authorisation will be tied to it.",
+  "demande.nomEcole": "School name",
+  "demande.ville": "City",
+  "demande.typeEcole": "School type",
+  "demande.whatsapp": "WhatsApp number",
+  "demande.nomPromoteur": "Owner's name",
+  "demande.envoyer": "Send my request",
+  "demande.envoiEnCours": "Sending...",
+  "demande.recueTitre": "Request received",
+  "demande.recueTexte":
+    "We will call you on the number you gave. If your request is accepted, the authorisation will be tied to the account you just used — sign in again with the same one, and you will be able to open your school.",
+  "demande.retourConnexion": "Back to sign-in",
+
+  // ---- Tableau de bord ---------------------------------------------
+  "tdb.bonjour": "Hello {prenom}",
+  "tdb.sousTitre": "Here is what matters in your school today.",
+  "tdb.eleves": "Students",
+  "tdb.classes": "Classes",
+  "tdb.enseignants": "Teachers",
+  "tdb.presencesDuJour": "Today's attendance",
+  "tdb.perimetreDirection": "Scope: {direction} division",
+  "tdb.erreurPartielle":
+    "Some data could not be loaded. Please reload the page.",
+
+  // ---- Élèves ------------------------------------------------------
+  "eleves.titre": "Students",
+  "eleves.sousTitre": "Enrol and manage your school's students.",
+  "eleves.ajouter": "Add a student",
+  "eleves.liste": "Student list",
+  "eleves.compte": "{nombre} student(s)",
+  "eleves.compteFiltre": "{filtres} of {total} student(s)",
+  "eleves.aucun": "No student enrolled yet.",
+  "eleves.prenom": "First name",
+  "eleves.nom": "Last name",
+  "eleves.matricule": "Student number",
+  "eleves.dateNaissance": "Date of birth",
+  "eleves.sexe": "Gender",
+  "eleves.masculin": "Male",
+  "eleves.feminin": "Female",
+  "eleves.adresse": "Address",
+  "eleves.parent": "Parent",
+  "eleves.telephoneParent": "Parent's phone",
+  "eleves.classe": "Class",
+  "eleves.rechercherUnEleve": "Search for a student",
+  "eleves.historique": "History",
+  "eleves.rapportMensuel": "Monthly report",
+  "eleves.aucuneClasse": "No class",
+
+  // ---- Notes -------------------------------------------------------
+  "notes.titre": "Grades",
+  "notes.sousTitre": "Enter and correct the grades of your assessments.",
+  "notes.evaluation": "Assessment",
+  "notes.note": "Grade",
+  "notes.sur": "out of {max}",
+  "notes.enregistrer": "Save grades",
+  "notes.enregistrement": "Saving...",
+  "notes.enregistrees": "Grades saved.",
+  "notes.aucuneEvaluation": "No assessment for this class and period.",
+  "notes.aucunEleve": "No student enrolled in this class.",
+  "notes.horsLigne":
+    "You are offline. Grades are kept and will be sent when the network returns.",
+  "notes.enAttenteSync": "{nombre} grade(s) waiting to be sent.",
+  "notes.total": "Total",
+  "notes.moyenne": "Average",
+  "notes.rang": "Rank",
+  "notes.saisieReserveeDirecteur":
+    "For this class, grades are entered by the head of division.",
+  "notes.saisieReserveeEnseignant":
+    "For this class, grades are entered by the teacher.",
+
+  // ---- Bulletin ----------------------------------------------------
+  "bulletin.titre": "Report cards",
+  "bulletin.sousTitre": "Produce and print the class report cards.",
+  "bulletin.bulletinScolaire": "School report card",
+  "bulletin.periode": "Term",
+  "bulletin.anneeScolaire": "School year",
+  "bulletin.matiere": "Subject",
+  "bulletin.moyenne": "Average",
+  "bulletin.coefficient": "Coef.",
+  "bulletin.moyenneGenerale": "Overall average",
+  "bulletin.rang": "Rank",
+  "bulletin.appreciation": "Remark",
+  "bulletin.excellent": "Excellent",
+  "bulletin.tresBien": "Very good",
+  "bulletin.bien": "Good",
+  "bulletin.passable": "Fair",
+  "bulletin.insuffisant": "Insufficient",
+  "bulletin.absences": "Absences",
+  "bulletin.retards": "Late arrivals",
+  "bulletin.imprimerTout": "Print all report cards",
+  "bulletin.aucun": "No report card to produce for this selection.",
+  "bulletin.signature": "Head teacher's signature",
+
+  // ---- Sélecteur de langue -----------------------------------------
+  "langue.choisir": "Choose language",
+  "langue.enregistree": "Language saved.",
+}

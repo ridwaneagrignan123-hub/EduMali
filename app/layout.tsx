@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import {
   Manrope,
   Plus_Jakarta_Sans,
@@ -7,6 +8,8 @@ import {
 } from "next/font/google";
 import "./globals.css";
 import { PwaRegister } from "@/components/pwa-register";
+import { LangueProvider } from "@/src/i18n/contexte";
+import { COOKIE_LANGUE, directionDe, versLangue } from "@/src/i18n/langues";
 
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -51,19 +54,35 @@ export const viewport: Viewport = {
   themeColor: "#c0571e",
 };
 
-export default function RootLayout({
+/*
+ * LA LANGUE EST LUE DU COOKIE ICI, avant le premier octet envoyé.
+ *
+ * C'est ce qui permet à `lang` et surtout `dir` d'être justes dès le
+ * rendu serveur. Sans cela, une page arabe s'afficherait un instant en
+ * gauche-a-droite, puis basculerait sous les yeux du lecteur.
+ *
+ * Le cookie ne connaît pas la préférence enregistrée sur le profil —
+ * seul le client peut la lire. LangueProvider corrige ensuite `dir` si
+ * les deux diffèrent : c'est le prix d'un premier rendu sans requête.
+ */
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const langue = versLangue((await cookies()).get(COOKIE_LANGUE)?.value);
+
   return (
     <html
-      lang="fr"
+      lang={langue}
+      dir={directionDe(langue)}
       className={`${manrope.variable} ${plusJakarta.variable} ${geistMono.variable} ${bricolage.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {children}
-        <PwaRegister />
+        <LangueProvider langueInitiale={langue}>
+          {children}
+          <PwaRegister />
+        </LangueProvider>
       </body>
     </html>
   );
