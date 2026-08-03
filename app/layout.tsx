@@ -41,7 +41,7 @@ const bricolage = Bricolage_Grotesque({
 export const metadata: Metadata = {
   title: "Ridwane — L'école, simplement.",
   description:
-    "Ridwane, la plateforme de gestion scolaire pour les établissements au Mali : élèves, notes, bulletins et plus encore.",
+    "Ridwane, la plateforme de gestion scolaire pour les établissements d'Afrique de l'Ouest : élèves, notes, bulletins et plus encore.",
   // Permet l'ajout à l'écran d'accueil sur iOS, qui ignore le manifeste.
   appleWebApp: {
     capable: true,

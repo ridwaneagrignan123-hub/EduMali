@@ -513,7 +513,7 @@ export default function TimetablePage() {
       <header className="border-b bg-background">
         <div className="flex min-h-16 flex-wrap items-center justify-between gap-4 px-6 py-4">
           <div>
-            <h1 className="text-xl font-bold">EduMali</h1>
+            <h1 className="text-xl font-bold">Ridwane</h1>
             <p className="text-sm text-muted-foreground">
               Emploi du temps
             </p>

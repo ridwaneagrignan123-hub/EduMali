@@ -368,7 +368,7 @@ export default function Home() {
                   animation: "rd-rise .7s cubic-bezier(.2,.8,.25,1) .16s both",
                 }}
               >
-                malienne,
+                africaine,
               </span>
 
               <span
@@ -407,8 +407,8 @@ export default function Home() {
               }}
             >
               Inscriptions, notes, scolarité, présences et communication avec les
-              familles — pour toutes les écoles du Mali, publiques comme privées,
-              medersas comme lycées.
+              familles — pour toutes les écoles d&apos;Afrique de l&apos;Ouest, publiques comme
+              privées, medersas comme lycées.
             </p>
 
             <div
@@ -512,7 +512,7 @@ export default function Home() {
               maxWidth: 620,
             }}
           >
-            Chaque élève du Mali, dans un même système.
+            Chaque élève d&apos;Afrique de l&apos;Ouest, dans un même système.
           </h2>
 
           <p
@@ -772,7 +772,7 @@ export default function Home() {
               margin: "0 0 26px",
             }}
           >
-            Toutes les <span style={{ color: GOLD }}>écoles du Mali</span>
+            Toutes les <span style={{ color: GOLD }}>écoles d&apos;Afrique</span>
             <br />
             dans une main.
           </h2>
@@ -938,7 +938,7 @@ export default function Home() {
               color: "oklch(95% 0.015 85 / 0.45)",
             }}
           >
-            Bamako, Mali · Réponse sous 24 h
+            Bamako · Afrique de l&apos;Ouest · Réponse sous 24 h
           </p>
         </div>
       </section>
@@ -965,7 +965,7 @@ export default function Home() {
             margin: 0,
           }}
         >
-          © {new Date().getFullYear()} Ridwane — L&apos;école. Bamako, Mali.
+          © {new Date().getFullYear()} Ridwane — L&apos;école. Bamako · Afrique de l&apos;Ouest.
         </p>
       </footer>
     </div>

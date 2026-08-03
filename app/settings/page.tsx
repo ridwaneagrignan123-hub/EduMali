@@ -1051,8 +1051,8 @@ export default function SettingsPage() {
               />
 
               <p className="text-xs text-muted-foreground">
-                Les notes sont ramenées sur cette échelle. Le standard malien
-                est 20.
+                Les notes sont ramenées sur cette échelle. Le standard le plus
+                répandu dans la région est 20.
               </p>
             </div>
 
