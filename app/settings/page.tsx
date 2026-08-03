@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { ImportReglement } from "@/components/import-reglement"
 import {
   SCHOOL_TYPES,
   SCHOOL_TYPE_HINTS,
@@ -1368,6 +1369,15 @@ export default function SettingsPage() {
           renvoient à ces règles-là — c'est pourquoi on les désactive au
           lieu de les supprimer.
         */}
+        {/*
+          L'import passe AVANT la saisie a la main : recopier un
+          reglement article par article decourage l'adoption, et c'est le
+          premier obstacle rencontre par une ecole qui ouvre son compte.
+        */}
+        {isAdmin && schoolId && (
+          <ImportReglement schoolId={schoolId} onImporte={loadSchool} />
+        )}
+
         <div className="rounded-xl border bg-background p-6">
           <h3 className="font-heading text-xl font-bold">
             Règlement intérieur
