@@ -72,14 +72,24 @@ async function lireTableur(fichier: File) {
   for (const nom of classeur.SheetNames) {
     const feuille = classeur.Sheets[nom]
 
-    const grille = XLSX.utils.sheet_to_json<unknown[]>(feuille, {
+    /*
+     * `header: 1` fait rendre des RANGÉES, non des objets : chaque
+     * élément est un tableau de cellules brutes.
+     *
+     * Le type est écrit ici plutôt que laissé à l'inférence. SheetJS
+     * expose plusieurs surcharges de `sheet_to_json`, et selon celle que
+     * le compilateur retient, l'élément de rangée peut retomber en `any`
+     * implicite — ce que `noImplicitAny` refuse. L'annoter coupe court à
+     * cette dépendance.
+     */
+    const grille: unknown[][] = XLSX.utils.sheet_to_json<unknown[]>(feuille, {
       header: 1,
       blankrows: false,
     })
 
     for (const rangee of grille) {
       const cellules = (rangee ?? [])
-        .map((cellule) => String(cellule ?? "").trim())
+        .map((cellule: unknown) => String(cellule ?? "").trim())
         .filter(Boolean)
 
       if (cellules.length > 0) {
