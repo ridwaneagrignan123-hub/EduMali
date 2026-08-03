@@ -198,6 +198,7 @@ export default function Home() {
           .rd-pad { padding-left: 22px !important; padding-right: 22px !important; }
           .rd-h1 { font-size: 46px !important; }
           .rd-h2 { font-size: 32px !important; }
+          .rd-devise { font-size: 34px !important; }
           .rd-nav-links { display: none !important; }
         }
         /*
@@ -594,6 +595,61 @@ export default function Home() {
             <CarteAfriqueDeLOuest />
           </div>
         </div>
+      </section>
+
+      {/* --------------------------------------------------------- devise */}
+      {/*
+        La devise a sa propre bande, sans rien autour. Glissée dans une
+        section existante elle passerait pour un sous-titre ; seule, entre
+        deux fonds, elle se lit comme ce qu'elle est.
+
+        Elle reprend la coupure du héros — l'accent doré tombe sur ce que
+        le produit apporte, le reste de la phrase nomme à qui.
+      */}
+      <section
+        className="rd-pad"
+        style={{
+          padding: "104px 56px",
+          background: NIGHT_DEEP,
+          borderTop: `1px solid ${LINE}`,
+          borderBottom: `1px solid ${LINE}`,
+          textAlign: "center",
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            display: "block",
+            width: 54,
+            height: 3,
+            background: GOLD,
+            borderRadius: 2,
+            margin: "0 auto 34px",
+          }}
+        />
+
+        <p
+          className="rd-devise"
+          style={{
+            fontFamily: display,
+            fontSize: 54,
+            fontWeight: 800,
+            lineHeight: 1.1,
+            letterSpacing: "-0.035em",
+            maxWidth: 900,
+            margin: "0 auto",
+          }}
+        >
+          L&apos;école africaine,{" "}
+          {/*
+            La coupure est posée, pas laissée au hasard : au fil du texte,
+            la ligne se casserait selon la largeur de l'écran et séparerait
+            « structurée et » de « connectée ».
+          */}
+          <span style={{ color: GOLD, display: "block" }}>
+            structurée et connectée.
+          </span>
+        </p>
       </section>
 
       {/* --------------------------------------------------------- élèves */}
