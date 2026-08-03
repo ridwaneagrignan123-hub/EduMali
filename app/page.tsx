@@ -22,6 +22,35 @@ const LINE = "oklch(95% 0.015 85 / 0.09)"
 
 const display = "var(--font-bricolage), sans-serif"
 
+/*
+ * Les seize capitales, dans l'ordre de la carte : Bamako d'abord — c'est
+ * de là que le produit est écrit — puis d'ouest en est, du Cap-Vert au
+ * Nigeria.
+ *
+ * CE SONT LES CAPITALES OFFICIELLES, pas les capitales économiques.
+ * Yamoussoukro et non Abidjan, Porto-Novo et non Cotonou : la liste se
+ * lit comme une liste de pays, et mélanger les deux registres ferait
+ * passer une inexactitude pour un choix.
+ */
+const capitales = [
+  "Bamako",
+  "Praia",
+  "Nouakchott",
+  "Dakar",
+  "Banjul",
+  "Bissau",
+  "Conakry",
+  "Freetown",
+  "Monrovia",
+  "Yamoussoukro",
+  "Ouagadougou",
+  "Accra",
+  "Lomé",
+  "Porto-Novo",
+  "Niamey",
+  "Abuja",
+]
+
 const navLinks = [
   { label: "Fonctions", href: "#fonctions" },
   { label: "Nos élèves", href: "#eleves" },
@@ -177,6 +206,7 @@ export default function Home() {
         @keyframes rd-blink { 0%,49%{opacity:1;} 50%,100%{opacity:0.25;} }
         @keyframes rd-glow { 0%,100%{ transform:scale(1); opacity:0.5;} 50%{ transform:scale(1.15); opacity:0.85;} }
         @keyframes rd-pattern { to { background-position:88px 88px; } }
+        @keyframes rd-defile { from { transform:translateX(0);} to { transform:translateX(-50%);} }
         .rd-link { color: oklch(95% 0.015 85 / 0.62); transition: color .2s ease; }
         .rd-link:hover { color: ${GOLD}; }
         .rd-cta:hover { background: oklch(66% 0.17 38) !important; }
@@ -370,7 +400,42 @@ export default function Home() {
                   animation: "rd-blink 1.8s steps(1,end) infinite",
                 }}
               />
-              Bamako · Sikasso · Mopti
+              {/*
+                Les seize capitales ne tiennent pas dans une pastille —
+                bout à bout elles font plus de 1 200 px. Elles défilent
+                donc, en deux exemplaires identiques : la bande translate
+                d'exactement la moitié de sa largeur, si bien que le
+                second exemplaire prend la place du premier et que la
+                boucle ne se voit pas.
+
+                Le second est `aria-hidden` : une liste lue deux fois de
+                suite à un lecteur d'écran n'apprend rien de plus.
+
+                Le défilement s'arrête sous `prefers-reduced-motion`,
+                réglé plus haut pour toute la section — Bamako reste alors
+                en tête, ce qui est le cas qu'on veut voir figé.
+              */}
+              <div
+                style={{
+                  width: 250,
+                  overflow: "hidden",
+                  maskImage:
+                    "linear-gradient(to right, #000 82%, transparent 100%)",
+                  WebkitMaskImage:
+                    "linear-gradient(to right, #000 82%, transparent 100%)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "inline-flex",
+                    whiteSpace: "nowrap",
+                    animation: "rd-defile 32s linear infinite",
+                  }}
+                >
+                  <span>{capitales.join(" · ")}&nbsp;·&nbsp;</span>
+                  <span aria-hidden>{capitales.join(" · ")}&nbsp;·&nbsp;</span>
+                </div>
+              </div>
             </div>
 
             <h1
