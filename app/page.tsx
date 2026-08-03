@@ -1,6 +1,7 @@
 import Link from "next/link"
 import Image from "next/image"
 import { Logo } from "@/components/logo"
+import { CarteAfriqueDeLOuest } from "@/components/carte-afrique"
 
 /*
  * Page vitrine, reprise de la maquette « Ridwane — L'école ».
@@ -206,6 +207,36 @@ export default function Home() {
         */
         @media (max-width: 1000px) {
           .rd-bande { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+        /* La carte passe sous son texte plutôt qu'à côté. */
+        @media (max-width: 900px) {
+          .rd-region { grid-template-columns: 1fr !important; }
+        }
+        /*
+          SUR TÉLÉPHONE, LA CARTE EST RECADRÉE SUR SA RÉGION.
+
+          Le continent entier dans 330 px ramène les noms de pays à 6 px :
+          une carte qu'on ne peut pas lire ne vaut pas les octets qu'elle
+          coûte. On agrandit donc le tracé et on le cadre sur l'Afrique de
+          l'Ouest — le fond estompé reste visible aux quatre bords, et les
+          noms repassent à 13 px.
+
+          Le recadrage est fait au CSS, sur la même image : dupliquer le
+          SVG pour un second cadrage doublerait les 24 Ko. La fenêtre
+          découpée est x 0→540, y 145→625 du viewBox — assez haut pour ne
+          pas trancher le nord du Mali et de la Mauritanie, assez à l'est
+          pour garder le Nigeria entier. D'où la largeur à 1000/540, la
+          marge de -145/540 et le rapport 540/480.
+        */
+        @media (max-width: 620px) {
+          .rd-carte {
+            overflow: hidden;
+            aspect-ratio: 540 / 480;
+          }
+          .rd-carte svg {
+            width: 185.2% !important;
+            margin-top: -26.9%;
+          }
         }
         @media (max-width: 620px) {
           .rd-bande { grid-template-columns: 1fr !important; }
@@ -489,6 +520,78 @@ export default function Home() {
                 objectPosition: PHOTOS.heros.position,
               }}
             />
+          </div>
+        </div>
+      </section>
+
+      {/* --------------------------------------------------------- région */}
+      <section
+        className="rd-pad"
+        style={{
+          padding: "56px 56px 24px",
+          borderTop: `1px solid ${LINE}`,
+        }}
+      >
+        <div
+          className="rd-region"
+          style={{
+            maxWidth: 1360,
+            margin: "0 auto",
+            display: "grid",
+            gridTemplateColumns: "0.8fr 1.2fr",
+            gap: 48,
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <p
+              style={{
+                fontSize: 12.5,
+                fontWeight: 700,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                color: GOLD,
+                margin: "0 0 16px",
+              }}
+            >
+              Seize pays
+            </p>
+
+            <h2
+              className="rd-h2"
+              style={{
+                fontFamily: display,
+                fontSize: 42,
+                fontWeight: 800,
+                lineHeight: 1.06,
+                letterSpacing: "-0.03em",
+                margin: "0 0 18px",
+              }}
+            >
+              Une région, un même besoin.
+            </h2>
+
+            <p
+              style={{
+                fontSize: 17,
+                lineHeight: 1.65,
+                color: "oklch(95% 0.015 85 / 0.62)",
+                maxWidth: 460,
+                margin: 0,
+              }}
+            >
+              Du Cap-Vert au Nigeria, les écoles partagent les mêmes cycles,
+              les mêmes examens de fin de cycle et les mêmes carnets tenus à
+              la main. Ridwane est écrit pour cette réalité-là — pas adapté
+              d&apos;ailleurs.
+            </p>
+          </div>
+
+          <div
+            className="rd-carte"
+            style={{ maxWidth: 700, width: "100%", justifySelf: "center" }}
+          >
+            <CarteAfriqueDeLOuest />
           </div>
         </div>
       </section>
