@@ -106,6 +106,12 @@ create table attendance (
   status text not null,
   note text,
   created_at timestamp with time zone default now() not null,
+  -- ANNULATION : la ligne reste, marquee. Voir supabase/annulation.sql.
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint attendance_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint attendance_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL)))),
   constraint attendance_student_id_attendance_date_key UNIQUE (student_id, attendance_date),
   constraint attendance_pkey PRIMARY KEY (id),
   constraint attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE CASCADE,
@@ -192,6 +198,12 @@ create table detentions (
   detention_date date default CURRENT_DATE not null,
   reason text not null,
   recorded_by uuid,
+  -- ANNULATION : la ligne reste, marquee. Voir supabase/annulation.sql.
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint detentions_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint detentions_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL) AND (cancellation_reason IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL) AND (cancellation_reason IS NOT NULL) AND (length(btrim(cancellation_reason)) >= 3)))),
   constraint detentions_pkey PRIMARY KEY (id),
   constraint detentions_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE SET NULL,
   constraint detentions_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -222,6 +234,12 @@ create table fee_assessments (
   academic_year_id uuid not null,
   amount_due numeric(12,2) not null,
   created_at timestamp with time zone default now() not null,
+  -- ANNULATION : la ligne reste, marquee. Voir supabase/annulation.sql.
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint fee_assessments_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint fee_assessments_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL) AND (cancellation_reason IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL) AND (cancellation_reason IS NOT NULL) AND (length(btrim(cancellation_reason)) >= 3)))),
   constraint fee_assessments_student_id_academic_year_id_key UNIQUE (student_id, academic_year_id),
   constraint fee_assessments_pkey PRIMARY KEY (id),
   constraint fee_assessments_academic_year_id_fkey FOREIGN KEY (academic_year_id) REFERENCES public.academic_years(id) ON DELETE CASCADE,
@@ -280,6 +298,12 @@ create table grades (
   assessment_id uuid not null,
   student_id uuid not null,
   score numeric not null,
+  -- ANNULATION : la ligne reste, marquee. Voir supabase/annulation.sql.
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint grades_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint grades_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL)))),
   constraint grades_unique_student_assessment UNIQUE (assessment_id, student_id),
   constraint grades_pkey PRIMARY KEY (id),
   constraint grades_assessment_id_fkey FOREIGN KEY (assessment_id) REFERENCES public.assessments(id) ON DELETE CASCADE,
@@ -347,6 +371,12 @@ create table lesson_attendance (
   status text not null,
   note text,
   recorded_by uuid,
+  -- ANNULATION : la ligne reste, marquee. Voir supabase/annulation.sql.
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint lesson_attendance_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint lesson_attendance_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL)))),
   constraint lesson_attendance_unique UNIQUE (student_id, slot_id, lesson_date),
   constraint lesson_attendance_pkey PRIMARY KEY (id),
   constraint lesson_attendance_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.classes(id) ON DELETE CASCADE,
@@ -453,6 +483,13 @@ create table profiles (
   -- explicite du francais. Un defaut a 'fr' aurait rendu les deux
   -- indiscernables.
   language text,
+  -- La DESACTIVATION d'un compte se justifie : couper l'acces de
+  -- quelqu'un est un acte, pas un reglage.
+  deactivated_at timestamp with time zone,
+  deactivated_by uuid,
+  deactivation_reason text,
+  constraint profiles_desactivation_coherente CHECK ((((deactivated_at IS NULL) AND (deactivated_by IS NULL)) OR ((deactivated_at IS NOT NULL) AND (deactivated_by IS NOT NULL)))),
+  constraint profiles_deactivated_by_fkey FOREIGN KEY (deactivated_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
   constraint profiles_language_check CHECK (((language IS NULL) OR (language = ANY (ARRAY['fr'::text, 'en'::text, 'ar'::text])))),
   constraint profiles_cycle_check CHECK (((cycle IS NULL) OR (cycle = ANY (ARRAY['premier_cycle'::text, 'second_cycle'::text, 'lycee'::text])))),
   constraint profiles_filiere_check CHECK (((filiere IS NULL) OR (filiere = ANY (ARRAY['francais'::text, 'arabe'::text])))),
@@ -476,6 +513,12 @@ create table rule_violations (
   violation_date date default CURRENT_DATE not null,
   note text,
   recorded_by uuid,
+  -- ANNULATION : la ligne reste, marquee. Voir supabase/annulation.sql.
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint rule_violations_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint rule_violations_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL) AND (cancellation_reason IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL) AND (cancellation_reason IS NOT NULL) AND (length(btrim(cancellation_reason)) >= 3)))),
   constraint rule_violations_pkey PRIMARY KEY (id),
   constraint rule_violations_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
   constraint rule_violations_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES public.school_rules(id) ON DELETE RESTRICT,
@@ -632,6 +675,12 @@ create table sms_logs (
   -- francais, mais leur poser 'fr' d'autorite affirmerait un choix qui
   -- n'a jamais eu lieu.
   language text,
+  -- ANNULATION : la ligne reste, marquee. Voir supabase/annulation.sql.
+  cancelled_at timestamp with time zone,
+  cancelled_by uuid,
+  cancellation_reason text,
+  constraint sms_logs_cancelled_by_fkey FOREIGN KEY (cancelled_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
+  constraint sms_logs_annulation_coherente CHECK ((((cancelled_at IS NULL) AND (cancelled_by IS NULL)) OR ((cancelled_at IS NOT NULL) AND (cancelled_by IS NOT NULL)))),
   constraint sms_logs_language_check CHECK (((language IS NULL) OR (language = ANY (ARRAY['fr'::text, 'en'::text, 'ar'::text])))),
   constraint sms_logs_pkey PRIMARY KEY (id),
   constraint sms_logs_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -925,10 +974,6 @@ create policy "Journal d'activite lu par la direction" on activity_log for selec
 
 
 
-create policy "Presences supprimees par l'encadrement" on attendance for delete to {authenticated}
-  using ((private.encadrement_ecrit() AND (school_id IN ( SELECT profiles.school_id
-   FROM public.profiles
-  WHERE (profiles.id = auth.uid())))));
 
 create policy "Presences saisies par l'enseignant ou l'encadrement" on attendance for insert to {authenticated}
   with check (((private.encadrement_ecrit() OR private.teaches_class(class_id)) AND (school_id IN ( SELECT profiles.school_id
@@ -1021,10 +1066,6 @@ create policy "Admins can update directions from their school" on directions for
    FROM public.profiles
   WHERE ((profiles.id = auth.uid()) AND (profiles.role = ANY (ARRAY['admin'::text, 'promoteur'::text, 'directeur_general'::text]))))));
 
-create policy "Frais supprimes par l'admin" on fee_assessments for delete to {authenticated}
-  using ((private.can_write_money() AND (school_id IN ( SELECT profiles.school_id
-   FROM profiles
-  WHERE (profiles.id = auth.uid())))));
 
 create policy "Frais crees par la comptabilite" on fee_assessments for insert to {authenticated}
   with check ((private.can_write_money() AND (school_id IN ( SELECT profiles.school_id
@@ -1376,10 +1417,6 @@ create policy "Notes saisies par l'enseignant de la classe" on grades for insert
   with check ((private.peut_noter_assessment(assessment_id) AND (school_id IN ( SELECT profiles.school_id
    FROM profiles
   WHERE (profiles.id = auth.uid())))));
-create policy "Notes supprimees par l'enseignant de la classe" on grades for delete to {authenticated}
-  using ((private.peut_noter_assessment(assessment_id) AND (school_id IN ( SELECT profiles.school_id
-   FROM profiles
-  WHERE (profiles.id = auth.uid())))));
 create policy "Notes visibles selon le role" on grades for select to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p
@@ -1438,10 +1475,6 @@ create policy "Retenue corrigee par la vie scolaire" on detentions for update to
   with check ((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))));
-create policy "Retenue effacee par l'encadrement" on detentions for delete to {authenticated}
-  using (((school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid()))) AND private.encadrement_ecrit()));
 create policy "Retenue posee par la vie scolaire ou l'enseignant" on detentions for insert to {authenticated}
   with check (((school_id IN ( SELECT p.school_id
    FROM profiles p
@@ -1476,10 +1509,6 @@ create policy "Presence par lecon corrigee par l'enseignant du creneau" on lesso
   with check ((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))));
-create policy "Presence par lecon effacee par l'encadrement" on lesson_attendance for delete to {authenticated}
-  using (((school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid()))) AND (private.encadrement_ecrit() OR private.enseigne_ce_creneau(slot_id))));
 create policy "Presence par lecon saisie par l'enseignant du creneau" on lesson_attendance for insert to {authenticated}
   with check (((school_id IN ( SELECT p.school_id
    FROM profiles p
@@ -1499,10 +1528,6 @@ create policy "Violation corrigee par la vie scolaire" on rule_violations for up
   with check ((school_id IN ( SELECT p.school_id
    FROM profiles p
   WHERE (p.id = auth.uid()))));
-create policy "Violation effacee par l'encadrement" on rule_violations for delete to {authenticated}
-  using (((school_id IN ( SELECT p.school_id
-   FROM profiles p
-  WHERE (p.id = auth.uid()))) AND private.encadrement_ecrit()));
 create policy "Violations lues selon le role" on rule_violations for select to {authenticated}
   using (((school_id IN ( SELECT p.school_id
    FROM profiles p

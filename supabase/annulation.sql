@@ -1,0 +1,112 @@
+-- =====================================================================
+-- Ridwane — la suppression laisse une trace, jamais un vide
+-- =====================================================================
+-- APPLIQUÉ en base le 2026-08-03. Ce fichier porte le raisonnement ;
+-- `schema.sql` porte l'état.
+
+-- ---------------------------------------------------------------------
+-- LE PATRON VIENT DE LA CAISSE, ET SE GÉNÉRALISE
+--
+-- `supabase/caisse.sql` l'avait posé pour les paiements : trois colonnes
+-- (`cancelled_at`, `cancelled_by`, `cancellation_reason`), une contrainte
+-- de cohérence, un déclencheur qui impose l'auteur et l'heure, et AUCUNE
+-- policy DELETE. Il s'étend ici aux six autres tables qui engagent.
+--
+-- POURQUOI LE RLS ET PAS SEULEMENT L'ÉCRAN
+--
+-- Retirer un bouton ne retire pas une capacité. Tant qu'une policy
+-- DELETE existe, un appel direct à PostgREST efface la ligne — et une
+-- note effacée ne se distingue en rien d'une note jamais saisie. La
+-- garantie tient à l'absence de policy, pas à l'absence de bouton.
+--
+-- ---------------------------------------------------------------------
+-- LE MOTIF EST EXIGÉ POUR L'ARGENT ET LA DISCIPLINE, PAS AILLEURS
+--
+--   obligatoire ... fee_assessments, fee_payments, detentions,
+--                   rule_violations
+--   facultatif .... grades, attendance, lesson_attendance, sms_logs
+--
+-- Ce sont les deux domaines où l'annulation SE CONTESTE : un parent
+-- demande pourquoi le paiement a disparu, un élève pourquoi la retenue a
+-- sauté. Une note ou une présence, elles, se corrigent tous les jours :
+-- un motif obligatoire y ferait écrire « erreur » cent fois, ce qui
+-- n'apprend rien à personne et use la vigilance là où elle compte.
+--
+-- ---------------------------------------------------------------------
+-- UNE ANNULATION NE SE LÈVE PAS
+--
+-- La défaire rendrait la trace réversible, donc sans valeur : on
+-- pourrait annuler, effacer l'annulation, et plus personne ne saurait
+-- que la ligne a bougé. Corriger une annulation abusive se fait en
+-- ressaisissant la ligne, ce qui laisse à son tour une trace.
+--
+-- L'AUTEUR ET L'HEURE SONT IMPOSÉS par le déclencheur, jamais repris du
+-- client : sans cela, on pourrait annuler au nom d'un autre.
+--
+-- UN SEUL DÉCLENCHEUR pour les sept tables. `new.cancelled_at` se résout
+-- à l'exécution, si bien que la même fonction les sert toutes — il n'y a
+-- donc qu'un seul endroit où la règle peut être fausse.
+--
+-- ---------------------------------------------------------------------
+-- LE JOURNAL DIT « ANNULATION », PAS « MODIFICATION »
+--
+-- `private.record_activity()` détecte génériquement le passage à l'état
+-- annulé — toute table portant `cancelled_at` — et écrit l'action
+-- `annulation` avec le motif. Une annulation qui se lirait
+-- « modification » se perdrait dans le bruit des corrections courantes.
+--
+-- ---------------------------------------------------------------------
+-- LES NOMINATIONS DE COMPTES
+--
+-- Un compte ne se supprime pas, et ne se supprimait déjà pas : `profiles`
+-- n'a jamais eu de policy DELETE. Ce qui manquait était la trace de sa
+-- DÉSACTIVATION — `is_active` passait à faux sans dire par qui, ni quand,
+-- ni pourquoi. Couper l'accès de quelqu'un est un acte, pas un réglage :
+-- d'où `deactivated_at`, `deactivated_by`, `deactivation_reason`.
+--
+-- ---------------------------------------------------------------------
+-- CE QUI GARDE LA SUPPRESSION VRAIE, ET POURQUOI
+--
+-- Tout ce qui n'engage personne : structure et préférences.
+--
+--   academic_years, academic_periods, classes, subjects, directions,
+--   class_subjects, class_head_teachers, timetable_slots,
+--   student_class_enrollments, school_holidays, fee_class_defaults,
+--   lineup_themes, daily_reminders, school_rules, homework,
+--   teacher_attendance, assessments, students, teachers
+--
+-- Supprimer un créneau d'emploi du temps mal saisi, une matière créée en
+-- double ou un rappel du jour ne prive personne de rien : rien ne s'y
+-- rattache qui puisse être contesté plus tard. Les charger d'une
+-- annulation encombrerait les écrans de lignes barrées sans valeur, et
+-- finirait par faire ignorer les annulations qui, elles, comptent.
+
+
+-- =====================================================================
+-- VÉRIFIÉ, PAS SUPPOSÉ (2026-08-03)
+-- =====================================================================
+-- Sous de vraies réclamations JWT, transaction annulée :
+--
+--   SUPPRESSION (au RLS, pas à l'écran)
+--     supprimer une note ........................ 0 ligne
+--     supprimer un frais ........................ 0 ligne
+--     supprimer une retenue ..................... 0 ligne
+--     supprimer une présence .................... 0 ligne
+--
+--   ANNULATION, par l'acteur qui en a le droit
+--     note sans motif (facultatif) .............. 1 ligne
+--     lever une annulation ...................... refusé
+--     retenue sans motif ........................ refusé
+--     retenue avec motif ........................ 1 ligne
+--     frais sans motif .......................... refusé
+--     frais avec motif .......................... 1 ligne
+--     auteur et heure imposés ................... 1 ligne
+--
+--   JOURNAL
+--     lignes « annulation » écrites ............. 3
+--       note ..... Annulation — Note de SALIFOU Ousef : 12
+--       retenue .. Annulation — Retenue de SALIFOU Ousef — …
+--       frais .... Annulation — Frais de 50000.00 F — motif : …
+--
+-- Après reventilation : aucune policy DELETE ne subsiste sur les neuf
+-- tables qui engagent.

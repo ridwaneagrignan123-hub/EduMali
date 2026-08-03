@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import {
+  CLASSE_ANNULEE,
+  MentionAnnulation,
+  estAnnulee,
+} from "@/components/mention-annulation"
 
 /*
  * L'historique d'un élève — en lecture seule.
@@ -52,12 +57,18 @@ type PresenceLecon = {
 }
 
 type Retenue = {
+  cancelled_at: string | null
+  cancellation_reason: string | null
+  annulePar: { first_name: string | null; last_name: string | null } | null
   id: string
   detention_date: string
   reason: string
 }
 
 type Manquement = {
+  cancelled_at: string | null
+  cancellation_reason: string | null
+  annulePar: { first_name: string | null; last_name: string | null } | null
   id: string
   violation_date: string
   note: string | null
@@ -65,6 +76,9 @@ type Manquement = {
 }
 
 type MessageParent = {
+  cancelled_at: string | null
+  cancellation_reason: string | null
+  annulePar: { first_name: string | null; last_name: string | null } | null
   id: string
   created_at: string
   event_type: string
@@ -179,7 +193,9 @@ export default function StudentHistoryPage() {
 
       supabase
         .from("detentions")
-        .select("id, detention_date, reason")
+        .select(
+          "id, detention_date, reason, cancelled_at, cancellation_reason, annulePar:cancelled_by ( first_name, last_name )"
+        )
         .eq("student_id", studentId)
         .gte("detention_date", debut)
         .lte("detention_date", fin)
@@ -187,7 +203,9 @@ export default function StudentHistoryPage() {
 
       supabase
         .from("rule_violations")
-        .select("id, violation_date, note, school_rules ( label )")
+        .select(
+          "id, violation_date, note, school_rules ( label ), cancelled_at, cancellation_reason, annulePar:cancelled_by ( first_name, last_name )"
+        )
         .eq("student_id", studentId)
         .gte("violation_date", debut)
         .lte("violation_date", fin)
@@ -196,7 +214,7 @@ export default function StudentHistoryPage() {
       supabase
         .from("sms_logs")
         .select(
-          "id, created_at, event_type, status, message, phone, error_message"
+          "id, created_at, event_type, status, message, phone, error_message, cancelled_at, cancellation_reason, annulePar:cancelled_by ( first_name, last_name )"
         )
         .eq("student_id", studentId)
         .gte("created_at", `${debut}T00:00:00`)
@@ -219,11 +237,11 @@ export default function StudentHistoryPage() {
     setPresencesLecon(
       (leconResultat.data as unknown as PresenceLecon[]) ?? []
     )
-    setRetenues((retenuesResultat.data as Retenue[]) ?? [])
+    setRetenues((retenuesResultat.data as unknown as Retenue[]) ?? [])
     setManquements(
       (manquementsResultat.data as unknown as Manquement[]) ?? []
     )
-    setMessages((messagesResultat.data as MessageParent[]) ?? [])
+    setMessages((messagesResultat.data as unknown as MessageParent[]) ?? [])
 
     setChargement(false)
   }, [studentId, annee, mois])
@@ -435,13 +453,30 @@ export default function StudentHistoryPage() {
                   {retenues.map((retenue) => (
                     <div
                       key={retenue.id}
-                      className="flex flex-wrap gap-3 border-b pb-2 last:border-0"
+                      className={`flex flex-wrap gap-3 border-b pb-2 last:border-0 ${
+                        estAnnulee(retenue) ? CLASSE_ANNULEE : ""
+                      }`}
                     >
                       <span className="w-24 shrink-0 tabular-nums text-muted-foreground">
                         {formatDate(retenue.detention_date)}
                       </span>
 
                       <span className="flex-1">{retenue.reason}</span>
+                      {/*
+                        La ligne annulee reste, barree et grisee, avec qui
+                        l'a annulee et pourquoi. Une case vide poserait la
+                        meme question a chaque lecture.
+                      */}
+                      <MentionAnnulation
+                        ligne={{
+                          cancelled_at: retenue.cancelled_at,
+                          cancellation_reason: retenue.cancellation_reason,
+                          cancelled_by_name: retenue.annulePar
+                            ? `${retenue.annulePar.last_name ?? ""} ${retenue.annulePar.first_name ?? ""}`.trim()
+                            : null,
+                        }}
+                      />
+
                     </div>
                   ))}
                 </div>
@@ -462,7 +497,9 @@ export default function StudentHistoryPage() {
                   {manquements.map((manquement) => (
                     <div
                       key={manquement.id}
-                      className="flex flex-wrap gap-3 border-b pb-2 last:border-0"
+                      className={`flex flex-wrap gap-3 border-b pb-2 last:border-0 ${
+                        estAnnulee(manquement) ? CLASSE_ANNULEE : ""
+                      }`}
                     >
                       <span className="w-24 shrink-0 tabular-nums text-muted-foreground">
                         {formatDate(manquement.violation_date)}
@@ -498,7 +535,9 @@ export default function StudentHistoryPage() {
                   {messages.map((message) => (
                     <div
                       key={message.id}
-                      className="border-b pb-3 last:border-0"
+                      className={`border-b pb-3 last:border-0 ${
+                        estAnnulee(message) ? CLASSE_ANNULEE : ""
+                      }`}
                     >
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="tabular-nums text-muted-foreground">
