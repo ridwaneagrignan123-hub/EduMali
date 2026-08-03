@@ -448,6 +448,12 @@ create table profiles (
   -- Cycle du surveillant rattache. Nul pour tout autre role, y compris
   -- le surveillant general, qui voit les trois.
   cycle text,
+  -- Langue de l'interface, choisie par la personne. NULLABLE a dessein :
+  -- NULL veut dire « pas encore choisi », ce qui se distingue d'un choix
+  -- explicite du francais. Un defaut a 'fr' aurait rendu les deux
+  -- indiscernables.
+  language text,
+  constraint profiles_language_check CHECK (((language IS NULL) OR (language = ANY (ARRAY['fr'::text, 'en'::text, 'ar'::text])))),
   constraint profiles_cycle_check CHECK (((cycle IS NULL) OR (cycle = ANY (ARRAY['premier_cycle'::text, 'second_cycle'::text, 'lycee'::text])))),
   constraint profiles_filiere_check CHECK (((filiere IS NULL) OR (filiere = ANY (ARRAY['francais'::text, 'arabe'::text])))),
   constraint profiles_pkey PRIMARY KEY (id),

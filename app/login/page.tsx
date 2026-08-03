@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { SelecteurLangue } from "@/components/selecteur-langue"
 import { LoginForm } from "@/components/auth/login-form"
 import { Logo } from "@/components/logo"
 
@@ -61,6 +62,15 @@ export default function LoginPage() {
           style={{ borderColor: LINE }}
         >
           <LoginForm />
+        </div>
+
+        {/*
+          Le selecteur AVANT tout le reste : quelqu'un qui ne lit pas le
+          francais doit pouvoir changer de langue sans avoir a dechiffrer
+          la page pour trouver ou le faire.
+        */}
+        <div className="flex justify-center">
+          <SelecteurLangue compact />
         </div>
 
         {/*

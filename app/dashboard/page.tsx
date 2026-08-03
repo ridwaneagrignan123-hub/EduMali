@@ -6,6 +6,7 @@ import { supabase } from "@/src/lib/supabase"
 import { Logo } from "@/components/logo"
 import { menuPour } from "@/src/lib/roles"
 import { AvertissementDirection } from "@/components/avertissement-direction"
+import { SelecteurLangue } from "@/components/selecteur-langue"
 
 type Profile = {
   school_id: string | null
@@ -551,6 +552,13 @@ export default function DashboardPage() {
                 {userEmail}
               </p>
             </div>
+
+            {/*
+              Le selecteur est dans l'entete, visible de tout ecran :
+              une langue qu'il faut aller chercher dans les parametres
+              n'est pas trouvee par qui ne lit pas encore l'interface.
+            */}
+            <SelecteurLangue compact />
           </div>
         </div>
       </header>
