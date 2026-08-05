@@ -29,6 +29,7 @@ export const en: Traductions = {
   "nav.eleves": "Students",
   "nav.passageDeClasse": "Class promotion",
   "nav.cartesScolaires": "Student cards",
+  "nav.attestations": "Certificates",
   "nav.enseignants": "Teachers",
   "nav.classes": "Classes",
   "nav.directions": "Divisions",

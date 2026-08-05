@@ -46,6 +46,7 @@ export const fr = {
   "nav.eleves": "Élèves",
   "nav.passageDeClasse": "Passage de classe",
   "nav.cartesScolaires": "Cartes scolaires",
+  "nav.attestations": "Attestations",
   "nav.enseignants": "Enseignants",
   "nav.classes": "Classes",
   "nav.directions": "Directions",

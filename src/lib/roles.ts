@@ -355,6 +355,17 @@ export const NAV_ITEMS: NavItem[] = [
    */
   { cle: "nav.passageDeClasse", label: "Passage de classe", path: "/promotion", roles: ENCADREMENT },
   { cle: "nav.cartesScolaires", label: "Cartes scolaires", path: "/id-cards", roles: ENCADREMENT },
+  /*
+   * ENCADREMENT et non DG_ECRIT : la page porte deux choses. Le REGISTRE
+   * des documents émis au nom de l'établissement, que tout l'encadrement
+   * — promoteur compris — doit pouvoir consulter ; et le formulaire
+   * d'émission, que l'écran réserve au directeur général.
+   *
+   * Le partage réel est en base : la policy d'insertion repose sur
+   * `private.dg_ecrit()`, qui exclut le promoteur. Le menu ne fait
+   * qu'éviter de proposer une page vide.
+   */
+  { cle: "nav.attestations", label: "Attestations", path: "/attestations", roles: ENCADREMENT },
   { cle: "nav.enseignants", label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
   { cle: "nav.classes", label: "Classes", path: "/classes", roles: COMPTABLE_VOIT },
   { cle: "nav.directions", label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
