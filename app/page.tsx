@@ -51,7 +51,15 @@ const capitales = [
   "Abuja",
 ]
 
+/*
+ * « Annales » est le seul lien de cette barre qui mène à une AUTRE PAGE ;
+ * les autres sont des ancres. Il y figure quand même, et en tête : c'est
+ * la porte des élèves, et un élève arrivé ici par hasard doit la voir
+ * sans avoir à faire défiler la vitrine d'un logiciel qui ne le concerne
+ * pas.
+ */
 const navLinks = [
+  { label: "Annales", href: "/annales" },
   { label: "Fonctions", href: "#fonctions" },
   { label: "Nos élèves", href: "#eleves" },
   { label: "Le promoteur", href: "#promoteur" },
@@ -531,6 +539,33 @@ export default function Home() {
                 }}
               >
                 Ouvrir mon espace →
+              </Link>
+
+              {/*
+                LA SECONDE PORTE — celle des élèves.
+
+                Deux portes plutôt qu'un portail « qui êtes-vous ? » : le
+                directeur entre tous les matins, et lui imposer un écran
+                de choix quotidien pour le confort d'un visiteur
+                occasionnel serait taxer le mauvais usager.
+
+                Elle est doré sur fond sombre, là où l'école a le bouton
+                plein : deux publics, deux poids visuels, aucune
+                ambiguïté sur laquelle est la porte principale.
+              */}
+              <Link
+                href="/annales"
+                className="rd-ghost"
+                style={{
+                  padding: "16px 28px",
+                  borderRadius: 100,
+                  border: `1px solid oklch(80% 0.15 78 / 0.55)`,
+                  color: GOLD,
+                  fontWeight: 700,
+                  fontSize: 15.5,
+                }}
+              >
+                Réviser le DEF / le BAC →
               </Link>
 
               <a

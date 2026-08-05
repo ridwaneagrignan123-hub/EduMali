@@ -52,8 +52,19 @@ export async function proxy(request: NextRequest) {
    *   /auth/callback reçoit le retour de Google avec un code à échanger.
    *   L'oublier ici renvoyait vers /login avant tout échange — la connexion
    *   Google semblait alors « retomber sur l'erreur de mot de passe ».
+   *
+   * /annales est publique pour une tout autre raison : elle n'établit
+   * aucune session et n'en attend aucune. C'est la porte des élèves, qui
+   * n'ont pas de compte et ne doivent pas en avoir — la renvoyer vers
+   * /login demanderait un mot de passe pour lire un sujet du BAC.
    */
-  const publicPaths = ["/", "/login", "/update-password", "/auth/callback"]
+  const publicPaths = [
+    "/",
+    "/annales",
+    "/login",
+    "/update-password",
+    "/auth/callback",
+  ]
   const isPublicPath = publicPaths.includes(pathname)
 
   if (!user && !isPublicPath) {
