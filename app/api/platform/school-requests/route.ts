@@ -1,110 +1,16 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
 import { supabaseAdmin } from "@/src/lib/supabaseAdmin"
+import { exigerExploitant } from "@/src/lib/exploitant"
 
 /*
  * L'examen des demandes d'accès, réservé à l'EXPLOITANT DE LA
  * PLATEFORME.
  *
- * ---------------------------------------------------------------------
- * POURQUOI CE CONTRÔLE N'EST PAS requirePermission()
- *
- * requirePermission() interroge le rôle d'école du profil, et exige un
- * `school_id`. L'exploitant n'est justement rattaché à aucune école :
- * il est au-dessus d'elles. Son appartenance se lit dans
- * `platform_operators`, une table sans policy — donc invisible au
- * navigateur, et lisible seulement par la clé service role.
- *
- * Un promoteur, fût-il celui de la plus grande école, n'entre pas ici.
- * ---------------------------------------------------------------------
- *
- * LA DÉSIGNATION PORTE SUR L'ADRESSE, PAS SUR LE COMPTE
- *
- * La table était clé sur `user_id` : le jour où le compte de
- * l'exploitant a été supprimé, la plateforme s'est retrouvée sans aucun
- * exploitant, en silence. L'exploitant est une personne, identifiée par
- * une adresse ; son compte va et vient.
- *
- * On reconnaît donc l'adresse du jeton, et on note au passage le compte
- * qui l'a présentée — une trace, pas la clé.
+ * Le garde `exigerExploitant()` vivait ici ; il est passé dans
+ * `src/lib/exploitant.ts` le jour où le catalogue d'annales en a eu
+ * besoin lui aussi. Un contrôle d'accès recopié est un contrôle d'accès
+ * qui divergera — le raisonnement complet est resté avec le code.
  */
-
-type Exploitant = { userId: string }
-
-async function exigerExploitant(
-  request: Request
-): Promise<
-  { ok: true; exploitant: Exploitant } | { ok: false; response: NextResponse }
-> {
-  const authorization = request.headers.get("Authorization")
-
-  if (!authorization?.startsWith("Bearer ")) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Utilisateur non authentifié." },
-        { status: 401 }
-      ),
-    }
-  }
-
-  const supabaseAuth = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: authorization } } }
-  )
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAuth.auth.getUser()
-
-  if (userError || !user) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Session utilisateur invalide." },
-        { status: 401 }
-      ),
-    }
-  }
-
-  const email = (user.email ?? "").trim().toLowerCase()
-
-  const { data: operateur } = email
-    ? await supabaseAdmin
-        .from("platform_operators")
-        .select("email, user_id")
-        .eq("email", email)
-        .maybeSingle()
-    : { data: null }
-
-  if (!operateur) {
-    /*
-     * 404 et non 403 : à qui n'est pas exploitant, cette adresse n'a pas
-     * à confirmer qu'elle existe.
-     */
-    return {
-      ok: false,
-      response: NextResponse.json({ error: "Introuvable." }, { status: 404 }),
-    }
-  }
-
-  /*
-   * On rattache le compte à la désignation la première fois qu'il se
-   * présente. C'est une commodité de lecture — savoir qui s'est
-   * connecté — et non un contrôle : la reconnaissance se fait sur
-   * l'adresse, à chaque appel.
-   */
-  if (operateur.user_id !== user.id) {
-    await supabaseAdmin
-      .from("platform_operators")
-      .update({ user_id: user.id })
-      .eq("email", email)
-  }
-
-  return { ok: true, exploitant: { userId: user.id } }
-}
 
 export async function GET(request: Request) {
   try {
