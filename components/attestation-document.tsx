@@ -1,7 +1,5 @@
 "use client"
 
-import Image from "next/image"
-
 /*
  * Le document lui-même, tel qu'il sort de l'imprimante.
  *
@@ -166,11 +164,18 @@ export function AttestationDocument({
       <header className="flex items-start justify-between gap-6 border-b-2 border-black pb-4">
         <div className="flex items-start gap-4">
           {enTete?.logo_url && (
-            <Image
+            /*
+              Balise <img> et non next/image, comme partout ailleurs pour
+              ce logo. L'optimiseur exige que chaque hôte distant soit
+              déclaré dans next.config ; le logo d'une école vit sur le
+              stockage Supabase, mais rien n'interdit à une école de
+              coller l'URL d'un autre hébergeur. Déclarer un hôte fixe
+              casserait ces écoles-là, à l'impression, sans prévenir.
+            */
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
               src={enTete.logo_url}
               alt=""
-              width={64}
-              height={64}
               className="h-16 w-16 object-contain"
             />
           )}

@@ -93,6 +93,9 @@ export default function SettingsPage() {
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
   const [logoUrl, setLogoUrl] = useState("")
+  const [logoEnvoi, setLogoEnvoi] = useState(false)
+  const [logoErreur, setLogoErreur] = useState<string | null>(null)
+  const [logoImporte, setLogoImporte] = useState(false)
   const [schoolType, setSchoolType] = useState<SchoolType>("classique")
 
   // Paramètres pédagogiques : saisis en texte, convertis en nombre à l'enregistrement.
@@ -449,6 +452,85 @@ export default function SettingsPage() {
     )
 
     await rechargerRegles()
+  }
+
+  /*
+   * IMPORTER LE LOGO PLUTOT QUE DE COLLER UNE URL.
+   *
+   * Demander une URL supposait que le directeur ait deja heberge son
+   * logo quelque part — ce qui, en pratique, veut dire savoir ce qu'est
+   * un hebergeur d'images. Le fichier est sur son telephone ou sur la
+   * cle USB de l'imprimeur ; il doit pouvoir le deposer directement.
+   *
+   * Le champ URL RESTE, pour les ecoles dont le logo vit deja sur leur
+   * site : le retirer casserait ce qui marche aujourd'hui.
+   */
+  async function importerLogo(fichier: File) {
+    setLogoErreur(null)
+    setLogoImporte(false)
+
+    /*
+     * Le SVG est REFUSE. Un SVG est un document, pas une image : il peut
+     * porter du script, qui s'executerait pour qui ouvre l'URL du fichier
+     * directement. Le bucket etant public, cette URL est atteignable par
+     * n'importe qui. PNG, JPEG et WebP ne portent pas de code.
+     */
+    const formats = ["image/png", "image/jpeg", "image/webp"]
+
+    if (!formats.includes(fichier.type)) {
+      setLogoErreur(
+        "Formats acceptes : PNG, JPEG ou WebP. Le SVG n'est pas accepte."
+      )
+      return
+    }
+
+    /*
+     * 2 Mo. Un logo depasse rarement 200 Ko ; au-dela de 2 Mo on tient
+     * une photographie, qui alourdira chaque bulletin imprime sans rien
+     * ajouter a l'ecran.
+     */
+    if (fichier.size > 2 * 1024 * 1024) {
+      setLogoErreur("Ce fichier depasse 2 Mo. Reduisez l'image avant de la deposer.")
+      return
+    }
+
+    setLogoEnvoi(true)
+
+    /*
+     * Le chemin commence par le school_id et ne change JAMAIS : les
+     * policies du bucket comparent ce premier segment a l'ecole de
+     * l'appelant, et le chemin fixe fait qu'un nouveau depot remplace
+     * l'ancien au lieu d'accumuler des fichiers orphelins.
+     */
+    const chemin = `${schoolId}/logo`
+
+    const { error: envoiErreur } = await supabase.storage
+      .from("school-logos")
+      .upload(chemin, fichier, { contentType: fichier.type, upsert: true })
+
+    if (envoiErreur) {
+      console.error("Envoi du logo :", envoiErreur)
+      setLogoErreur(
+        envoiErreur.message.toLowerCase().includes("row-level security")
+          ? "Seul le directeur general peut changer le logo de l'etablissement."
+          : "Le logo n'a pas pu etre envoye."
+      )
+      setLogoEnvoi(false)
+      return
+    }
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("school-logos").getPublicUrl(chemin)
+
+    /*
+     * Le parametre de version force le rechargement : le chemin ne
+     * changeant jamais, l'ancien logo resterait affiche depuis le cache
+     * du navigateur — et surtout sur les bulletins deja ouverts.
+     */
+    setLogoUrl(`${publicUrl}?v=${Date.now()}`)
+    setLogoImporte(true)
+    setLogoEnvoi(false)
   }
 
   async function saveSchool(event: FormEvent<HTMLFormElement>) {
@@ -901,22 +983,97 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="school-logo">URL du logo</label>
+            <div className="space-y-3 rounded-lg border p-4">
+              <div>
+                <p className="font-medium">Logo de l&apos;établissement</p>
 
-              <input
-                id="school-logo"
-                type="url"
-                value={logoUrl}
-                onChange={(event) => setLogoUrl(event.target.value)}
-                placeholder="https://..."
-                className="w-full rounded-md border bg-background px-3 py-2"
-              />
+                <p className="text-xs text-muted-foreground">
+                  Il paraît sur les bulletins et sur les attestations.
+                </p>
+              </div>
 
-              <p className="text-xs text-muted-foreground">
-                Collez le lien d'une image déjà hébergée en ligne. Ce logo
-                apparaît sur les bulletins scolaires.
-              </p>
+              <div className="space-y-2">
+                <label htmlFor="school-logo-fichier" className="text-sm">
+                  Importer une image
+                </label>
+
+                <input
+                  id="school-logo-fichier"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={logoEnvoi}
+                  onChange={(event) => {
+                    const fichier = event.target.files?.[0]
+
+                    if (fichier) {
+                      importerLogo(fichier)
+                    }
+
+                    // Le champ est vidé pour qu'un second dépôt du même
+                    // fichier redéclenche bien l'événement.
+                    event.target.value = ""
+                  }}
+                  className="block w-full text-sm"
+                />
+
+                <p className="text-xs text-muted-foreground">
+                  PNG, JPEG ou WebP, 2 Mo au plus. Le PNG garde la
+                  transparence.
+                </p>
+              </div>
+
+              {logoEnvoi && (
+                <p className="text-sm text-muted-foreground">Envoi en cours…</p>
+              )}
+
+              {logoErreur && (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+                  {logoErreur}
+                </p>
+              )}
+
+              {logoImporte && (
+                <p className="rounded-md border p-2 text-sm">
+                  Logo importé. Il ne sera appliqué qu&apos;une fois
+                  l&apos;établissement enregistré, ci-dessous.
+                </p>
+              )}
+
+              {/*
+                Le champ URL reste, en second : certaines écoles hébergent
+                déjà leur logo sur leur propre site, et le retirer
+                casserait ce qui fonctionne chez elles aujourd'hui.
+              */}
+              <div className="space-y-2 border-t pt-3">
+                <label htmlFor="school-logo" className="text-sm">
+                  Ou coller le lien d&apos;une image déjà en ligne
+                </label>
+
+                <input
+                  id="school-logo"
+                  type="url"
+                  value={logoUrl}
+                  onChange={(event) => {
+                    setLogoUrl(event.target.value)
+                    setLogoImporte(false)
+                  }}
+                  placeholder="https://..."
+                  className="w-full rounded-md border bg-background px-3 py-2"
+                />
+              </div>
+
+              {logoUrl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLogoUrl("")
+                    setLogoImporte(false)
+                  }}
+                  className="text-sm text-destructive underline"
+                >
+                  Retirer le logo
+                </button>
+              )}
             </div>
 
             {/*
