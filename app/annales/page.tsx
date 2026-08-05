@@ -3,6 +3,8 @@ import Link from "next/link"
 import { Logo } from "@/components/logo"
 import { CatalogueAnnales } from "@/components/catalogue-annales"
 import { lireCatalogue } from "@/src/lib/annales"
+import { AssistantRevision } from "@/components/assistant-revision"
+import { assistantDisponible } from "@/src/lib/assistant"
 
 /*
  * Les annales et les exercices corrigés — la porte des ÉLÈVES.
@@ -54,6 +56,14 @@ export const metadata: Metadata = {
 
 export default async function AnnalesPage() {
   const ressources = await lireCatalogue()
+
+  /*
+   * La décision est prise ICI, sur le serveur, et jamais dans le
+   * navigateur : c'est le seul endroit qui voit la clé d'API. Sans elle,
+   * le composant n'est pas monté du tout — plutôt qu'un champ de saisie
+   * qui refuserait à chaque envoi.
+   */
+  const assistant = assistantDisponible()
 
   return (
     <div
@@ -149,6 +159,8 @@ export default async function AnnalesPage() {
           s&apos;entraîner. Rien à créer, rien à payer — ouvrez, révisez,
           partagez le lien à votre classe.
         </p>
+
+        {assistant && <AssistantRevision />}
 
         <CatalogueAnnales ressources={ressources} />
       </main>
