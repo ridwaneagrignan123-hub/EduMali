@@ -47,8 +47,20 @@ import { Message, assistantDisponible, repondre } from "@/src/lib/assistant"
  * l'énumération non. */
 const SEL = process.env.ASSISTANT_QUOTA_SALT ?? "ridwane-annales"
 
-const LIMITE_VISITEUR = Number(process.env.ASSISTANT_LIMITE_VISITEUR ?? 20)
-const LIMITE_JOUR = Number(process.env.ASSISTANT_LIMITE_JOUR ?? 400)
+/*
+ * Les valeurs par défaut sont volontairement SOUS le mur du palier
+ * gratuit de Google (quelques centaines de requêtes par jour). Deux
+ * raisons de s'arrêter avant lui plutôt qu'après :
+ *
+ *   l'élève reçoit une phrase claire — « revenez demain » — au lieu du
+ *   refus brut d'un fournisseur dont il n'a jamais entendu parler ;
+ *
+ *   le quota de Google se partage avec tout ce que le projet appellera
+ *   un jour. Le consommer entièrement ici, c'est le retirer à autre
+ *   chose sans s'en apercevoir.
+ */
+const LIMITE_VISITEUR = Number(process.env.ASSISTANT_LIMITE_VISITEUR ?? 15)
+const LIMITE_JOUR = Number(process.env.ASSISTANT_LIMITE_JOUR ?? 200)
 
 /* Ce qui est raisonnable pour une question d'élève, et rien au-delà. */
 const MESSAGES_MAX = 12
@@ -173,6 +185,24 @@ export async function POST(request: Request) {
 
     if (reponse.etat === "ok") {
       return NextResponse.json({ etat: "ok", texte: reponse.texte })
+    }
+
+    /*
+     * `surcharge` n'est pas une erreur : le palier gratuit limite le
+     * nombre de requêtes PAR MINUTE, et une classe entière qui ouvre la
+     * page au même moment l'atteint. Ça se résout en attendant, et le
+     * message le dit — montrer « une erreur est survenue » ferait
+     * fermer l'onglet pour de bon.
+     */
+    if (reponse.etat === "surcharge") {
+      return NextResponse.json(
+        {
+          etat: "surcharge",
+          message:
+            "Beaucoup de questions en même temps. Réessayez dans une minute.",
+        },
+        { status: 503 }
+      )
     }
 
     if (reponse.etat === "refus") {

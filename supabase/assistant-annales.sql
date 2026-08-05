@@ -24,16 +24,21 @@
 --   par visiteur ... empêche un élève de monopoliser l'assistant. Il se
 --                    contourne trivialement — changer de réseau suffit —
 --                    et ce n'est pas grave : ce n'est pas le garde-fou
---                    financier, c'est la règle de politesse.
+--                    principal, c'est la règle de politesse.
 --
 --   @global ........ le vrai garde-fou. Quoi qu'il arrive, quel que soit
---                    le nombre de visiteurs ou d'adresses, la dépense
---                    d'une journée est bornée. C'est le seul plafond sur
---                    lequel on peut compter.
+--                    le nombre de visiteurs ou d'adresses, la
+--                    consommation d'une journée est bornée.
+--
+-- Le fournisseur est le palier GRATUIT de l'API Gemini : il n'y a donc
+-- pas de facture à borner, mais un QUOTA À NE PAS ÉPUISER. Nos plafonds
+-- sont réglés sous celui de Google, pour que l'élève reçoive une phrase
+-- claire — « revenez demain » — plutôt que le refus brut d'un
+-- fournisseur dont il n'a jamais entendu parler.
 --
 -- Les valeurs se règlent par l'environnement (ASSISTANT_LIMITE_VISITEUR,
--- ASSISTANT_LIMITE_JOUR), pas dans le code : le bon chiffre ne se devine
--- pas d'avance, il se règle en regardant l'usage réel.
+-- ASSISTANT_LIMITE_JOUR), pas dans le code : Google a déjà réduit ses
+-- quotas sans préavis, et il faut pouvoir suivre sans redéployer.
 --
 -- ---------------------------------------------------------------------
 -- L'ADRESSE IP N'EST PAS STOCKÉE
@@ -109,6 +114,7 @@ commit;
 --     `anon` appelle la fonction ................ refusé
 --
 --   BOUT EN BOUT, par la route, avec une clé volontairement fausse
+--     (mesuré deux fois : sous Anthropic, puis sous Gemini après bascule)
 --     question vide ............................. 400
 --     rôle « system » glissé dans l'historique .. 400
 --     question de 2100 caractères ............... 400
