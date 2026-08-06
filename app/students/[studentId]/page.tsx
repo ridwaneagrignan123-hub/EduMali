@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
+import { CodeAccesParent } from "@/components/code-acces-parent"
 import {
   CLASSE_ANNULEE,
   MentionAnnulation,
@@ -36,6 +37,7 @@ import {
 
 type Eleve = {
   id: string
+  school_id: string
   first_name: string
   last_name: string
   student_number: string | null
@@ -149,6 +151,14 @@ export default function StudentHistoryPage() {
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState<string | null>(null)
 
+  /*
+   * Le rôle sert UNIQUEMENT à masquer les boutons d'ouverture et de
+   * retrait de l'accès famille. Le partage réel est en base : la policy
+   * d'insertion repose sur `private.encadrement_ecrit()`, qui exclut le
+   * promoteur — mesuré à « refusé ».
+   */
+  const [role, setRole] = useState("")
+
   const charger = useCallback(async () => {
     if (!studentId) {
       return
@@ -156,6 +166,20 @@ export default function StudentHistoryPage() {
 
     setChargement(true)
     setErreur(null)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (user) {
+      const { data: profil } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle()
+
+      setRole(profil?.role ?? "")
+    }
 
     const { debut, fin } = bornesDuMois(annee, mois)
 
@@ -170,7 +194,7 @@ export default function StudentHistoryPage() {
       supabase
         .from("students")
         .select(
-          "id, first_name, last_name, student_number, parent_name, parent_phone"
+          "id, school_id, first_name, last_name, student_number, parent_name, parent_phone"
         )
         .eq("id", studentId)
         .maybeSingle(),
@@ -574,6 +598,22 @@ export default function StudentHistoryPage() {
                 </div>
               )}
             </div>
+
+            {/*
+              L'accès de la famille vit sur la fiche de l'élève, et non
+              dans un écran séparé : c'est ici qu'on est quand un parent
+              se présente au secrétariat.
+            */}
+            {eleve && (
+              <CodeAccesParent
+                studentId={eleve.id}
+                schoolId={eleve.school_id}
+                nomEleve={`${eleve.last_name} ${eleve.first_name}`}
+                peutEcrire={
+                  role === "directeur_general" || role === "directeur_direction"
+                }
+              />
+            )}
           </>
         )}
       </section>

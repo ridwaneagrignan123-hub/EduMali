@@ -1,7 +1,8 @@
 -- =====================================================================
--- Ridwane — les plafonds de l'assistant de révision
+-- Ridwane — le compteur de quota journalier
 -- =====================================================================
--- APPLIQUÉ en base le 2026-08-05. Ce fichier porte le raisonnement ;
+-- APPLIQUÉ en base le 2026-08-05, renommé le 2026-08-06 —
+-- le compteur sert aussi aux essais de code d'accès parent. Ce fichier porte le raisonnement ;
 -- `schema.sql` porte l'état.
 
 -- ---------------------------------------------------------------------
@@ -49,14 +50,14 @@
 
 begin;
 
-create table if not exists public.assistant_quota (
+create table if not exists public.quota_journalier (
   day date not null,
   bucket text not null,
   used integer not null default 0,
   primary key (day, bucket)
 );
 
-alter table public.assistant_quota enable row level security;
+alter table public.quota_journalier enable row level security;
 
 -- Aucune policy : seule la clé service role lit et écrit ce compteur.
 -- Le navigateur n'a rien à y voir, et surtout rien à y écrire.
@@ -73,7 +74,7 @@ alter table public.assistant_quota enable row level security;
  * de trop vient d'être compté. Il est refusé, et le compteur garde la
  * trace de la tentative — une rafale se voit dans les chiffres.
  */
-create or replace function public.assistant_consommer(
+create or replace function public.consommer_quota(
   p_bucket text,
   p_plafond integer
 ) returns integer
@@ -84,10 +85,10 @@ as $$
 declare
   consomme integer;
 begin
-  insert into public.assistant_quota (day, bucket, used)
+  insert into public.quota_journalier (day, bucket, used)
   values (current_date, p_bucket, 1)
   on conflict (day, bucket)
-  do update set used = public.assistant_quota.used + 1
+  do update set used = public.quota_journalier.used + 1
   returning used into consomme;
 
   return p_plafond - consomme;
@@ -98,7 +99,7 @@ end $$;
  * quel visiteur pourrait appeler la fonction en boucle et épuiser le
  * plafond de tous les autres, sans jamais poser une seule question.
  */
-revoke all on function public.assistant_consommer(text, integer)
+revoke all on function public.consommer_quota(text, integer)
   from public, anon, authenticated;
 
 commit;

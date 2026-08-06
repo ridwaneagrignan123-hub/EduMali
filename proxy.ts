@@ -57,10 +57,16 @@ export async function proxy(request: NextRequest) {
    * aucune session et n'en attend aucune. C'est la porte des élèves, qui
    * n'ont pas de compte et ne doivent pas en avoir — la renvoyer vers
    * /login demanderait un mot de passe pour lire un sujet du BAC.
+   *
+   * /parent est publique pour la même raison, portée à une famille : le
+   * parent n'a pas de compte Supabase et ne doit pas en avoir. Il
+   * présente un code, et c'est la route serveur — non le RLS — qui
+   * décide de ce qu'il verra.
    */
   const publicPaths = [
     "/",
     "/annales",
+    "/parent",
     "/login",
     "/update-password",
     "/auth/callback",

@@ -81,7 +81,7 @@ function empreinte(request: Request) {
  * où » transformerait une panne de Supabase en facture ouverte.
  */
 async function consommer(bucket: string, plafond: number) {
-  const { data, error } = await supabaseAdmin.rpc("assistant_consommer", {
+  const { data, error } = await supabaseAdmin.rpc("consommer_quota", {
     p_bucket: bucket,
     p_plafond: plafond,
   })
