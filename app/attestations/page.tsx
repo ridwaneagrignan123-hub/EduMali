@@ -8,8 +8,8 @@ import {
   AttestationDocument,
   AttestationImprimable,
   EnTeteEcole,
-  TITRES,
 } from "@/components/attestation-document"
+import { TITRES } from "@/src/lib/attestations"
 
 /*
  * Attestations et certificats.

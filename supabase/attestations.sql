@@ -432,3 +432,58 @@ commit;
 -- annulation posée restait réécrivable. Les deux se lisaient « 1 ligne »
 -- là où on attendait « refusé » — ce qu'aucune absence d'exception
 -- n'aurait signalé.
+
+
+-- =====================================================================
+-- LE JETON DE VÉRIFICATION — ajouté le 2026-08-06
+-- =====================================================================
+--
+-- `verification_token`, 16 octets de `gen_random_bytes`, rendus en 32
+-- caractères hexadécimaux. C'est lui, et non la référence, qu'encode le
+-- QR imprimé sur le document.
+--
+-- POURQUOI PAS LA RÉFÉRENCE : « ATT-2026-0001 » s'énumère. Une page de
+-- vérification indexée dessus laisserait le premier curieux venu
+-- balayer les numéros et récolter les noms des élèves d'un
+-- établissement, sans avoir jamais tenu un papier. Le jeton n'est
+-- imprimé nulle part ailleurs que dans le carré : vérifier suppose donc
+-- d'avoir le document sous les yeux.
+--
+-- POURQUOI `gen_random_bytes` ET NON `random()` : ce dernier est un
+-- générateur pseudo-aléatoire prévisible. Il suffit à un code d'accès
+-- parent tiré dans un espace de 850 milliards, il ne suffit pas à un
+-- jeton qui doit résister à quelqu'un qui cherche vraiment.
+--
+-- Le jeton REJOINT LA LISTE DES FAITS GRAVÉS du déclencheur
+-- `figer_attestation`. Sans cela on pourrait le réécrire après
+-- émission : le QR du papier déjà remis pointerait vers une page
+-- introuvable, et le document deviendrait invérifiable sans que
+-- personne ne l'ait annulé.
+--
+-- ---------------------------------------------------------------------
+-- VÉRIFIÉ (2026-08-06)
+--
+--   jeton engendré automatiquement ............ 32 caractères hex
+--   deux attestations, deux jetons ............ distincts
+--   réécrire le jeton après émission .......... refusé
+--
+--   PAR LA PAGE PUBLIQUE, sans aucune session :
+--     attestation valide ...................... « Document authentique »
+--                                               + référence, nature,
+--                                               école, nom, date,
+--                                               signataire
+--     attestation annulée ..................... « Document annulé »,
+--                                               avec la date, SANS le
+--                                               motif
+--     jeton inexistant ........................ « Document inconnu »
+--     jeton mal formé ......................... refusé avant toute
+--                                               requête en base
+--
+-- La page lit sous clé service role : `attestations` reste fermée à
+-- `anon`, et AUCUNE policy publique n'a été ajoutée pour elle.
+--
+-- Un défaut trouvé à la première mesure : la page affichait
+-- « attestation_scolarite » au lieu du libellé. La table des libellés
+-- était exportée depuis un module « use client », dont un composant
+-- serveur ne reçoit qu'une référence. Elle vit désormais dans
+-- `src/lib/attestations.ts`, lu des deux côtés.

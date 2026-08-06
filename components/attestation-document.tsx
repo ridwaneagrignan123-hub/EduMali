@@ -1,5 +1,8 @@
 "use client"
 
+import { QrCode, origineImprimee } from "@/components/qr-code"
+import { TITRES } from "@/src/lib/attestations"
+
 /*
  * Le document lui-même, tel qu'il sort de l'imprimante.
  *
@@ -51,19 +54,14 @@ export type AttestationImprimable = {
   signatory_name: string
   cancelled_at: string | null
   cancellation_reason: string | null
+  /* Ce qu'encode le QR. Jamais la référence : voir le bloc signature. */
+  verification_token: string
 }
 
 export type EnTeteEcole = {
   address: string | null
   phone: string | null
   logo_url: string | null
-}
-
-export const TITRES: Record<string, string> = {
-  attestation_scolarite: "ATTESTATION DE SCOLARITÉ",
-  attestation_travail: "ATTESTATION DE TRAVAIL",
-  certificat_scolarite: "CERTIFICAT DE SCOLARITÉ",
-  certificat_travail: "CERTIFICAT DE TRAVAIL",
 }
 
 function jour(date: string | null) {
@@ -230,7 +228,31 @@ export function AttestationDocument({
       </div>
 
       {/* -------------------------------------------------- signature */}
-      <div className="mt-20 flex justify-end">
+      <div className="mt-20 flex items-end justify-between gap-8">
+        {/*
+          LE QR PORTE UN JETON, PAS LA RÉFÉRENCE.
+
+          « ATT-2026-0001 » s'énumère : qui balaierait les numéros
+          récolterait les noms des élèves d'un établissement sans jamais
+          avoir tenu un seul papier. Le jeton, lui, n'est imprimé nulle
+          part ailleurs que dans ce carré — vérifier suppose donc d'avoir
+          le document sous les yeux, ce qui est exactement la situation
+          qu'une vérification est censée servir.
+        */}
+        <div className="w-44 text-center">
+          <QrCode
+            valeur={`${origineImprimee()}/verifier/${attestation.verification_token}`}
+            taille={120}
+            titre={`Vérifier l'attestation ${attestation.reference}`}
+          />
+
+          <p className="mt-2 text-[10px] leading-snug text-neutral-600">
+            Scannez pour vérifier
+            <br />
+            l&apos;authenticité de ce document
+          </p>
+        </div>
+
         <div className="w-64 text-center">
           <p className="text-sm">Fait le {jour(attestation.issued_at)}</p>
 
@@ -247,8 +269,8 @@ export function AttestationDocument({
 
       <footer className="mt-12 border-t pt-3 text-center text-xs text-neutral-600">
         Document n° {attestation.reference} — établi par {attestation.school_name}.
-        Toute vérification peut être faite auprès de l&apos;établissement en
-        citant cette référence.
+        À défaut de scanner, toute vérification peut être faite auprès de
+        l&apos;établissement en citant cette référence.
       </footer>
     </article>
   )

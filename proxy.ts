@@ -71,7 +71,14 @@ export async function proxy(request: NextRequest) {
     "/update-password",
     "/auth/callback",
   ]
-  const isPublicPath = publicPaths.includes(pathname)
+  /*
+   * /verifier/<jeton> est publique et DYNAMIQUE : elle ne peut donc pas
+   * figurer dans la liste ci-dessus, qui compare des chemins exacts.
+   * C'est la page qu'ouvre le QR d'une attestation — une banque ou un
+   * lycée qui la scanne n'a évidemment aucun compte ici.
+   */
+  const isPublicPath =
+    publicPaths.includes(pathname) || pathname.startsWith("/verifier/")
 
   if (!user && !isPublicPath) {
     const loginUrl = new URL("/login", request.url)
