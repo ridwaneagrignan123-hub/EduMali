@@ -277,7 +277,13 @@ export async function POST(request: Request) {
           recorded_by: user.id,
         }))
       )
-      .select("id, phone, message")
+      /*
+       * `parent_name` est relu ici parce que le modèle WhatsApp le prend
+       * en premier paramètre. C'est le nom FIGÉ au moment du
+       * déclenchement — celui sous lequel le message a été composé — et
+       * non le nom courant de la fiche, qui a pu changer entre-temps.
+       */
+      .select("id, phone, message, parent_name")
 
     if (insertError || !lignes) {
       console.error("Erreur mise en file :", insertError)
@@ -298,9 +304,25 @@ export async function POST(request: Request) {
     let raison: string | null = null
 
     for (const ligne of lignes) {
+      /*
+       * Mêmes trois paramètres, dans le même ordre que pour les messages
+       * de vie scolaire : nom de l'élève, détail, nom de l'école. Un seul
+       * squelette de modèle sert ainsi les sept événements.
+       *
+       * Le nom est relu depuis la ligne de la file et non depuis l'élève
+       * vivant : c'est le nom sous lequel le message a été composé, et le
+       * modèle doit dire la même chose que le texte qu'il accompagne.
+       */
       const resultat = await sendWhatsApp({
         phone: ligne.phone,
         texte: ligne.message,
+        evenement: "devoir",
+        langue,
+        parametres: [
+          ligne.parent_name ?? "Cher parent",
+          ligne.message,
+          nomEcole,
+        ],
       })
 
       if (resultat.statut === "en_attente") {

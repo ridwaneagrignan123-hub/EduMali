@@ -228,9 +228,25 @@ export async function POST(request: Request) {
       )
     }
 
+    /*
+     * Les trois paramètres du modèle Meta, DANS CET ORDRE et pour tous
+     * les événements : nom de l'élève, détail, nom de l'école. Un ordre
+     * unique permet de déposer sept modèles bâtis sur le même squelette,
+     * et d'en ajouter un huitième sans toucher au code.
+     *
+     * Le « détail » est le texte déjà composé dans la langue de la
+     * famille : c'est lui qui porte la date, la matière, le motif.
+     */
     const resultat = await sendWhatsApp({
       phone: eleve.parent_phone,
       texte,
+      evenement: type,
+      langue,
+      parametres: [
+        `${eleve.first_name} ${eleve.last_name}`,
+        texte,
+        ecole?.name || "votre établissement",
+      ],
     })
 
     /*
