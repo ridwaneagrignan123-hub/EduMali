@@ -11,6 +11,7 @@ import {
   cycleLabel,
   estModeTitulaire,
   hasFiliere,
+  isFiliere,
   toSchoolType,
 } from "@/src/lib/etablissement"
 
@@ -90,6 +91,17 @@ export default function ClassSubjectsPage() {
 
   const [headTeachers, setHeadTeachers] = useState<HeadTeacher[]>([])
   const [schoolType, setSchoolType] = useState("classique")
+
+  /*
+   * La filière du directeur connecté, nulle pour tout autre rôle.
+   *
+   * Un directeur nommé sur le programme arabe n'a rien à faire du poste
+   * de titulaire français ni des matières françaises : ce n'est pas son
+   * programme, et le lui proposer l'invite à empiéter sur le travail de
+   * son homologue — ou à croire qu'il manque un titulaire alors que
+   * l'autre directeur l'a déjà nommé.
+   */
+  const [maFiliere, setMaFiliere] = useState<string | null>(null)
   const [savingHead, setSavingHead] = useState(false)
   const [headMessage, setHeadMessage] = useState<string | null>(null)
   const [headError, setHeadError] = useState<string | null>(null)
@@ -104,10 +116,33 @@ export default function ClassSubjectsPage() {
   const modeTitulaire = estModeTitulaire(classeChoisie?.cycle)
   const avecFiliere = hasFiliere(schoolType)
 
-  /* Les filières à pourvoir : deux en franco-arabe, une seule sinon. */
+  /*
+   * Les filières à pourvoir.
+   *
+   * Deux en franco-arabe — mais une seule pour le directeur qui n'en
+   * tient qu'une. Il ne voit donc que son poste, et la classe cesse de
+   * lui paraître à moitié vide parce que son homologue n'a pas encore
+   * nommé le sien.
+   */
   const filieresAPourvoir: (Filiere | null)[] = avecFiliere
-    ? [...FILIERES]
+    ? isFiliere(maFiliere)
+      ? [maFiliere]
+      : [...FILIERES]
     : [null]
+
+  /*
+   * Les matières proposées suivent la même règle. Celles SANS filière
+   * restent visibles de tous : elles ne relèvent d'aucun programme —
+   * l'éducation physique, la conduite — et les retirer priverait chaque
+   * directeur d'une matière qui est aussi la sienne.
+   */
+  const matieresDeMonProgramme = subjects.filter(
+    (matiere) =>
+      !avecFiliere ||
+      !isFiliere(maFiliere) ||
+      matiere.filiere === null ||
+      matiere.filiere === maFiliere
+  )
 
   function titulairePour(filiere: Filiere | null) {
     return headTeachers.find(
@@ -135,7 +170,7 @@ export default function ClassSubjectsPage() {
     const { data: profile, error: profileError } =
       await supabase
         .from("profiles")
-        .select("school_id")
+        .select("school_id, role, filiere")
         .eq("id", user.id)
         .maybeSingle()
 
@@ -151,6 +186,15 @@ export default function ClassSubjectsPage() {
     }
 
     setSchoolId(profile.school_id)
+
+    /*
+     * La filière de la personne connectée, et seulement si elle est
+     * cloisonnée à une direction. Le directeur général n'en a pas : il
+     * pourvoit les deux programmes.
+     */
+    setMaFiliere(
+      profile.role === "directeur_direction" ? profile.filiere ?? null : null
+    )
 
     const [
       classesResult,
@@ -577,7 +621,7 @@ export default function ClassSubjectsPage() {
                     Sélectionner une matière
                   </option>
 
-                  {subjects.map((subject) => (
+                  {matieresDeMonProgramme.map((subject) => (
                     <option
                       key={subject.id}
                       value={subject.id}

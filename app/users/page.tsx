@@ -18,6 +18,7 @@ import {
   CYCLE_LABELS,
   FILIERES,
   FILIERE_LABELS,
+  cycleLabel,
   filiereLabel,
   hasFiliere,
   toSchoolType,
@@ -47,6 +48,21 @@ type UserAccount = {
 type Direction = {
   id: string
   name: string
+  /*
+   * Le cycle voyage AVEC la direction jusqu'au menu de nomination.
+   *
+   * Sans lui, nommer un directeur se fait à l'aveugle : le menu ne
+   * propose que des noms, et rien ne dit qu'« une direction du second
+   * cycle » n'existe pas encore. Constaté en production — un directeur
+   * général cherchait le second cycle, n'a vu que des noms, a choisi au
+   * hasard, et son directeur s'est retrouvé enfermé au premier cycle.
+   */
+  cycle: string | null
+}
+
+/** « Direction Français A — premier cycle », tel qu'on doit le lire. */
+function libelleDirection(direction: Direction) {
+  return `${direction.name} — ${cycleLabel(direction.cycle).toLowerCase()}`
 }
 
 /*
@@ -242,7 +258,7 @@ export default function UsersPage() {
     // Lisible par tout membre de l'école : pas besoin de passer par l'API.
     const { data: directionsData, error: directionsError } = await supabase
       .from("directions")
-      .select("id, name")
+      .select("id, name, cycle")
       .order("name")
 
     if (directionsError) {
@@ -514,9 +530,13 @@ export default function UsersPage() {
       return
     }
 
-    const directionName = directions.find(
-      (item) => item.id === directionId
-    )?.name
+    /*
+     * La confirmation nomme le CYCLE autant que la direction : c'est le
+     * dernier moment où l'erreur se rattrape sans repasser par un
+     * changement de rôle.
+     */
+    const choisie = directions.find((item) => item.id === directionId)
+    const directionName = choisie ? libelleDirection(choisie) : undefined
 
     const confirmed = window.confirm(
       directionId
@@ -912,10 +932,30 @@ export default function UsersPage() {
 
                         {directions.map((direction) => (
                           <option key={direction.id} value={direction.id}>
-                            {direction.name}
+                            {libelleDirection(direction)}
                           </option>
                         ))}
                       </select>
+
+                      {/*
+                        Le cycle manquant ne se devine pas depuis une
+                        liste de noms. On nomme donc ce qui existe, et on
+                        dit où aller si le cycle cherché n'y est pas.
+                      */}
+                      {directions.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Le cycle vient de la direction. S&apos;il vous
+                          manque un cycle,{" "}
+                          <button
+                            type="button"
+                            onClick={() => router.push("/directions")}
+                            className="font-medium text-primary underline"
+                          >
+                            créez d&apos;abord la direction
+                          </button>
+                          .
+                        </p>
+                      )}
 
                       {directions.length === 0 && (
                         <p className="text-xs text-muted-foreground">
@@ -1132,9 +1172,13 @@ export default function UsersPage() {
                   const chosenFiliere =
                     pendingFiliereByUserId[user.id] ?? user.filiere ?? ""
 
-                  const currentDirectionName = directions.find(
+                  const directionCourante = directions.find(
                     (item) => item.id === user.directionId
-                  )?.name
+                  )
+
+                  const currentDirectionName = directionCourante
+                    ? libelleDirection(directionCourante)
+                    : undefined
 
                   return (
                     <div
@@ -1353,7 +1397,7 @@ export default function UsersPage() {
                                       key={direction.id}
                                       value={direction.id}
                                     >
-                                      {direction.name}
+                                      {libelleDirection(direction)}
                                     </option>
                                   ))}
                                 </select>

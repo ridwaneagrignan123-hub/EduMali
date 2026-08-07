@@ -159,40 +159,36 @@ export default function DashboardPage() {
 
     setClassCount(classIds.length)
 
+    /*
+     * Le compte des enseignants est fait AVANT le raccourci ci-dessous,
+     * parce qu'il ne dépend plus des classes. Un directeur qui a
+     * enregistré ses enseignants mais pas encore ouvert de classe doit
+     * les voir : c'est l'ordre naturel dans une école qui démarre.
+     */
+    const teachersResult = await supabase
+      .from("teachers")
+      .select("id", { count: "exact", head: true })
+      .eq("school_id", currentSchoolId)
+
+    if (teachersResult.error) {
+      console.error("Erreur enseignants :", teachersResult.error)
+      dashboardErrors.push("le nombre d'enseignants")
+      setTeacherCount(null)
+    } else {
+      setTeacherCount(teachersResult.count ?? 0)
+    }
+
+    // Élèves et présences, eux, se comptent bien à travers les classes.
     if (classIds.length === 0) {
       setStudentCount(0)
-      setTeacherCount(0)
       setAttendanceCount(0)
       return
     }
 
-    const [
-      enrollmentsResult,
-      classSubjectsResult,
-      headTeachersResult,
-      attendanceResult,
-    ] = await Promise.all([
+    const [enrollmentsResult, attendanceResult] = await Promise.all([
         supabase
           .from("student_class_enrollments")
           .select("student_id")
-          .eq("school_id", currentSchoolId)
-          .in("class_id", classIds),
-
-        supabase
-          .from("class_subjects")
-          .select("teacher_id")
-          .eq("school_id", currentSchoolId)
-          .in("class_id", classIds),
-
-        /*
-         * Les titulaires comptent aussi. Au premier cycle, l'enseignant
-         * est rattaché à la CLASSE, pas aux matières : ne lire que
-         * class_subjects afficherait « 0 enseignant » pour une classe
-         * pourtant tenue.
-         */
-        supabase
-          .from("class_head_teachers")
-          .select("teacher_id")
           .eq("school_id", currentSchoolId)
           .in("class_id", classIds),
 
@@ -215,27 +211,6 @@ export default function DashboardPage() {
       )
 
       setStudentCount(uniqueStudents.size)
-    }
-
-    if (classSubjectsResult.error || headTeachersResult.error) {
-      console.error(
-        "Erreur enseignants :",
-        classSubjectsResult.error ?? headTeachersResult.error
-      )
-      dashboardErrors.push("le nombre d'enseignants")
-      setTeacherCount(null)
-    } else {
-      // Un titulaire également affecté à ses matières ne compte qu'une fois.
-      const uniqueTeachers = new Set(
-        [
-          ...(classSubjectsResult.data ?? []),
-          ...(headTeachersResult.data ?? []),
-        ]
-          .map((item) => item.teacher_id)
-          .filter(Boolean)
-      )
-
-      setTeacherCount(uniqueTeachers.size)
     }
 
     if (attendanceResult.error) {
