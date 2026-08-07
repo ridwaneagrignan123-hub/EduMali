@@ -407,6 +407,14 @@ export const NAV_ITEMS: NavItem[] = [
    * qu'éviter de proposer une page vide.
    */
   { cle: "nav.attestations", label: "Attestations", path: "/attestations", roles: ENCADREMENT },
+  /*
+   * ENCADREMENT, comme la policy de lecture de student_access_codes :
+   * private.is_encadrement() y inclut le promoteur, qui CONSULTE l'état
+   * des accès sans pouvoir en ouvrir. L'écriture est réservée en base à
+   * private.encadrement_ecrit(), et l'écran n'affiche les boutons qu'au
+   * directeur — le menu ne fait qu'éviter de proposer une page vide.
+   */
+  { cle: "nav.parents", label: "Parents", path: "/parents", roles: ENCADREMENT },
   { cle: "nav.enseignants", label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
   { cle: "nav.classes", label: "Classes", path: "/classes", roles: COMPTABLE_VOIT },
   { cle: "nav.directions", label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },

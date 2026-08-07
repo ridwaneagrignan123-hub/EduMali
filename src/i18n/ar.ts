@@ -35,6 +35,7 @@ export const ar: Traductions = {
   "nav.passageDeClasse": "الانتقال إلى القسم الأعلى",
   "nav.cartesScolaires": "البطاقات المدرسية",
   "nav.attestations": "الشهادات",
+  "nav.parents": "أولياء الأمور",
   "nav.enseignants": "المدرّسون",
   "nav.classes": "الأقسام",
   "nav.directions": "الإدارات",

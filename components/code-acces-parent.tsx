@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { supabase } from "@/src/lib/supabase"
-import { ilYA, joursDepuis } from "@/src/lib/temps-relatif"
+import { CodeParent, etatAcces } from "@/src/lib/acces-parent"
 
 /*
  * Le code d'accès de la famille, côté école.
@@ -23,70 +23,12 @@ import { ilYA, joursDepuis } from "@/src/lib/temps-relatif"
  * reçu le papier.
  */
 
-type Code = {
-  id: string
-  code: string
-  created_at: string
-  last_used_at: string | null
-  opened_count: number
-}
-
 /*
- * L'état de l'accès, dit comme le secrétariat en a besoin.
- *
- * Une date d'ouverture seule ne se lit pas : il faut la soustraire de
- * tête, et elle ne distingue pas la famille qui a ouvert une fois le
- * jour de la remise de celle qui consulte chaque semaine.
- *
- * Le cas qui commande une action est un seul : PAS OUVERT, ET REMIS IL Y
- * A LONGTEMPS. Celui-là ne dit pas que la famille se désintéresse — il
- * dit que le papier n'est probablement jamais arrivé. C'est le seul qui
- * porte une couleur ; tout le reste est du constat.
- *
- * Le délai de quinze jours n'est pas une science : c'est le temps qu'il
- * faut pour qu'un papier remis au secrétariat traverse un cartable et
- * arrive à la maison. En deçà, l'absence d'ouverture ne prouve rien.
+ * L'état de l'accès est calculé dans src/lib/acces-parent.ts, partagé
+ * avec le tableau des familles. Deux écrans qui traduiraient le même
+ * état chacun de son côté finiraient par se contredire.
  */
-const DELAI_INQUIETUDE = 14
-
-function etatUsage(code: Code): {
-  alerte: boolean
-  titre: string
-  detail: string | null
-} {
-  const ageJours = joursDepuis(code.created_at) ?? 0
-
-  if (code.opened_count === 0) {
-    if (ageJours < DELAI_INQUIETUDE) {
-      return {
-        alerte: false,
-        titre: "Jamais ouvert",
-        detail: `Remis ${ilYA(code.created_at)} — laissez-lui le temps d'arriver.`,
-      }
-    }
-
-    return {
-      alerte: true,
-      titre: `Jamais ouvert, et remis ${ilYA(code.created_at)}`,
-      detail:
-        "Le papier n'est probablement jamais arrivé à la famille. Redonnez-le plutôt que d'attendre.",
-    }
-  }
-
-  if (code.opened_count === 1) {
-    return {
-      alerte: false,
-      titre: `Ouvert une seule fois, ${ilYA(code.last_used_at ?? code.created_at)}`,
-      detail: "La famille a essayé ; elle n'est pas encore revenue.",
-    }
-  }
-
-  return {
-    alerte: false,
-    titre: `Ouvert ${code.opened_count} fois`,
-    detail: `Dernière visite ${ilYA(code.last_used_at ?? code.created_at)}.`,
-  }
-}
+type Code = CodeParent
 
 export function CodeAccesParent({
   studentId,
@@ -199,7 +141,7 @@ export function CodeAccesParent({
             </p>
 
             {(() => {
-              const etat = etatUsage(code)
+              const etat = etatAcces(code)
 
               return (
                 <div
