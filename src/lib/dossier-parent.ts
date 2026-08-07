@@ -107,14 +107,18 @@ export async function ouvrirSession(codeSaisi: string) {
   const jeton = randomBytes(32).toString("hex")
 
   /*
-   * `last_used_at` répond à la seule question que le secrétariat se
-   * posera : ce parent s'en sert-il ? Faut-il lui réexpliquer, ou est-ce
-   * inutile de réimprimer.
+   * La date ET le compteur, en une seule instruction.
+   *
+   * Ils répondent aux deux questions du secrétariat : ce parent s'en
+   * sert-il, et une fois seulement ou vraiment ? Une famille qui a ouvert
+   * le jour de la remise puis plus jamais n'est pas équipée — elle a
+   * essayé. Une date seule ne les distingue pas.
+   *
+   * L'incrément passe par une fonction en base plutôt que par un
+   * lire-puis-écrire : deux parents qui ouvrent en même temps écriraient
+   * sinon la même valeur, et une ouverture serait perdue.
    */
-  await supabaseAdmin
-    .from("student_access_codes")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", data.id)
+  await supabaseAdmin.rpc("marquer_ouverture_code", { code_id: data.id })
 
   const boite = await cookies()
 
