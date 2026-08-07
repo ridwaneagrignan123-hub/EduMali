@@ -11,6 +11,7 @@ import {
   assignableRoles,
   can,
   canAssignRole,
+  roleLabelDetaille,
 } from "@/src/lib/roles"
 import {
   CYCLES,
@@ -930,9 +931,16 @@ export default function UsersPage() {
                       )}
                     </div>
 
+                    {/*
+                      Le choix se nomme comme l'école le nomme : on ne
+                      choisit pas « une filière », on choisit le directeur
+                      arabe ou le directeur français. Le champ n'apparaît
+                      que pour un directeur, il peut donc le dire ainsi
+                      sans risque de confusion.
+                    */}
                     {avecFiliere && (
                       <div className="space-y-2">
-                        <label htmlFor="membre-filiere">Filière</label>
+                        <label htmlFor="membre-filiere">Directeur de</label>
 
                         <select
                           id="membre-filiere"
@@ -942,11 +950,11 @@ export default function UsersPage() {
                           }
                           className="w-full rounded-md border bg-background px-3 py-2"
                         >
-                          <option value="">Sans filière</option>
+                          <option value="">Les deux filières</option>
 
                           {FILIERES.map((valeur) => (
                             <option key={valeur} value={valeur}>
-                              {FILIERE_LABELS[valeur]}
+                              Directeur {FILIERE_LABELS[valeur].toLowerCase()}
                             </option>
                           ))}
                         </select>
@@ -1191,14 +1199,22 @@ export default function UsersPage() {
                               : "Ne s'est jamais connecté"}
                           </p>
 
+                          {/*
+                            La filière qualifie le titre plutôt que de
+                            s'ajouter en queue de phrase : « Directeur
+                            arabe de Direction arabe A » se lit comme on
+                            le dit dans l'école, là où « Directeur de
+                            direction — Périmètre : … — programme arabe »
+                            répétait deux fois le même mot pour dire une
+                            seule chose.
+                          */}
                           {user.role === DIRECTION_SCOPED_ROLE && (
                             <p className="mt-1 text-xs text-muted-foreground">
                               {currentDirectionName
-                                ? `Périmètre : ${currentDirectionName}${
-                                    avecFiliere
-                                      ? ` — programme ${filiereLabel(user.filiere).toLowerCase()}`
-                                      : ""
-                                  }`
+                                ? `${roleLabelDetaille(
+                                    user.role,
+                                    avecFiliere ? user.filiere : null
+                                  )} de « ${currentDirectionName} »`
                                 : "Aucune direction affectée — ce compte ne voit aucune donnée."}
                             </p>
                           )}
@@ -1364,11 +1380,12 @@ export default function UsersPage() {
                                     disabled={isPending}
                                     className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    <option value="">Filière...</option>
+                                    <option value="">Directeur de...</option>
 
                                     {FILIERES.map((value) => (
                                       <option key={value} value={value}>
-                                        {FILIERE_LABELS[value]}
+                                        Directeur{" "}
+                                        {FILIERE_LABELS[value].toLowerCase()}
                                       </option>
                                     ))}
                                   </select>

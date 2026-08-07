@@ -1,4 +1,5 @@
 import { CleDeTraduction } from "@/src/i18n/fr"
+import { FILIERE_LABELS, isFiliere } from "@/src/lib/etablissement"
 
 /*
  * Ce que chaque rôle a le droit de faire.
@@ -44,10 +45,22 @@ import { CleDeTraduction } from "@/src/i18n/fr"
  * plateforme, table `platform_operators`, hors de cette matrice.
  */
 
+/*
+ * « Directeur », et non « directeur de direction ».
+ *
+ * Le nom technique de la colonne reste `directeur_direction` — il dit
+ * exactement ce qu'il borne, et le renommer toucherait les policies, les
+ * fonctions private.* et les données. Mais personne, dans une école, ne
+ * dit « directeur de direction ». On dit le directeur, et s'il faut
+ * préciser, le directeur arabe ou le directeur français.
+ *
+ * Le mot se répétait par-dessus le marché : « Directeur de direction »
+ * suivi de « Périmètre : Direction arabe A ».
+ */
 export const ROLE_LABELS: Record<string, string> = {
   promoteur: "Promoteur",
   directeur_general: "Directeur général",
-  directeur_direction: "Directeur de direction",
+  directeur_direction: "Directeur",
   teacher: "Enseignant",
   comptable: "Comptable",
   surveillant: "Surveillant",
@@ -287,6 +300,34 @@ export function isEncadrement(role: string | null | undefined) {
 
 export function roleLabel(role: string | null | undefined) {
   return ROLE_LABELS[role ?? ""] ?? "Rôle inconnu"
+}
+
+/**
+ * Le rôle, précisé par la filière quand elle est connue :
+ * « Directeur arabe », « Directeur français ».
+ *
+ * Pourquoi une seconde fonction plutôt qu'une entrée de plus dans
+ * ROLE_LABELS : la filière n'est pas un rôle. Elle n'existe qu'en école
+ * franco-arabe, elle se range dans une colonne à part, et deux directeurs
+ * de filières différentes ont exactement les mêmes droits. Les fondre
+ * donnerait deux rôles là où il n'y en a qu'un — et le menu de
+ * nomination proposerait un choix que la matrice des permissions ne
+ * connaît pas.
+ *
+ * Le libellé se compose donc à l'AFFICHAGE, là où la filière est sous la
+ * main, et nulle part ailleurs.
+ */
+export function roleLabelDetaille(
+  role: string | null | undefined,
+  filiere: unknown
+) {
+  const base = roleLabel(role)
+
+  if (role !== "directeur_direction" || !isFiliere(filiere)) {
+    return base
+  }
+
+  return `${base} ${FILIERE_LABELS[filiere].toLowerCase()}`
 }
 
 /*

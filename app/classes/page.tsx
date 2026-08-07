@@ -419,10 +419,16 @@ export default function ClassesPage() {
                         {classItem.name}
                       </p>
 
+                      {/*
+                        Le cycle disparaît de la ligne quand il est
+                        imposé par la direction : il est alors le même
+                        pour toutes les classes de l'écran, et déjà dit
+                        une fois au-dessus. Le directeur général, lui, en
+                        mélange plusieurs — il a besoin de le lire ici.
+                      */}
                       <p className="text-sm text-muted-foreground">
                         {classItem.level || "Niveau non défini"}
-                        {" — "}
-                        {cycleLabel(classItem.cycle)}
+                        {cycleImpose ? "" : ` — ${cycleLabel(classItem.cycle)}`}
                       </p>
 
                       {/*

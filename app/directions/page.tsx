@@ -388,7 +388,18 @@ export default function DirectionsPage() {
     [classes]
   )
 
-  function renderClassRow(classItem: ClassItem) {
+  /*
+   * `cycleDuBloc` est le cycle de la direction sous laquelle la ligne est
+   * rendue, et vaut null dans la liste des classes non rattachées.
+   *
+   * Il sert à NE PAS répéter : sous « Direction arabe A — Premier
+   * cycle », réécrire « Premier cycle » sur chacune de ses classes
+   * n'apprend rien. Le cycle ne s'affiche donc que là où il apporte
+   * quelque chose — dans la liste des non rattachées, où il décide de ce
+   * qui sera possible, et sur la classe qui contredit sa direction, où
+   * il est exactement l'information à voir.
+   */
+  function renderClassRow(classItem: ClassItem, cycleDuBloc: string | null) {
     return (
       <div
         key={classItem.id}
@@ -397,15 +408,15 @@ export default function DirectionsPage() {
         <div>
           <p className="font-medium">{classItem.name}</p>
 
-          {/*
-            Le cycle de la classe s'affiche à côté de son nom : c'est lui
-            qui décide si un rattachement est possible, et le directeur
-            général le choisissait jusqu'ici à l'aveugle.
-          */}
           <p className="text-xs text-muted-foreground">
-            {[classItem.level, classItem.cycle ? cycleLabel(classItem.cycle) : null]
+            {[
+              classItem.level,
+              classItem.cycle && classItem.cycle !== cycleDuBloc
+                ? cycleLabel(classItem.cycle)
+                : null,
+            ]
               .filter(Boolean)
-              .join(" · ") || "Cycle non défini"}
+              .join(" · ") || "Niveau non défini"}
           </p>
         </div>
 
@@ -591,7 +602,11 @@ export default function DirectionsPage() {
             </p>
 
             <div className="mt-6 space-y-3">
-              {unassignedClasses.map(renderClassRow)}
+              {/*
+                Aucune direction au-dessus : le cycle de chaque classe
+                s'affiche, c'est lui qui dira où elle peut aller.
+              */}
+              {unassignedClasses.map((item) => renderClassRow(item, null))}
             </div>
           </div>
         )}
@@ -684,7 +699,9 @@ export default function DirectionsPage() {
                       </p>
                     ) : (
                       <div className="mt-4 space-y-3">
-                        {attached.map(renderClassRow)}
+                        {attached.map((item) =>
+                          renderClassRow(item, direction.cycle)
+                        )}
                       </div>
                     )}
                   </div>
