@@ -58,11 +58,23 @@ type Direction = {
    * hasard, et son directeur s'est retrouvé enfermé au premier cycle.
    */
   cycle: string | null
+  /*
+   * La filière dont relève la direction. Nulle hors école franco-arabe,
+   * où l'axe n'existe pas. C'est elle qui permet de nommer un directeur
+   * par le COUPLE (filière, cycle) au lieu de le faire choisir dans une
+   * liste de noms qui ne dit ni l'un ni l'autre.
+   */
+  filiere: string | null
 }
 
 /** « Direction Français A — premier cycle », tel qu'on doit le lire. */
 function libelleDirection(direction: Direction) {
   return `${direction.name} — ${cycleLabel(direction.cycle).toLowerCase()}`
+}
+
+/** Le nom donné à une direction créée depuis la nomination. */
+function nomAutomatique(cycle: string, filiere: string) {
+  return `${CYCLE_LABELS[cycle as keyof typeof CYCLE_LABELS] ?? cycle} — ${FILIERE_LABELS[filiere as keyof typeof FILIERE_LABELS] ?? filiere}`
 }
 
 /*
@@ -145,6 +157,19 @@ export default function UsersPage() {
   >({})
 
   /*
+   * Cycle du DIRECTEUR en attente — école franco-arabe seulement.
+   *
+   * Là, on ne fait plus choisir une direction dans une liste de noms :
+   * on demande la filière et le cycle, et la direction correspondante est
+   * retrouvée — ou créée si elle manque. C'est ce qui manquait quand un
+   * directeur destiné au second cycle s'est retrouvé au premier : le
+   * cycle ne se choisissait que sur l'écran des directions, pas au
+   * moment de nommer.
+   */
+  const [pendingCycleDirectionByUserId, setPendingCycleDirectionByUserId] =
+    useState<Record<string, string>>({})
+
+  /*
    * AJOUT D'UN MEMBRE. Les roles proposes ne sont pas une liste ecrite
    * ici : ce sont exactement ceux que NOMINE autorise a l'appelant. La
    * route serveur refait le meme controle — l'ecran ne fait qu'eviter de
@@ -162,7 +187,10 @@ export default function UsersPage() {
   const [ajoutEnCours, setAjoutEnCours] = useState(false)
   const [ajoutErreur, setAjoutErreur] = useState<string | null>(null)
 
+  const [schoolId, setSchoolId] = useState("")
   const [schoolType, setSchoolType] = useState("classique")
+  /* Cycle du directeur à ajouter — école franco-arabe seulement. */
+  const [nouveauCycleDirection, setNouveauCycleDirection] = useState("")
   const avecFiliere = hasFiliere(schoolType)
 
 
@@ -258,7 +286,7 @@ export default function UsersPage() {
     // Lisible par tout membre de l'école : pas besoin de passer par l'API.
     const { data: directionsData, error: directionsError } = await supabase
       .from("directions")
-      .select("id, name, cycle")
+      .select("id, name, cycle, filiere")
       .order("name")
 
     if (directionsError) {
@@ -270,12 +298,13 @@ export default function UsersPage() {
     /* L'axe filière n'apparaît qu'en école franco-arabe. */
     const { data: schoolData, error: schoolError } = await supabase
       .from("schools")
-      .select("school_type, dg_voit_comptabilite")
+      .select("id, school_type, dg_voit_comptabilite")
       .maybeSingle()
 
     if (schoolError) {
       console.error("Erreur type d'établissement :", schoolError)
     } else {
+      setSchoolId(schoolData?.id ?? "")
       setSchoolType(toSchoolType(schoolData?.school_type))
       setDgVoitCompta(schoolData?.dg_voit_comptabilite === true)
     }
@@ -293,6 +322,7 @@ export default function UsersPage() {
     setNouvelleDirection("")
     setNouvelleFiliere("")
     setNouveauCycle("")
+    setNouveauCycleDirection("")
     setNouveauTelephone("")
   }
 
@@ -301,6 +331,27 @@ export default function UsersPage() {
 
     setAjoutErreur(null)
     setAjoutEnCours(true)
+
+    /*
+     * ÉCOLE FRANCO-ARABE : la direction se déduit du couple (filière,
+     * cycle) qu'on vient de saisir, et se crée si elle manque. Ailleurs,
+     * `nouvelleDirection` porte déjà le choix fait dans la liste.
+     */
+    let directionRetenue = nouvelleDirection
+
+    if (avecFiliere && nouveauRole === DIRECTION_SCOPED_ROLE) {
+      const cible = await directionPour(nouveauCycleDirection, nouvelleFiliere)
+
+      if (!cible) {
+        setAjoutErreur(
+          "La direction correspondant à ce cycle n'a pas pu être préparée."
+        )
+        setAjoutEnCours(false)
+        return
+      }
+
+      directionRetenue = cible
+    }
 
     const accessToken = await getAccessToken()
 
@@ -319,7 +370,7 @@ export default function UsersPage() {
         lastName: nouveauNom,
         email: nouvelEmail,
         role: nouveauRole,
-        directionId: nouvelleDirection || undefined,
+        directionId: directionRetenue || undefined,
         filiere: nouvelleFiliere || undefined,
         cycle: nouveauCycle || undefined,
         phone: nouveauTelephone || undefined,
@@ -514,6 +565,54 @@ export default function UsersPage() {
     })
 
     await loadUsers()
+  }
+
+  /*
+   * La direction du couple (cycle, filière) — retrouvée, ou créée.
+   *
+   * ÉCOLE FRANCO-ARABE UNIQUEMENT. Ailleurs l'axe filière n'existe pas
+   * et l'écran garde sa liste de directions nommées.
+   *
+   * Créer plutôt que refuser : un directeur général qui nomme le
+   * directeur du second cycle n'a aucune raison d'aller d'abord fabriquer
+   * une direction sur un autre écran, puis de revenir. C'est ce
+   * va-et-vient non dit qui a enfermé un directeur au premier cycle.
+   *
+   * Rend null en cas d'échec, après avoir posé le message d'erreur.
+   */
+  async function directionPour(cycle: string, filiere: string) {
+    const existante = directions.find(
+      (item) => item.cycle === cycle && item.filiere === filiere
+    )
+
+    if (existante) {
+      return existante.id
+    }
+
+    const { data, error } = await supabase
+      .from("directions")
+      .insert({
+        school_id: schoolId,
+        name: nomAutomatique(cycle, filiere),
+        cycle,
+        filiere,
+      })
+      .select("id")
+      .single()
+
+    if (error || !data) {
+      console.error("Création de la direction :", error)
+
+      setActionError(
+        error?.message.includes("row-level security")
+          ? "Seul le directeur général peut créer une direction."
+          : "La direction correspondante n'a pas pu être créée."
+      )
+
+      return null
+    }
+
+    return data.id as string
   }
 
   async function applyRole(
@@ -916,6 +1015,41 @@ export default function UsersPage() {
                 {/* Le périmètre, pour les rôles qui en ont un. */}
                 {nouveauRole === DIRECTION_SCOPED_ROLE && (
                   <div className="grid gap-4 sm:grid-cols-2">
+                    {/*
+                      ÉCOLE FRANCO-ARABE : le cycle se choisit ICI, au
+                      moment de nommer, et la direction suit. Ailleurs,
+                      la liste des directions nommées reste.
+                    */}
+                    {avecFiliere ? (
+                      <div className="space-y-2">
+                        <label htmlFor="membre-cycle-direction">
+                          Quel cycle *
+                        </label>
+
+                        <select
+                          id="membre-cycle-direction"
+                          value={nouveauCycleDirection}
+                          onChange={(event) =>
+                            setNouveauCycleDirection(event.target.value)
+                          }
+                          required
+                          className="w-full rounded-md border bg-background px-3 py-2"
+                        >
+                          <option value="">Choisir...</option>
+
+                          {CYCLES.map((valeur) => (
+                            <option key={valeur} value={valeur}>
+                              {CYCLE_LABELS[valeur]}
+                            </option>
+                          ))}
+                        </select>
+
+                        <p className="text-xs text-muted-foreground">
+                          La direction correspondante sera créée si elle
+                          n&apos;existe pas encore.
+                        </p>
+                      </div>
+                    ) : (
                     <div className="space-y-2">
                       <label htmlFor="membre-direction">Direction *</label>
 
@@ -937,26 +1071,6 @@ export default function UsersPage() {
                         ))}
                       </select>
 
-                      {/*
-                        Le cycle manquant ne se devine pas depuis une
-                        liste de noms. On nomme donc ce qui existe, et on
-                        dit où aller si le cycle cherché n'y est pas.
-                      */}
-                      {directions.length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          Le cycle vient de la direction. S&apos;il vous
-                          manque un cycle,{" "}
-                          <button
-                            type="button"
-                            onClick={() => router.push("/directions")}
-                            className="font-medium text-primary underline"
-                          >
-                            créez d&apos;abord la direction
-                          </button>
-                          .
-                        </p>
-                      )}
-
                       {directions.length === 0 && (
                         <p className="text-xs text-muted-foreground">
                           Aucune direction n&apos;existe encore.{" "}
@@ -970,6 +1084,7 @@ export default function UsersPage() {
                         </p>
                       )}
                     </div>
+                    )}
 
                     {/*
                       Le choix se nomme comme l'école le nomme : on ne
@@ -1167,6 +1282,18 @@ export default function UsersPage() {
                   const chosenDirectionId =
                     pendingDirectionByUserId[user.id] ??
                     user.directionId ??
+                    ""
+
+                  /*
+                   * Le cycle affiché part de celui de la direction
+                   * ACTUELLE du compte : le directeur général voit ainsi
+                   * d'un coup d'œil où en est la personne, au lieu d'un
+                   * menu vide qui ne dit pas ce qui est déjà posé.
+                   */
+                  const chosenCycleDirection =
+                    pendingCycleDirectionByUserId[user.id] ??
+                    directions.find((item) => item.id === user.directionId)
+                      ?.cycle ??
                     ""
 
                   const chosenFiliere =
@@ -1377,46 +1504,72 @@ export default function UsersPage() {
                                 Direction
                               </label>
 
-                              <div className="flex items-center gap-2">
-                                <select
-                                  id={`direction-${user.id}`}
-                                  value={chosenDirectionId}
-                                  onChange={(event) =>
-                                    setPendingDirectionByUserId((current) => ({
-                                      ...current,
-                                      [user.id]: event.target.value,
-                                    }))
-                                  }
-                                  disabled={isPending}
-                                  className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  <option value="">Choisir...</option>
-
-                                  {directions.map((direction) => (
-                                    <option
-                                      key={direction.id}
-                                      value={direction.id}
-                                    >
-                                      {libelleDirection(direction)}
-                                    </option>
-                                  ))}
-                                </select>
-
+                              <div className="flex flex-wrap items-center gap-2">
                                 {/*
-                                  ÉCOLE FRANCO-ARABE : une direction est
-                                  tenue par deux directeurs, un par
-                                  filière. La filière dit lequel répond de
-                                  quel programme ; elle ne restreint pas
-                                  ce qu'il voit — les deux suivent les
-                                  mêmes élèves, dont le bulletin porte les
-                                  deux programmes.
+                                  ÉCOLE FRANCO-ARABE : on nomme par le
+                                  COUPLE (filière, cycle), et la direction
+                                  suit — retrouvée si elle existe, créée
+                                  sinon. Faire choisir dans une liste de
+                                  noms obligeait à savoir d'avance quel
+                                  nom porte quel cycle, et à quitter
+                                  l'écran pour fabriquer celle qui manque.
+
+                                  Ailleurs, l'axe filière n'existe pas :
+                                  la liste des directions reste.
                                 */}
-                                {avecFiliere && (
+                                {avecFiliere ? (
+                                  <>
+                                    <select
+                                      aria-label={`Filière de ${getFullName(user)}`}
+                                      value={chosenFiliere}
+                                      onChange={(event) =>
+                                        setPendingFiliereByUserId((current) => ({
+                                          ...current,
+                                          [user.id]: event.target.value,
+                                        }))
+                                      }
+                                      disabled={isPending}
+                                      className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      <option value="">Directeur de...</option>
+
+                                      {FILIERES.map((value) => (
+                                        <option key={value} value={value}>
+                                          Directeur{" "}
+                                          {FILIERE_LABELS[value].toLowerCase()}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    <select
+                                      aria-label={`Cycle de ${getFullName(user)}`}
+                                      value={chosenCycleDirection}
+                                      onChange={(event) =>
+                                        setPendingCycleDirectionByUserId(
+                                          (current) => ({
+                                            ...current,
+                                            [user.id]: event.target.value,
+                                          })
+                                        )
+                                      }
+                                      disabled={isPending}
+                                      className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      <option value="">Quel cycle...</option>
+
+                                      {CYCLES.map((value) => (
+                                        <option key={value} value={value}>
+                                          {CYCLE_LABELS[value]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </>
+                                ) : (
                                   <select
-                                    aria-label={`Filière de ${getFullName(user)}`}
-                                    value={chosenFiliere}
+                                    id={`direction-${user.id}`}
+                                    value={chosenDirectionId}
                                     onChange={(event) =>
-                                      setPendingFiliereByUserId((current) => ({
+                                      setPendingDirectionByUserId((current) => ({
                                         ...current,
                                         [user.id]: event.target.value,
                                       }))
@@ -1424,30 +1577,52 @@ export default function UsersPage() {
                                     disabled={isPending}
                                     className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    <option value="">Directeur de...</option>
+                                    <option value="">Choisir...</option>
 
-                                    {FILIERES.map((value) => (
-                                      <option key={value} value={value}>
-                                        Directeur{" "}
-                                        {FILIERE_LABELS[value].toLowerCase()}
+                                    {directions.map((direction) => (
+                                      <option
+                                        key={direction.id}
+                                        value={direction.id}
+                                      >
+                                        {libelleDirection(direction)}
                                       </option>
                                     ))}
                                   </select>
                                 )}
 
                                 <button
-                                  onClick={() =>
-                                    applyRole(
+                                  onClick={async () => {
+                                    if (!avecFiliere) {
+                                      await applyRole(
+                                        user,
+                                        DIRECTION_SCOPED_ROLE,
+                                        chosenDirectionId,
+                                        null
+                                      )
+                                      return
+                                    }
+
+                                    const cible = await directionPour(
+                                      chosenCycleDirection,
+                                      chosenFiliere
+                                    )
+
+                                    if (!cible) {
+                                      return
+                                    }
+
+                                    await applyRole(
                                       user,
                                       DIRECTION_SCOPED_ROLE,
-                                      chosenDirectionId,
-                                      chosenFiliere || null
+                                      cible,
+                                      chosenFiliere
                                     )
-                                  }
+                                  }}
                                   disabled={
                                     isPending ||
-                                    !chosenDirectionId ||
-                                    (avecFiliere && !chosenFiliere)
+                                    (avecFiliere
+                                      ? !chosenFiliere || !chosenCycleDirection
+                                      : !chosenDirectionId)
                                   }
                                   className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
                                 >
@@ -1455,9 +1630,9 @@ export default function UsersPage() {
                                 </button>
                               </div>
 
-                              {directions.length === 0 && (
+                              {!avecFiliere && directions.length === 0 && (
                                 <p className="text-xs text-muted-foreground">
-                                  Aucune direction n'existe encore.{" "}
+                                  Aucune direction n&apos;existe encore.{" "}
                                   <button
                                     onClick={() => router.push("/directions")}
                                     className="font-medium text-primary underline"
