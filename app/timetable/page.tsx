@@ -38,6 +38,19 @@ type Teacher = {
   last_name: string
 }
 
+/*
+ * Une matière affectée à une classe, avec l'enseignant qui la tient.
+ * C'est ce que l'emploi du temps place dans la semaine — il ne forme
+ * plus le couple, il l'horodate.
+ */
+type Affectation = {
+  class_id: string
+  subject_id: string
+  teacher_id: string | null
+  subjects: { name: string; filiere: string | null } | null
+  teachers: { first_name: string; last_name: string } | null
+}
+
 type TimetableSlot = {
   id: string
   class_id: string
@@ -84,6 +97,7 @@ export default function TimetablePage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [headTeachers, setHeadTeachers] = useState<HeadTeacher[]>([])
+  const [affectations, setAffectations] = useState<Affectation[]>([])
   const [schoolType, setSchoolType] = useState("classique")
 
   const [selectedClassId, setSelectedClassId] = useState("")
@@ -108,6 +122,26 @@ export default function TimetablePage() {
 
   const classeChoisie = classes.find((item) => item.id === selectedClassId)
   const matiereChoisie = subjects.find((item) => item.id === subjectId)
+
+  /*
+   * L'EMPLOI DU TEMPS NE POSE QUE DES HORAIRES.
+   *
+   * La matière et son enseignant se décident une seule fois, sur Classes
+   * / Matières, où se règle aussi le coefficient. Ici on ne choisit plus
+   * qu'un couple DÉJÀ FORMÉ — d'où une liste fermée.
+   *
+   * Ce n'est pas qu'une commodité : proposer ici une matière non affectée
+   * créait un créneau pour une matière qui ne compte dans aucun bulletin,
+   * et un enseignant choisi au créneau pouvait différer de celui de
+   * l'affectation. Deux vérités pour la même chose.
+   */
+  const couplesDeLaClasse = affectations.filter(
+    (item) => item.class_id === selectedClassId
+  )
+
+  const coupleChoisi = couplesDeLaClasse.find(
+    (item) => item.subject_id === subjectId
+  )
 
   /*
    * L'enseignant est imposé quand — et seulement quand — l'école est
@@ -192,6 +226,7 @@ export default function TimetablePage() {
       teachersResult,
       headsResult,
       schoolResult,
+      affectationsResult,
     ] = await Promise.all([
         supabase
           .from("academic_years")
@@ -228,6 +263,13 @@ export default function TimetablePage() {
           .select("school_type")
           .eq("id", profile.school_id)
           .maybeSingle(),
+
+        supabase
+          .from("class_subjects")
+          .select(
+            "class_id, subject_id, teacher_id, subjects ( name, filiere ), teachers ( first_name, last_name )"
+          )
+          .eq("school_id", profile.school_id),
       ])
 
     if (yearResult.error) {
@@ -265,6 +307,15 @@ export default function TimetablePage() {
 
     setHeadTeachers((headsResult.data as HeadTeacher[]) ?? [])
     setSchoolType(toSchoolType(schoolResult.data?.school_type))
+
+    if (affectationsResult.error) {
+      console.error("Erreur affectations :", affectationsResult.error)
+      loadErrors.push("les matières affectées aux classes")
+    }
+
+    setAffectations(
+      (affectationsResult.data as unknown as Affectation[]) ?? []
+    )
 
     if (loadErrors.length > 0) {
       setLoadError(
@@ -451,7 +502,7 @@ export default function TimetablePage() {
        */
       teacher_id: modeTitulaire
         ? titulaireDuCreneau?.id ?? null
-        : teacherId || null,
+        : coupleChoisi?.teacher_id ?? null,
       academic_year_id: academicYearId,
       day_of_week: dayValue,
       start_time: startTime,
@@ -607,9 +658,12 @@ export default function TimetablePage() {
                   >
                     <option value="">Sélectionner une matière</option>
 
-                    {subjects.map((subject) => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name}
+                    {couplesDeLaClasse.map((item) => (
+                      <option key={item.subject_id} value={item.subject_id}>
+                        {item.subjects?.name ?? "Matière"}
+                        {item.teachers
+                          ? ` — ${item.teachers.last_name} ${item.teachers.first_name}`
+                          : ""}
                       </option>
                     ))}
                   </select>
@@ -620,17 +674,25 @@ export default function TimetablePage() {
                     </p>
                   )}
 
-                  {subjects.length === 0 && (
+                  {/*
+                    La liste est celle des matières AFFECTÉES à cette
+                    classe. Vide, ce n'est pas qu'il manque des matières
+                    dans l'école : c'est qu'aucune n'a encore été
+                    rattachée à cette classe-là. On envoie donc à l'écran
+                    qui le fait, pas à celui qui crée les matières.
+                  */}
+                  {selectedClassId && couplesDeLaClasse.length === 0 && (
                     <p className="text-sm text-destructive">
-                      Vous devez d'abord{" "}
+                      Aucune matière n&apos;est affectée à cette classe.{" "}
                       <button
                         type="button"
-                        onClick={() => router.push("/subjects")}
+                        onClick={() => router.push("/class_subjects")}
                         className="font-medium underline"
                       >
-                        créer une matière
-                      </button>
-                      .
+                        Affectez-en une
+                      </button>{" "}
+                      — c&apos;est là que se choisissent la matière, son
+                      enseignant et son coefficient.
                     </p>
                   )}
                 </div>
@@ -665,22 +727,29 @@ export default function TimetablePage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <label htmlFor="teacher">Enseignant</label>
+                    <p>Enseignant</p>
 
-                    <select
-                      id="teacher"
-                      value={teacherId}
-                      onChange={(event) => setTeacherId(event.target.value)}
-                      className="w-full rounded-md border bg-background px-3 py-2"
-                    >
-                      <option value="">Aucun enseignant assigné</option>
+                    {/*
+                      Plus de choix ici : l'enseignant vient de
+                      l'affectation, décidée une fois pour toutes sur
+                      Classes / Matières. Le proposer de nouveau
+                      permettait de poser un créneau tenu par quelqu'un
+                      d'autre que l'enseignant de la matière — deux
+                      vérités pour la même chose, et un bulletin qui ne
+                      sait plus laquelle croire.
+                    */}
+                    <div className="rounded-md border bg-muted px-3 py-2 text-sm">
+                      {coupleChoisi?.teachers
+                        ? `${coupleChoisi.teachers.last_name} ${coupleChoisi.teachers.first_name}`
+                        : subjectId
+                          ? "Aucun enseignant sur cette affectation"
+                          : "Choisissez d'abord la matière"}
+                    </div>
 
-                      {teachers.map((teacher) => (
-                        <option key={teacher.id} value={teacher.id}>
-                          {teacher.last_name} {teacher.first_name}
-                        </option>
-                      ))}
-                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      Celui de l&apos;affectation. Pour en changer, passez
+                      par Classes / Matières.
+                    </p>
                   </div>
                 )}
 
