@@ -37,6 +37,9 @@ export default function SubjectsPage() {
   const [schoolType, setSchoolType] = useState("classique")
   const avecFiliere = hasFiliere(schoolType)
 
+  /* Filière du directeur connecté. Nulle pour tout autre rôle. */
+  const [maFiliere, setMaFiliere] = useState<string | null>(null)
+
   useEffect(() => {
     loadData()
   }, [])
@@ -57,7 +60,7 @@ export default function SubjectsPage() {
     const { data: profile, error: profileError } =
       await supabase
         .from("profiles")
-        .select("school_id")
+        .select("school_id, role, filiere")
         .eq("id", user.id)
         .maybeSingle()
 
@@ -73,6 +76,23 @@ export default function SubjectsPage() {
     }
 
     setSchoolId(profile.school_id)
+
+    /*
+     * La filière du directeur connecté, s'il est cloisonné.
+     *
+     * Non nulle : il ne choisit plus son programme, il EST son
+     * programme. Lui laisser le menu ouvert reviendrait à proposer un
+     * choix que la base refuse — la policy n'accepte que sa propre
+     * filière. Le directeur général, lui, garde le choix entier.
+     */
+    const filiereImposee =
+      profile.role === "directeur_direction" ? profile.filiere ?? null : null
+
+    setMaFiliere(filiereImposee)
+
+    if (filiereImposee) {
+      setFiliere(filiereImposee)
+    }
 
     const { data: subjectsData, error: subjectsError } =
       await supabase
@@ -270,27 +290,54 @@ export default function SubjectsPage() {
               */}
               {avecFiliere && (
                 <div className="space-y-2">
-                  <label htmlFor="filiere">Programme</label>
+                  <label htmlFor={maFiliere ? undefined : "filiere"}>
+                    Programme
+                  </label>
 
-                  <select
-                    id="filiere"
-                    value={filiere}
-                    onChange={(event) => setFiliere(event.target.value)}
-                    className="w-full rounded-md border bg-background px-3 py-2"
-                  >
-                    <option value="">Non défini</option>
+                  {maFiliere ? (
+                    /*
+                      Le directeur n'a pas le choix : la base n'accepte
+                      que sa filière. Lui laisser le menu ouvert serait la
+                      pire interface — celle qui propose, puis refuse.
+                    */
+                    <>
+                      <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                        {FILIERE_LABELS[
+                          maFiliere as keyof typeof FILIERE_LABELS
+                        ] ?? maFiliere}
+                      </p>
 
-                    {FILIERES.map((value) => (
-                      <option key={value} value={value}>
-                        {FILIERE_LABELS[value]}
-                      </option>
-                    ))}
-                  </select>
+                      <p className="text-xs text-muted-foreground">
+                        Le vôtre. Vos matières restent dans votre programme
+                        — le directeur de l&apos;autre filière ne les voit
+                        pas, et vous ne voyez pas les siennes.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <select
+                        id="filiere"
+                        value={filiere}
+                        onChange={(event) => setFiliere(event.target.value)}
+                        className="w-full rounded-md border bg-background px-3 py-2"
+                      >
+                        <option value="">Non défini</option>
 
-                  <p className="text-xs text-muted-foreground">
-                    Une matière sans programme ne sera reprise par aucun
-                    titulaire lors de l&apos;affectation groupée.
-                  </p>
+                        {FILIERES.map((value) => (
+                          <option key={value} value={value}>
+                            {FILIERE_LABELS[value]}
+                          </option>
+                        ))}
+                      </select>
+
+                      <p className="text-xs text-muted-foreground">
+                        Une matière sans programme n&apos;est visible
+                        d&apos;aucun directeur de filière, et ne sera reprise
+                        par aucun titulaire lors de l&apos;affectation
+                        groupée.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 

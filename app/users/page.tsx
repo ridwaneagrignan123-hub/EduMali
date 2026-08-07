@@ -58,6 +58,8 @@ type Direction = {
    * hasard, et son directeur s'est retrouvé enfermé au premier cycle.
    */
   cycle: string | null
+  /* La lettre du couple : « A » de « Français A ». Nulle si couple unique. */
+  groupe: string | null
   /*
    * La filière dont relève la direction. Nulle hors école franco-arabe,
    * où l'axe n'existe pas. C'est elle qui permet de nommer un directeur
@@ -72,9 +74,24 @@ function libelleDirection(direction: Direction) {
   return `${direction.name} — ${cycleLabel(direction.cycle).toLowerCase()}`
 }
 
+/*
+ * Les lettres qui identifient un COUPLE de directions.
+ *
+ * « Français A » et « Arabe A » du premier cycle sont deux directions
+ * d'un même couple : elles suivent les mêmes élèves. « Français B » et
+ * « Arabe B » en forment un autre, avec d'autres élèves. La lettre est
+ * donc structurante, pas décorative.
+ *
+ * Six suffisent largement ; au-delà, une école a d'autres problèmes que
+ * le nommage.
+ */
+const LETTRES = ["A", "B", "C", "D", "E", "F"] as const
+
 /** Le nom donné à une direction créée depuis la nomination. */
-function nomAutomatique(cycle: string, filiere: string) {
-  return `${CYCLE_LABELS[cycle as keyof typeof CYCLE_LABELS] ?? cycle} — ${FILIERE_LABELS[filiere as keyof typeof FILIERE_LABELS] ?? filiere}`
+function nomAutomatique(cycle: string, filiere: string, lettre: string) {
+  const base = `${CYCLE_LABELS[cycle as keyof typeof CYCLE_LABELS] ?? cycle} — ${FILIERE_LABELS[filiere as keyof typeof FILIERE_LABELS] ?? filiere}`
+
+  return lettre ? `${base} ${lettre}` : base
 }
 
 /*
@@ -169,6 +186,11 @@ export default function UsersPage() {
   const [pendingCycleDirectionByUserId, setPendingCycleDirectionByUserId] =
     useState<Record<string, string>>({})
 
+  /* Lettre du couple en attente — école franco-arabe seulement. */
+  const [pendingLettreByUserId, setPendingLettreByUserId] = useState<
+    Record<string, string>
+  >({})
+
   /*
    * AJOUT D'UN MEMBRE. Les roles proposes ne sont pas une liste ecrite
    * ici : ce sont exactement ceux que NOMINE autorise a l'appelant. La
@@ -189,8 +211,9 @@ export default function UsersPage() {
 
   const [schoolId, setSchoolId] = useState("")
   const [schoolType, setSchoolType] = useState("classique")
-  /* Cycle du directeur à ajouter — école franco-arabe seulement. */
+  /* Cycle et lettre du directeur à ajouter — franco-arabe seulement. */
   const [nouveauCycleDirection, setNouveauCycleDirection] = useState("")
+  const [nouvelleLettre, setNouvelleLettre] = useState("")
   const avecFiliere = hasFiliere(schoolType)
 
 
@@ -286,7 +309,7 @@ export default function UsersPage() {
     // Lisible par tout membre de l'école : pas besoin de passer par l'API.
     const { data: directionsData, error: directionsError } = await supabase
       .from("directions")
-      .select("id, name, cycle, filiere")
+      .select("id, name, cycle, filiere, groupe")
       .order("name")
 
     if (directionsError) {
@@ -323,6 +346,7 @@ export default function UsersPage() {
     setNouvelleFiliere("")
     setNouveauCycle("")
     setNouveauCycleDirection("")
+    setNouvelleLettre("")
     setNouveauTelephone("")
   }
 
@@ -340,7 +364,11 @@ export default function UsersPage() {
     let directionRetenue = nouvelleDirection
 
     if (avecFiliere && nouveauRole === DIRECTION_SCOPED_ROLE) {
-      const cible = await directionPour(nouveauCycleDirection, nouvelleFiliere)
+      const cible = await directionPour(
+        nouveauCycleDirection,
+        nouvelleFiliere,
+        nouvelleLettre
+      )
 
       if (!cible) {
         setAjoutErreur(
@@ -580,9 +608,23 @@ export default function UsersPage() {
    *
    * Rend null en cas d'échec, après avoir posé le message d'erreur.
    */
-  async function directionPour(cycle: string, filiere: string) {
+  async function directionPour(cycle: string, filiere: string, lettre: string) {
+    /*
+     * La LETTRE fait partie de l'identité : « Arabe A » et « Arabe B »
+     * du même cycle sont deux directions distinctes, qui suivent des
+     * élèves différents. La chercher sans elle rattacherait le nouveau
+     * directeur au premier couple venu.
+     *
+     * Une lettre vide est une valeur, celle du couple unique d'un cycle
+     * — d'où la comparaison à `null` et non à la chaîne vide.
+     */
+    const cible = lettre || null
+
     const existante = directions.find(
-      (item) => item.cycle === cycle && item.filiere === filiere
+      (item) =>
+        item.cycle === cycle &&
+        item.filiere === filiere &&
+        (item.groupe ?? null) === cible
     )
 
     if (existante) {
@@ -593,9 +635,10 @@ export default function UsersPage() {
       .from("directions")
       .insert({
         school_id: schoolId,
-        name: nomAutomatique(cycle, filiere),
+        name: nomAutomatique(cycle, filiere, lettre),
         cycle,
         filiere,
+        groupe: cible,
       })
       .select("id")
       .single()
@@ -1044,9 +1087,30 @@ export default function UsersPage() {
                           ))}
                         </select>
 
+                        <label htmlFor="membre-lettre">Lettre du couple</label>
+
+                        <select
+                          id="membre-lettre"
+                          value={nouvelleLettre}
+                          onChange={(event) =>
+                            setNouvelleLettre(event.target.value)
+                          }
+                          className="w-full rounded-md border bg-background px-3 py-2"
+                        >
+                          <option value="">Sans lettre</option>
+
+                          {LETTRES.map((valeur) => (
+                            <option key={valeur} value={valeur}>
+                              {valeur}
+                            </option>
+                          ))}
+                        </select>
+
                         <p className="text-xs text-muted-foreground">
-                          La direction correspondante sera créée si elle
-                          n&apos;existe pas encore.
+                          La lettre apparie les deux directions : «&nbsp;Français
+                          A&nbsp;» suit les mêmes élèves qu&apos;«&nbsp;Arabe
+                          A&nbsp;». La direction sera créée si elle n&apos;existe
+                          pas encore.
                         </p>
                       </div>
                     ) : (
@@ -1294,6 +1358,12 @@ export default function UsersPage() {
                     pendingCycleDirectionByUserId[user.id] ??
                     directions.find((item) => item.id === user.directionId)
                       ?.cycle ??
+                    ""
+
+                  const chosenLettre =
+                    pendingLettreByUserId[user.id] ??
+                    directions.find((item) => item.id === user.directionId)
+                      ?.groupe ??
                     ""
 
                   const chosenFiliere =
@@ -1563,6 +1633,35 @@ export default function UsersPage() {
                                         </option>
                                       ))}
                                     </select>
+
+                                    {/*
+                                      La lettre apparie les deux
+                                      directions : « Français A » suit
+                                      les mêmes élèves qu'« Arabe A ».
+                                      Se tromper de lettre, c'est mettre
+                                      un directeur devant les enfants
+                                      d'un autre couple.
+                                    */}
+                                    <select
+                                      aria-label={`Lettre du couple de ${getFullName(user)}`}
+                                      value={chosenLettre}
+                                      onChange={(event) =>
+                                        setPendingLettreByUserId((current) => ({
+                                          ...current,
+                                          [user.id]: event.target.value,
+                                        }))
+                                      }
+                                      disabled={isPending}
+                                      className="rounded-md border bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      <option value="">Sans lettre</option>
+
+                                      {LETTRES.map((value) => (
+                                        <option key={value} value={value}>
+                                          {value}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </>
                                 ) : (
                                   <select
@@ -1604,7 +1703,8 @@ export default function UsersPage() {
 
                                     const cible = await directionPour(
                                       chosenCycleDirection,
-                                      chosenFiliere
+                                      chosenFiliere,
+                                      chosenLettre
                                     )
 
                                     if (!cible) {

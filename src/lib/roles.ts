@@ -418,7 +418,19 @@ export const NAV_ITEMS: NavItem[] = [
   { cle: "nav.enseignants", label: "Enseignants", path: "/teachers", roles: ENCADREMENT },
   { cle: "nav.classes", label: "Classes", path: "/classes", roles: COMPTABLE_VOIT },
   { cle: "nav.directions", label: "Directions", path: "/directions", roles: DIRECTION_GENERALE },
-  { cle: "nav.matieres", label: "Matières", path: "/subjects", roles: DIRECTION_GENERALE },
+  /*
+   * ENCADREMENT et non DIRECTION_GENERALE : en école franco-arabe, les
+   * matières sont PROPRES à chaque direction — le directeur arabe et le
+   * directeur français ne partagent pas leur programme. Les lui fermer
+   * l'obligeait à passer par le directeur général pour chaque matière,
+   * et donc à ne jamais pouvoir affecter un enseignant.
+   *
+   * Le partage réel est en base : une policy laisse le directeur créer
+   * et modifier les matières de SA filière, et refuse celles de l'autre.
+   * En école classique il ne peut rien écrire — il consulte la liste,
+   * ce qui lui sert à comprendre ce que le directeur général a posé.
+   */
+  { cle: "nav.matieres", label: "Matières", path: "/subjects", roles: ENCADREMENT },
   { cle: "nav.classesMatieres", label: "Classes / Matières", path: "/class_subjects", roles: ENCADREMENT },
   { cle: "nav.anneeScolaire", label: "Année scolaire", path: "/academic", roles: DIRECTION_GENERALE },
   { cle: "nav.emploiDuTemps", label: "Emploi du temps", path: "/timetable", roles: PEDAGOGIE },
