@@ -5,6 +5,19 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/src/lib/supabase"
 import { AvertissementDirection } from "@/components/avertissement-direction"
 import { estPremierCycle } from "@/src/lib/premier-cycle"
+import { createPendingId, describeSupabaseError } from "@/src/lib/stockage-local"
+import {
+  AttendanceStatus,
+  PendingAttendance,
+  annotateAttendanceErrors,
+  cacheRollCall,
+  chargeUtile,
+  enqueueAttendance,
+  feuilleKey,
+  readAttendanceQueue,
+  readCachedRollCall,
+  removeFromAttendanceQueue,
+} from "@/src/lib/attendance-offline"
 
 type ClassItem = {
   id: string
@@ -39,8 +52,12 @@ type Student = {
   last_name: string
 }
 
-type AttendanceStatus = "present" | "absent" | "late" | "excused"
-
+/*
+ * Le type vient de la couche hors ligne, et n'est pas redéclaré ici :
+ * deux unions identiques dans deux fichiers finissent toujours par
+ * diverger le jour où l'on ajoute un statut, et le compilateur ne dirait
+ * rien tant que les deux restent structurellement compatibles.
+ */
 type AttendanceEntry = {
   attendanceId: string | null
   status: AttendanceStatus
@@ -113,6 +130,17 @@ export default function AttendancePage() {
   const [parentEnCours, setParentEnCours] = useState<string | null>(null)
   const [parentMessage, setParentMessage] = useState<string | null>(null)
   const [parentErreur, setParentErreur] = useState<string | null>(null)
+
+  /*
+   * Hors ligne. `enLigne` démarre à true : le rendu serveur n'a pas de
+   * navigator, et annoncer une coupure qui n'existe pas serait pire que
+   * de la découvrir une milliseconde plus tard, à l'effet de montage.
+   */
+  const [enLigne, setEnLigne] = useState(true)
+  const [enAttente, setEnAttente] = useState<PendingAttendance[]>([])
+  const [envoiFile, setEnvoiFile] = useState(false)
+  /* Vrai quand la feuille affichée vient du cache et non du serveur. */
+  const [depuisCache, setDepuisCache] = useState(false)
 
   async function loadInitialData() {
     setLoading(true)
@@ -200,6 +228,160 @@ export default function AttendancePage() {
     lancer()
   }, [])
 
+  useEffect(() => {
+    /*
+     * La lecture initiale passe par une fonction interne : mettre l'état
+     * à jour directement dans le corps de l'effet enchaîne les rendus.
+     *
+     * Elle ne peut pas se faire à l'initialisation de l'état : `navigator`
+     * n'existe pas au rendu serveur, et lire la file au premier rendu
+     * client produirait un écart d'hydratation.
+     */
+    function lireLEtatDuReseau() {
+      setEnLigne(navigator.onLine)
+      setEnAttente(readAttendanceQueue())
+    }
+
+    lireLEtatDuReseau()
+
+    function auRetour() {
+      setEnLigne(true)
+    }
+
+    function alaCoupure() {
+      setEnLigne(false)
+    }
+
+    window.addEventListener("online", auRetour)
+    window.addEventListener("offline", alaCoupure)
+
+    return () => {
+      window.removeEventListener("online", auRetour)
+      window.removeEventListener("offline", alaCoupure)
+    }
+  }, [])
+
+  /*
+   * Vide la file dans la base.
+   *
+   * Les entrées sont regroupées par table : une feuille entière part en
+   * un seul upsert, là où l'ancien enregistrement lançait une requête
+   * par élève — soixante allers-retours pour une classe, sur un réseau
+   * qui vacille.
+   *
+   * Rien n'est retiré de la file avant confirmation, et ce qui échoue
+   * est annoté plutôt que retenté sans fin.
+   */
+  async function envoyerEnAttente(entries: PendingAttendance[]) {
+    if (entries.length === 0) {
+      return
+    }
+
+    setEnvoiFile(true)
+
+    const parTable = new Map<string, PendingAttendance[]>()
+
+    entries.forEach((entry) => {
+      const { table } = chargeUtile(entry)
+      parTable.set(table, [...(parTable.get(table) ?? []), entry])
+    })
+
+    const confirmees: string[] = []
+    const echecs: Record<string, string> = {}
+
+    for (const lot of parTable.values()) {
+      const modele = chargeUtile(lot[0])
+
+      const { error } = await supabase
+        .from(modele.table)
+        .upsert(
+          lot.map((entry) => chargeUtile(entry).ligne),
+          { onConflict: modele.onConflict }
+        )
+
+      if (error) {
+        console.error("Erreur d'envoi des présences :", error)
+
+        /*
+         * Une coupure n'est pas un refus. On ne marque BLOQUÉES que les
+         * entrées que la base a explicitement rejetées : un `code`
+         * postgres accompagne le refus, jamais la panne réseau. Annoter
+         * une coupure condamnerait la feuille à rester en file jusqu'à
+         * un geste manuel, alors qu'elle serait repartie seule.
+         */
+        if ((error as { code?: string }).code) {
+          const raison = describeSupabaseError(error)
+          lot.forEach((entry) => {
+            echecs[entry.id] = raison
+          })
+        }
+
+        continue
+      }
+
+      lot.forEach((entry) => confirmees.push(entry.id))
+    }
+
+    if (confirmees.length > 0) {
+      removeFromAttendanceQueue(confirmees)
+    }
+
+    if (Object.keys(echecs).length > 0) {
+      annotateAttendanceErrors(echecs)
+    }
+
+    setEnAttente(readAttendanceQueue())
+    setEnvoiFile(false)
+  }
+
+  /*
+   * Synchronisation automatique au retour du réseau.
+   *
+   * On passe par un effet plutôt que par l'écouteur « online »
+   * directement : l'écouteur capturerait la file au moment de son
+   * enregistrement et rejouerait un état périmé.
+   */
+  /*
+   * Une entrée déjà en échec n'est jamais rejouée automatiquement.
+   *
+   * On dépend du NOMBRE d'entrées à envoyer, jamais du tableau : la file
+   * est relue après chaque tentative, donc son identité change même
+   * quand son contenu est identique. Dépendre du tableau ferait
+   * retourner l'effet après chaque échec réseau — et un réseau qui
+   * refuse sans que la base réponde ferait tourner la boucle sans fin.
+   * Le compte, lui, ne bouge que si quelque chose est réellement parti.
+   */
+  const aEnvoyer = enAttente.filter((entry) => !entry.lastError).length
+
+  useEffect(() => {
+    if (!enLigne || aEnvoyer === 0 || envoiFile) {
+      return
+    }
+
+    async function lancer() {
+      // Relue ici, et non capturée : la file fait foi au moment de partir.
+      await envoyerEnAttente(
+        readAttendanceQueue().filter((entry) => !entry.lastError)
+      )
+
+      /*
+       * Le réseau est revenu et la file est partie : on relit la feuille
+       * depuis le serveur. Sans ça l'écran continuerait d'annoncer une
+       * feuille du cache, sans les identifiants de ligne dont a besoin
+       * « Prévenir le parent ».
+       *
+       * Une seule fois : l'envoi fait tomber le compte à zéro, et c'est
+       * le compte qui déclenche cet effet.
+       */
+      if (selectedClassId) {
+        await loadStudentsAndAttendance()
+      }
+    }
+
+    lancer()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enLigne, aEnvoyer])
+
   /*
    * Les leçons programmées ce jour-là pour cette classe. On part de
    * l'emploi du temps : on ne marque pas une leçon qui n'a pas lieu.
@@ -245,6 +427,54 @@ export default function AttendancePage() {
 
     setLoadingStudents(true)
     setHasLoadedList(true)
+
+    const cle = feuilleKey(selectedClassId, selectedDate, modeLecon ? leconId : null)
+
+    /*
+     * HORS LIGNE : on sert la dernière feuille connue et on s'arrête là.
+     *
+     * Interroger Supabase sans réseau produirait une erreur au bout du
+     * délai d'attente et viderait la liste — l'enseignant se retrouverait
+     * devant un écran vide au moment précis où il tient sa classe.
+     */
+    if (!enLigne) {
+      const cache = readCachedRollCall(cle)
+
+      if (!cache) {
+        setStudents([])
+        setAttendance({})
+        setDepuisCache(false)
+        setStudentsError(
+          "Vous êtes hors ligne et cette feuille n'a jamais été ouverte sur cet appareil. Rapprochez-vous du réseau une fois : elle sera ensuite disponible sans."
+        )
+        setLoadingStudents(false)
+        return
+      }
+
+      const enFile = readAttendanceQueue().filter((entry) => entry.feuille === cle)
+
+      const depuisLeCache: Record<string, AttendanceEntry> = {}
+
+      cache.students.forEach((student) => {
+        /*
+         * Ce qui attend en file l'emporte sur ce qui a été mis en cache :
+         * c'est la saisie la plus récente, celle que la personne vient de
+         * faire et qui n'est pas encore partie.
+         */
+        const attend = enFile.find((entry) => entry.studentId === student.id)
+
+        depuisLeCache[student.id] = {
+          attendanceId: null,
+          status: attend?.status ?? cache.statuses[student.id] ?? "present",
+        }
+      })
+
+      setStudents(cache.students)
+      setAttendance(depuisLeCache)
+      setDepuisCache(true)
+      setLoadingStudents(false)
+      return
+    }
 
     const { data: enrollments, error: enrollmentError } = await supabase
       .from("student_class_enrollments")
@@ -311,6 +541,38 @@ export default function AttendancePage() {
     })
 
     setAttendance(attendanceMap)
+    setDepuisCache(false)
+
+    /*
+     * On met la feuille de côté À CHAQUE ouverture en ligne. C'est ce
+     * qui rend l'appel possible sans réseau demain : l'enseignant qui a
+     * ouvert sa classe une fois au bureau la retrouvera dans la cour.
+     *
+     * Un échec d'écriture locale ne compromet pas la consultation en
+     * cours ; il est journalisé dans stockage-local et laissé passer.
+     */
+    const statuses: Record<string, AttendanceStatus> = {}
+
+    loadedStudents.forEach((student) => {
+      statuses[student.id] = attendanceMap[student.id].status
+    })
+
+    cacheRollCall({
+      feuille: feuilleKey(
+        selectedClassId,
+        selectedDate,
+        modeLecon ? leconId : null
+      ),
+      savedAt: new Date().toISOString(),
+      className: selectedClass?.name ?? "",
+      date: selectedDate,
+      leconLabel: modeLecon
+        ? `${leconChoisie?.subjects?.name ?? "Leçon"} · ${leconChoisie?.start_time ?? ""}`
+        : null,
+      students: loadedStudents,
+      statuses,
+    })
+
     setLoadingStudents(false)
   }
 
@@ -397,48 +659,77 @@ export default function AttendancePage() {
       return
     }
 
+    /*
+     * En mode leçon la matière est exigée par la policy d'écriture. Si
+     * le créneau ne la porte pas, on refuse ici : mieux vaut le dire que
+     * de laisser partir une feuille qui sera refusée à la reconnexion,
+     * quand plus personne n'aura la classe sous les yeux.
+     */
+    if (modeLecon && !leconChoisie?.subject_id) {
+      setSaveMessage(
+        "Cette leçon n'a pas de matière rattachée. Corrigez l'emploi du temps avant de marquer les présences."
+      )
+      return
+    }
+
     setSaving(true)
     setSaveMessage(null)
 
-    const updates = students.map((student) => {
-      const entry = attendance[student.id]
-      const status: AttendanceStatus = entry?.status ?? "present"
+    const cle = feuilleKey(selectedClassId, selectedDate, modeLecon ? leconId : null)
+    const horodatage = new Date().toISOString()
 
-      if (entry?.attendanceId) {
-        return supabase
-          .from(modeLecon ? "lesson_attendance" : "attendance")
-          .update({ status })
-          .eq("id", entry.attendanceId)
-      }
+    const entries: PendingAttendance[] = students.map((student) => ({
+      id: createPendingId(),
+      feuille: cle,
+      schoolId,
+      classId: selectedClassId,
+      studentId: student.id,
+      studentLabel: `${student.first_name} ${student.last_name}`,
+      date: selectedDate,
+      status: attendance[student.id]?.status ?? "present",
+      slotId: modeLecon ? leconId : null,
+      subjectId: modeLecon ? leconChoisie?.subject_id ?? null : null,
+      queuedAt: horodatage,
+    }))
 
-      if (modeLecon) {
-        return supabase.from("lesson_attendance").insert({
-          school_id: schoolId,
-          class_id: selectedClassId,
-          subject_id: leconChoisie?.subject_id,
-          slot_id: leconId,
-          student_id: student.id,
-          lesson_date: selectedDate,
-          status,
-        })
-      }
+    /*
+     * LA FILE D'ABORD, TOUJOURS.
+     *
+     * L'appel est écrit sur l'appareil avant toute tentative réseau. Si
+     * l'envoi aboutit, la file se vide dans la foulée et personne ne
+     * voit rien. S'il échoue — coupure, onglet fermé, batterie vide —
+     * la feuille est déjà à l'abri. L'inverse perdrait l'appel au
+     * premier incident.
+     */
+    const conserve = enqueueAttendance(entries)
 
-      return supabase.from("attendance").insert({
-        school_id: schoolId,
-        class_id: selectedClassId,
-        student_id: student.id,
-        attendance_date: selectedDate,
-        status,
-      })
-    })
-
-    const results = await Promise.all(updates)
-    const failed = results.filter((result) => result.error)
-
-    if (failed.length > 0) {
-      console.error("Erreurs lors de l'enregistrement :", failed)
+    if (!conserve) {
       setSaveMessage(
-        `${failed.length} présence(s) n'ont pas pu être enregistrées. Réessayez.`
+        "Votre appareil refuse d'enregistrer localement (stockage plein ou navigation privée). Ne quittez pas cette page avant que l'appel soit envoyé."
+      )
+    }
+
+    setEnAttente(readAttendanceQueue())
+
+    if (!enLigne) {
+      setSaveMessage(
+        `Appel de ${entries.length} élève(s) enregistré sur cet appareil. Il partira dès le retour du réseau — vous pouvez fermer la page.`
+      )
+      setSaving(false)
+      return
+    }
+
+    await envoyerEnAttente(entries)
+
+    const restant = readAttendanceQueue().filter((entry) => entry.feuille === cle)
+
+    if (restant.length > 0) {
+      const bloquees = restant.filter((entry) => entry.lastError)
+
+      setSaveMessage(
+        bloquees.length > 0
+          ? `${bloquees.length} présence(s) ont été refusées : ${bloquees[0].lastError} Les autres restent en attente.`
+          : `${restant.length} présence(s) n'ont pas pu partir. Elles sont conservées et repartiront au retour du réseau.`
       )
     } else {
       setSaveMessage("Présences enregistrées avec succès.")
@@ -506,6 +797,56 @@ export default function AttendancePage() {
 
       <section className="mx-auto max-w-5xl space-y-8 p-6">
         <AvertissementDirection compact />
+
+        {/*
+          L'état du réseau se dit AVANT la feuille, pas après.
+          Un enseignant qui voit « hors ligne » en haut de son appel sait
+          d'emblée ce qu'il fait ; le découvrir dans un message d'échec en
+          bas de page, une fois l'appel saisi, c'est trop tard.
+        */}
+        {!enLigne && (
+          <div
+            className="rounded-lg border p-4 text-sm"
+            style={{
+              background: "oklch(0.80 0.14 78 / 0.12)",
+              borderColor: "oklch(0.57 0.14 78 / 0.5)",
+            }}
+          >
+            <p className="font-medium">Vous êtes hors ligne.</p>
+            <p className="mt-2 text-muted-foreground">
+              L&apos;appel reste possible : il sera enregistré sur cet
+              appareil et partira tout seul au retour du réseau. Vous
+              pouvez fermer la page entre-temps.
+            </p>
+          </div>
+        )}
+
+        {enAttente.length > 0 && (
+          <div className="rounded-lg border bg-muted/40 p-4 text-sm">
+            <p className="font-medium">
+              {enAttente.length} présence(s) en attente d&apos;envoi
+              {envoiFile ? " — envoi en cours…" : ""}
+            </p>
+
+            {enAttente.some((entry) => entry.lastError) && (
+              <p className="mt-2 text-muted-foreground">
+                Dont{" "}
+                {enAttente.filter((entry) => entry.lastError).length} refusée(s)
+                par la base :{" "}
+                {enAttente.find((entry) => entry.lastError)?.lastError} Ces
+                lignes ne sont plus retentées automatiquement.
+              </p>
+            )}
+          </div>
+        )}
+
+        {depuisCache && (
+          <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+            Cette feuille vient de la dernière consultation enregistrée sur
+            l&apos;appareil. Un élève inscrit depuis n&apos;y figure pas.
+          </div>
+        )}
+
         <div>
           <h2 className="text-3xl font-bold">Présences</h2>
           <p className="mt-2 text-muted-foreground">
@@ -767,7 +1108,23 @@ export default function AttendancePage() {
                             currentStatus === "late" ? (
                               <button
                                 type="button"
-                                disabled={parentEnCours === student.id}
+                                /*
+                                 * Hors ligne, le message ne part pas :
+                                 * il traverse /api/parent-messages, qui
+                                 * exige le réseau. On le dit sur le
+                                 * bouton plutôt que de laisser tenter
+                                 * pour rendre une erreur opaque. L'appel,
+                                 * lui, reste possible — c'est la
+                                 * différence qui compte.
+                                 */
+                                disabled={
+                                  parentEnCours === student.id || !enLigne
+                                }
+                                title={
+                                  enLigne
+                                    ? undefined
+                                    : "Impossible hors ligne : le message aux parents part par le réseau."
+                                }
                                 onClick={() =>
                                   prevenirLeParent(
                                     student,
@@ -787,7 +1144,9 @@ export default function AttendancePage() {
                               >
                                 {parentEnCours === student.id
                                   ? "..."
-                                  : "Prévenir le parent"}
+                                  : enLigne
+                                    ? "Prévenir le parent"
+                                    : "Parent : hors ligne"}
                               </button>
                             ) : (
                               <span className="text-xs text-muted-foreground">

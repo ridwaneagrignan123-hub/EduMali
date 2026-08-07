@@ -1,15 +1,20 @@
+import { readJson, writeJson } from "@/src/lib/stockage-local"
+
+/*
+ * Le choix de localStorage et la plomberie de lecture/écriture sont
+ * expliqués et partagés dans src/lib/stockage-local.ts, que la feuille
+ * d'appel emploie aussi.
+ *
+ * Réexportés ici : app/grades/page.tsx les importe de ce module depuis
+ * toujours, et rien ne justifie de lui faire changer de porte.
+ */
+export {
+  describeSupabaseError,
+  createPendingId,
+} from "@/src/lib/stockage-local"
+
 /*
  * Stockage local de la saisie des notes, pour tolérer les coupures.
- *
- * ---------------------------------------------------------------------
- * CHOIX : localStorage plutôt qu'IndexedDB
- *
- * Le volume est minuscule : une classe de 60 élèves représente quelques
- * kilo-octets, très loin des 5 Mo de localStorage. Son API synchrone
- * évite toute une couche d'état asynchrone dans la page, alors
- * qu'IndexedDB imposerait transactions et promesses pour le même
- * résultat. Si un jour on met en cache toutes les classes d'une école
- * sur une année, il faudra rebasculer sur IndexedDB.
  *
  * ---------------------------------------------------------------------
  * LIMITE CONNUE ET ASSUMÉE : pas de résolution de conflit
@@ -66,86 +71,6 @@ export type PendingGrade = {
    * une requête vouée à l'échec à chaque reconnexion, indéfiniment.
    */
   lastError?: string
-}
-
-/*
- * Rend une erreur Supabase lisible.
- *
- * PostgrestError hérite d'Error, dont `message` et `stack` sont des
- * propriétés NON énumérables : passer l'objet tel quel à console.error
- * ou à JSON.stringify affiche « {} » et ne renseigne sur rien. Il faut
- * donc lire les champs explicitement.
- */
-export function describeSupabaseError(error: unknown) {
-  if (!error) {
-    return "Erreur inconnue."
-  }
-
-  if (typeof error === "string") {
-    return error
-  }
-
-  const candidate = error as {
-    message?: string
-    details?: string
-    hint?: string
-    code?: string
-  }
-
-  const parts = [
-    candidate.message,
-    candidate.details,
-    candidate.hint,
-  ].filter((part) => typeof part === "string" && part.trim() !== "")
-
-  const description = parts.join(" — ")
-
-  if (candidate.code) {
-    return description
-      ? `${description} (code ${candidate.code})`
-      : `Code ${candidate.code}`
-  }
-
-  return description || "Erreur inconnue."
-}
-
-function isBrowser() {
-  return typeof window !== "undefined" && typeof localStorage !== "undefined"
-}
-
-/*
- * localStorage peut lever : quota dépassé, navigation privée sur
- * certains navigateurs, stockage désactivé. Toute lecture échouée
- * renvoie une valeur vide ; toute écriture échouée est signalée à
- * l'appelant, jamais avalée — c'est ce qui permet de prévenir
- * l'utilisateur au lieu de lui laisser croire que c'est enregistré.
- */
-function readJson<T>(key: string, fallback: T): T {
-  if (!isBrowser()) {
-    return fallback
-  }
-
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
-  } catch (error) {
-    console.error("Lecture du stockage local impossible :", error)
-    return fallback
-  }
-}
-
-function writeJson(key: string, value: unknown) {
-  if (!isBrowser()) {
-    return false
-  }
-
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-    return true
-  } catch (error) {
-    console.error("Écriture dans le stockage local impossible :", error)
-    return false
-  }
 }
 
 /* ------------------------------ Cache ------------------------------ */
@@ -228,8 +153,4 @@ export function annotateQueueErrors(errors: Record<string, string>) {
       errors[entry.id] ? { ...entry, lastError: errors[entry.id] } : entry
     )
   )
-}
-
-export function createPendingId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }

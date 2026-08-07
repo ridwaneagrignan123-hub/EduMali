@@ -16,10 +16,28 @@
  * servir une réponse périmée y ferait croire à un enregistrement réussi.
  */
 
-const CACHE_NAME = "ridwane-v1"
+/*
+ * Le nom change à chaque évolution de la coquille : l'activation
+ * supprime les caches aux autres noms, ce qui est le seul moyen de
+ * chasser une ancienne liste restée sur l'appareil d'un enseignant.
+ */
+const CACHE_NAME = "ridwane-v2"
 
-// Coquille minimale : ce qui permet d'afficher quelque chose hors ligne.
-const SHELL = ["/", "/dashboard", "/grades", "/manifest.webmanifest"]
+/*
+ * Coquille minimale : ce qui permet d'afficher quelque chose hors ligne.
+ *
+ * /attendance en fait partie depuis que l'appel tolère la coupure. Sans
+ * lui, la file d'attente locale ne servait à rien : la page ne s'ouvrait
+ * même pas sans réseau, et il n'y avait donc jamais rien à mettre en
+ * file.
+ */
+const SHELL = [
+  "/",
+  "/dashboard",
+  "/grades",
+  "/attendance",
+  "/manifest.webmanifest",
+]
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
