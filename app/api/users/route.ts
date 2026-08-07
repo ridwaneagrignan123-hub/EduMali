@@ -217,7 +217,7 @@ export async function POST(request: Request) {
       return guard.response
     }
 
-    const { schoolId, role: monRole } = guard.context
+    const { schoolId, role: monRole, userId: auteurId } = guard.context
 
     const body = await request.json()
 
@@ -473,6 +473,16 @@ export async function POST(request: Request) {
           phone,
           status: "active",
           profile_id: userId,
+          /*
+           * `auteurId` et non `userId` : le second est le compte QU'ON
+           * CRÉE, le premier celui qui le crée. Écrire l'un pour l'autre
+           * rendrait chaque enseignant auteur de lui-même — donc sans
+           * direction, donc visible de tous les directeurs.
+           *
+           * Cette route écrit sous la clé de service : le déclencheur
+           * n'a pas d'auth.uid() et ne peut rien imposer.
+           */
+          created_by: auteurId,
         })
 
       if (ficheError) {

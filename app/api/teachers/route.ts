@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       return guard.response
     }
 
-    const { schoolId } = guard.context
+    const { schoolId, userId } = guard.context
     const body = await request.json()
 
     const firstName = readText(body.firstName)
@@ -144,6 +144,21 @@ export async function POST(request: Request) {
         hire_date: hireDate,
         status: "active",
         // profile_id reste nul : aucun compte n'est créé ici.
+        /*
+         * L'AUTEUR, ÉCRIT ICI ET NON PAR LE DÉCLENCHEUR.
+         *
+         * private.imposer_auteur_enseignant() ne pose created_by que
+         * lorsque auth.uid() existe. Cette route écrit sous la CLÉ DE
+         * SERVICE — auth.uid() y vaut null, et le déclencheur laissait
+         * donc l'auteur vide. Or un enseignant sans auteur retombe, dans
+         * private.enseignant_de_ma_direction(), sur « visible de tous les
+         * directeurs » : les fiches de chaque direction apparaissaient
+         * chez l'autre.
+         *
+         * Le déclencheur reste utile pour les écritures directes ; ici
+         * c'est la route qui sait qui parle, et qui le dit.
+         */
+        created_by: userId,
       })
       .select(
         "id, first_name, last_name, email, phone, specialty, contract_type, hire_date, status, profile_id"
