@@ -52,20 +52,52 @@
 --     est vide. C'est ce que dit déjà <AvertissementDirection />.
 -- =====================================================================
 
+-- =====================================================================
+-- ET LE CYCLE AVEC : UNE DIRECTION LE PORTE DÉJÀ
+-- =====================================================================
+--
+-- Deuxième constat, le 7 août : l'écran demandait encore son cycle à un
+-- directeur nommé sur le PREMIER CYCLE par le directeur général. La
+-- question n'avait pas de réponse légitime — et pire, elle en avait une
+-- fausse : rien n'empêchait de créer une classe de lycée à l'intérieur
+-- d'une direction du premier cycle.
+--
+-- Le cycle décide du mode de saisie des présences (à la journée au
+-- premier cycle, leçon par leçon ensuite) et du mode d'affectation des
+-- enseignants. Une classe qui se contredit avec sa direction déraille
+-- donc partout en aval.
+--
+-- La direction porte déjà `cycle`. Le déclencheur, qui sait quelle
+-- direction s'applique, en tire le cycle plutôt que de le croire sur
+-- parole. Si la direction n'en porte pas, le choix du directeur tient :
+-- on n'invente pas une contrainte là où l'école n'en a pas posé.
+-- =====================================================================
+
 create or replace function private.rattacher_classe_a_la_direction()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  cycle_direction text;
 begin
   /*
    * Seul l'auteur cloisonné est concerné. Écraser la valeur pour un
    * directeur général lui retirerait le droit de rattacher une classe
-   * à une direction au moment même de sa création.
+   * à une direction au moment même de sa création — et de choisir le
+   * cycle de ses classes de lycée, qui ne dépendent d'aucune direction.
    */
   if private.is_direction_scoped() then
     new.direction_id := private.current_direction_id();
+
+    select d.cycle into cycle_direction
+    from directions d
+    where d.id = new.direction_id;
+
+    if cycle_direction is not null then
+      new.cycle := cycle_direction;
+    end if;
   end if;
 
   return new;

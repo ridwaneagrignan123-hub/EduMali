@@ -52,6 +52,17 @@ export default function ClassesPage() {
 
   /* Role de la personne connectee : seul le directeur regle « qui note ». */
   const [role, setRole] = useState("")
+
+  /*
+   * Le cycle que porte la direction de la personne connectée.
+   *
+   * Non nul : la question ne se pose plus. Un directeur nommé sur le
+   * premier cycle n'a pas à redire lequel, et surtout il ne doit pas
+   * pouvoir répondre autre chose — le déclencheur en base impose de
+   * toute façon le cycle de la direction. L'écran cesse simplement de
+   * poser une question dont la réponse est déjà écrite.
+   */
+  const [cycleImpose, setCycleImpose] = useState<string | null>(null)
   const [reglageEnCours, setReglageEnCours] = useState<string | null>(null)
   const peutGerer = can(role, "classes.gerer")
 
@@ -74,7 +85,7 @@ export default function ClassesPage() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("school_id, role")
+      .select("school_id, role, direction_id")
       .eq("id", user.id)
       .maybeSingle()
 
@@ -85,6 +96,28 @@ export default function ClassesPage() {
 
     setSchoolId(profile.school_id)
     setRole(profile.role ?? "")
+
+    /*
+     * On ne lit la direction que pour le directeur cloisonné : c'est le
+     * seul dont le cycle est décidé d'avance. Le directeur général crée
+     * des classes de tous les cycles et garde donc le choix.
+     */
+    if (profile.role === "directeur_direction" && profile.direction_id) {
+      const { data: direction } = await supabase
+        .from("directions")
+        .select("cycle")
+        .eq("id", profile.direction_id)
+        .maybeSingle()
+
+      setCycleImpose(direction?.cycle ?? null)
+
+      // Le formulaire part directement sur la bonne valeur.
+      if (direction?.cycle) {
+        setCycle(direction.cycle)
+      }
+    } else {
+      setCycleImpose(null)
+    }
 
     const { data, error } = await supabase
       .from("classes")
@@ -195,7 +228,8 @@ export default function ClassesPage() {
 
     setName("")
     setLevel("")
-    setCycle("")
+    // Le cycle imposé reste posé : la classe suivante l'aura aussi.
+    setCycle(cycleImpose ?? "")
 
     await loadClasses()
 
@@ -298,30 +332,54 @@ export default function ClassesPage() {
                 pourquoi il ne se déduit pas du niveau, texte libre où
                 « 6eme », « 6e » et « Sixième » coexistent.
               */}
-              <div className="space-y-2">
-                <label htmlFor="cycle">Cycle</label>
+              {cycleImpose ? (
+                /*
+                  Le cycle vient de la direction : on l'affiche, on ne le
+                  demande pas. Laisser le menu ouvert reviendrait à
+                  proposer un choix que la base refuserait de suivre — la
+                  pire des interfaces, celle qui accepte puis corrige en
+                  silence.
+                */
+                <div className="space-y-2">
+                  <label>Cycle</label>
 
-                <select
-                  id="cycle"
-                  value={cycle}
-                  onChange={(event) => setCycle(event.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2"
-                >
-                  <option value="">Non défini</option>
+                  <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    {CYCLE_LABELS[cycleImpose as keyof typeof CYCLE_LABELS] ??
+                      cycleImpose}
+                  </p>
 
-                  {CYCLES.map((value) => (
-                    <option key={value} value={value}>
-                      {CYCLE_LABELS[value]}
-                    </option>
-                  ))}
-                </select>
+                  <p className="text-xs text-muted-foreground">
+                    Celui de votre direction. Vos classes en héritent
+                    toutes —{" "}
+                    {CYCLE_HINTS[cycleImpose as keyof typeof CYCLE_HINTS]}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label htmlFor="cycle">Cycle</label>
 
-                <p className="text-xs text-muted-foreground">
-                  {cycle
-                    ? CYCLE_HINTS[cycle as keyof typeof CYCLE_HINTS]
-                    : "Sans cycle, la classe s'affecte matière par matière."}
-                </p>
-              </div>
+                  <select
+                    id="cycle"
+                    value={cycle}
+                    onChange={(event) => setCycle(event.target.value)}
+                    className="w-full rounded-md border bg-background px-3 py-2"
+                  >
+                    <option value="">Non défini</option>
+
+                    {CYCLES.map((value) => (
+                      <option key={value} value={value}>
+                        {CYCLE_LABELS[value]}
+                      </option>
+                    ))}
+                  </select>
+
+                  <p className="text-xs text-muted-foreground">
+                    {cycle
+                      ? CYCLE_HINTS[cycle as keyof typeof CYCLE_HINTS]
+                      : "Sans cycle, la classe s'affecte matière par matière."}
+                  </p>
+                </div>
+              )}
 
               <button
                 type="submit"
