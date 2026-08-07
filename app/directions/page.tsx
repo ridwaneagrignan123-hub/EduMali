@@ -40,6 +40,13 @@ type ClassItem = {
   name: string
   level: string | null
   direction_id: string | null
+  /*
+   * Le cycle de la CLASSE, à ne pas confondre avec celui de la
+   * direction. Les deux doivent finir par coïncider — la base le refuse
+   * autrement — mais ils ne coïncident pas d'avance : c'est justement ce
+   * que le rattachement doit résoudre, et donc montrer.
+   */
+  cycle: string | null
 }
 
 /*
@@ -163,7 +170,7 @@ export default function DirectionsPage() {
 
       supabase
         .from("classes")
-        .select("id, name, level, direction_id")
+        .select("id, name, level, direction_id, cycle")
         .eq("school_id", currentSchoolId)
         .order("name"),
 
@@ -286,19 +293,77 @@ export default function DirectionsPage() {
   async function assignClass(classItem: ClassItem, directionId: string) {
     setActionError(null)
     setActionMessage(null)
+
+    const direction = directions.find((item) => item.id === directionId)
+    const cycleDirection = direction?.cycle ?? null
+
+    /*
+     * LE CAS QUI PASSAIT AUTREFOIS SANS RIEN DIRE.
+     *
+     * Rattacher une classe de lycée à une direction du premier cycle
+     * était accepté en silence. Le cycle décide pourtant du mode de
+     * saisie des présences — à la journée d'un côté, leçon par leçon de
+     * l'autre : la classe se serait mise à marcher de travers des
+     * semaines plus tard, sans que rien ne rappelle ce clic.
+     *
+     * La base refuse désormais la contradiction. On propose donc
+     * l'alignement AVANT d'écrire, en disant ce qu'il coûte, et on
+     * n'envoie le nouveau cycle qu'après un oui franc.
+     */
+    let cycleAAligner: string | null = null
+
+    if (
+      cycleDirection &&
+      classItem.cycle &&
+      classItem.cycle !== cycleDirection
+    ) {
+      const accepte = window.confirm(
+        `« ${classItem.name} » est en ${cycleLabel(classItem.cycle)}, mais « ${direction?.name}` +
+          ` » est une direction de ${cycleLabel(cycleDirection)}.\n\n` +
+          `La rattacher fera passer la classe en ${cycleLabel(cycleDirection)}.` +
+          ` Cela change la façon dont ses présences se saisissent, et les relevés` +
+          ` déjà pris sous l'ancien cycle ne seront plus lus de la même manière.\n\n` +
+          `Continuer ?`
+      )
+
+      if (!accepte) {
+        return
+      }
+
+      cycleAAligner = cycleDirection
+    }
+
     setPendingClassId(classItem.id)
 
     const { error } = await supabase
       .from("classes")
-      .update({ direction_id: directionId || null })
+      .update({
+        direction_id: directionId || null,
+        /*
+         * Le cycle ne part QUE s'il a été confirmé. Un rattachement
+         * ordinaire ne doit pas réécrire une colonne qu'on n'a pas
+         * touchée.
+         */
+        ...(cycleAAligner ? { cycle: cycleAAligner } : {}),
+      })
       .eq("id", classItem.id)
       .eq("school_id", schoolId)
 
     if (error) {
       console.error("Erreur rattachement de classe :", error)
+
+      /*
+       * P0001 est le code d'un RAISE de notre propre déclencheur : son
+       * message est écrit pour être lu par un directeur, pas par un
+       * développeur. Le remplacer par « vérifiez vos droits » serait le
+       * jeter au moment où il sert.
+       */
       setActionError(
-        "Impossible de rattacher cette classe. Vérifiez vos droits."
+        error.code === "P0001"
+          ? error.message
+          : "Impossible de rattacher cette classe. Vérifiez vos droits."
       )
+
       setPendingClassId(null)
       return
     }
@@ -332,9 +397,16 @@ export default function DirectionsPage() {
         <div>
           <p className="font-medium">{classItem.name}</p>
 
-          {classItem.level && (
-            <p className="text-xs text-muted-foreground">{classItem.level}</p>
-          )}
+          {/*
+            Le cycle de la classe s'affiche à côté de son nom : c'est lui
+            qui décide si un rattachement est possible, et le directeur
+            général le choisissait jusqu'ici à l'aveugle.
+          */}
+          <p className="text-xs text-muted-foreground">
+            {[classItem.level, classItem.cycle ? cycleLabel(classItem.cycle) : null]
+              .filter(Boolean)
+              .join(" · ") || "Cycle non défini"}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">

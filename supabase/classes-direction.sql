@@ -73,6 +73,41 @@
 -- on n'invente pas une contrainte là où l'école n'en a pas posé.
 -- =====================================================================
 
+-- =====================================================================
+-- ET LE RATTACHEMENT APRÈS COUP, QUI ÉCHAPPAIT À TOUT
+-- =====================================================================
+--
+-- Le déclencheur n'agissait qu'à l'INSERTION. Il restait donc un chemin
+-- entier non couvert : depuis /directions, le directeur général rattache
+-- une classe DÉJÀ CRÉÉE à une direction, par un simple UPDATE de
+-- direction_id. Rien ne comparait les deux cycles. Une classe de lycée
+-- pouvait ainsi entrer dans une direction du premier cycle par la porte
+-- de derrière, alors même qu'on venait de fermer la porte de devant.
+--
+-- LE CHOIX : REFUSER, PAS CORRIGER EN SILENCE
+--
+-- Aligner d'autorité le cycle de la classe sur celui de la direction
+-- serait tentant et serait un piège. Le cycle décide du mode de saisie
+-- des présences : basculer une classe de « lycée » à « premier cycle »
+-- fait passer ses relevés de lesson_attendance à attendance, et les
+-- lignes déjà écrites perdent leur sens. Ce n'est pas une conséquence
+-- qu'un déclencheur doit provoquer dans le dos de qui a cliqué.
+--
+-- La base refuse donc, avec une phrase lisible. C'est l'ÉCRAN qui
+-- propose l'alignement, l'annonce, et n'envoie le nouveau cycle qu'après
+-- confirmation explicite. Le directeur général garde ainsi une sortie —
+-- indispensable, puisqu'aucun écran ne permet de modifier le cycle d'une
+-- classe existante.
+--
+-- ON NE TOUCHE À RIEN QUAND RIEN NE BOUGE
+--
+-- Le contrôle ne s'applique qu'aux écritures qui déplacent la classe ou
+-- changent son cycle. Sans cette réserve, un réglage sans rapport —
+-- « qui saisit les notes », par exemple — irait remplir au passage le
+-- cycle d'une classe qui n'en avait pas. Un effet de bord silencieux
+-- reste un effet de bord silencieux, même quand il va dans le bon sens.
+-- =====================================================================
+
 create or replace function private.rattacher_classe_a_la_direction()
 returns trigger
 language plpgsql
@@ -81,23 +116,62 @@ set search_path = public
 as $$
 declare
   cycle_direction text;
+  nom_direction   text;
 begin
   /*
-   * Seul l'auteur cloisonné est concerné. Écraser la valeur pour un
-   * directeur général lui retirerait le droit de rattacher une classe
-   * à une direction au moment même de sa création — et de choisir le
-   * cycle de ses classes de lycée, qui ne dépendent d'aucune direction.
+   * Ni le rattachement ni le cycle ne bougent : cette écriture ne nous
+   * regarde pas.
    */
-  if private.is_direction_scoped() then
+  if tg_op = 'UPDATE'
+     and new.direction_id is not distinct from old.direction_id
+     and new.cycle is not distinct from old.cycle then
+    return new;
+  end if;
+
+  /*
+   * À la création, l'auteur cloisonné n'a pas le choix de sa direction :
+   * on la lui impose plutôt que de la lui demander. Le directeur général
+   * garde la sienne — y compris nulle, pour ses classes de lycée qui ne
+   * dépendent d'aucune direction.
+   */
+  if tg_op = 'INSERT' and private.is_direction_scoped() then
     new.direction_id := private.current_direction_id();
+  end if;
 
-    select d.cycle into cycle_direction
-    from directions d
-    where d.id = new.direction_id;
+  if new.direction_id is null then
+    return new;
+  end if;
 
-    if cycle_direction is not null then
-      new.cycle := cycle_direction;
-    end if;
+  select d.cycle, d.name into cycle_direction, nom_direction
+  from directions d
+  where d.id = new.direction_id;
+
+  -- Une direction sans cycle n'impose rien : l'école n'a pas tranché.
+  if cycle_direction is null then
+    return new;
+  end if;
+
+  /*
+   * Le directeur de direction ne choisit pas : l'écran ne lui pose même
+   * plus la question, et la base dit la même chose que l'écran.
+   */
+  if tg_op = 'INSERT' and private.is_direction_scoped() then
+    new.cycle := cycle_direction;
+    return new;
+  end if;
+
+  -- Rien à contredire : on complète.
+  if new.cycle is null then
+    new.cycle := cycle_direction;
+    return new;
+  end if;
+
+  if new.cycle <> cycle_direction then
+    raise exception
+      'La classe « % » est en % alors que la direction « % » est en %.',
+      new.name, new.cycle, nom_direction, cycle_direction
+      using hint =
+        'Rattachez-la à une direction du même cycle, ou alignez son cycle sur celui de la direction.';
   end if;
 
   return new;
@@ -107,6 +181,6 @@ $$;
 drop trigger if exists classes_rattachement_direction on public.classes;
 
 create trigger classes_rattachement_direction
-  before insert on public.classes
+  before insert or update on public.classes
   for each row
   execute function private.rattacher_classe_a_la_direction();
