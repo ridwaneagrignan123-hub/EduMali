@@ -174,7 +174,21 @@ export default function ClassesPage() {
 
     if (error) {
       console.error("Erreur lors de la création de la classe :", error)
-      alert(error.message)
+
+      /*
+       * Le refus RLS parle de « row-level security policy » : exact, et
+       * illisible pour un directeur devant sa classe vide. Le seul cas
+       * qui l'atteint encore ici est celui du directeur de direction à
+       * qui aucune direction n'a été rattachée — le déclencheur
+       * classes_rattachement_direction couvre tous les autres. On le
+       * nomme donc, avec le geste qui le corrige.
+       */
+      alert(
+        error.code === "42501"
+          ? "La création a été refusée. Si vous êtes directeur de direction, c'est probablement qu'aucune direction ne vous est encore rattachée : demandez à un directeur général de le faire depuis Comptes utilisateurs."
+          : error.message
+      )
+
       setCreating(false)
       return
     }
