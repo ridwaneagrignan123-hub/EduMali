@@ -144,7 +144,7 @@ export async function POST(request: Request) {
 
     const { data: ecole } = await supabaseAdmin
       .from("schools")
-      .select("name, default_language, school_type")
+      .select("name, default_language, school_type, phone")
       .eq("id", profile.school_id)
       .maybeSingle()
 
@@ -191,7 +191,13 @@ export async function POST(request: Request) {
         motif: typeof details.motif === "string" ? details.motif : undefined,
         regle: typeof details.regle === "string" ? details.regle : undefined,
         note: typeof details.note === "string" ? details.note : undefined,
-      }
+      },
+      /*
+       * Le message part du numéro de la PLATEFORME : y répondre tombe
+       * chez l'éditeur, pas au secrétariat. Le numéro de l'école ferme
+       * cette impasse.
+       */
+      ecole?.phone
     )
 
     const { data: ligne, error: insertError } = await supabaseAdmin

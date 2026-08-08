@@ -221,7 +221,7 @@ export async function POST(request: Request) {
 
     const { data: ecole } = await supabaseAdmin
       .from("schools")
-      .select("name, default_language, school_type")
+      .select("name, default_language, school_type, phone")
       .eq("id", profile.school_id)
       .maybeSingle()
 
@@ -268,7 +268,9 @@ export async function POST(request: Request) {
               exercices: devoir.exercises ?? undefined,
               enonce: devoir.instructions ?? undefined,
               lienPhoto: devoir.photo_url ?? undefined,
-            }
+            },
+            // Voir /api/parent-messages : l'expéditeur est la plateforme.
+            ecole?.phone
           ),
           language: langue,
           // Le déclencheur l'impose de toute façon ; écrit ici pour que

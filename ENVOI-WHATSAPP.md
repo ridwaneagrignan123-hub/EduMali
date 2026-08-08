@@ -1,8 +1,47 @@
 # Brancher l'envoi WhatsApp
 
 Le code est prêt. Ce qui reste est **administratif** et se fait une fois,
-dans la console Meta, avec les identifiants de l'établissement. Aucune
-ligne de code n'en dispense.
+dans la console Meta. Aucune ligne de code n'en dispense.
+
+---
+
+## UN SEUL EXPÉDITEUR POUR TOUTES LES ÉCOLES
+
+L'application n'a jamais prévu de réglage par établissement : la
+configuration vit dans les variables d'environnement, et la table
+`schools` ne porte aucun jeton ni numéro d'API. C'est délibéré et c'est
+le modèle de l'éditeur — **un distributeur, un compte Meta, un numéro,
+pour toutes les écoles clientes**.
+
+Ce que ça implique :
+
+- **Les écoles ne font rien.** Ni compte Meta, ni vérification, ni puce.
+  Elles ne sauront pas que Meta existe.
+- **L'éditeur vérifie SON entreprise**, une seule fois, avec ses propres
+  papiers. Valable pour toutes les écoles présentes et à venir.
+- **L'éditeur paie tous les messages.** À mettre dans le prix de
+  l'abonnement, et à plafonner par école : un établissement de 800 élèves
+  très bavard coûte plus qu'il ne rapporte.
+- **Une seule réputation.** Si une école envoie n'importe quoi et se fait
+  bloquer par des familles, Meta baisse la qualité du numéro — et toutes
+  les écoles en souffrent. C'est l'argument pour garder les messages
+  étroits.
+
+### Le numéro de l'école est DANS le message
+
+Puisque l'expéditeur est la plateforme, une famille qui répondrait
+tomberait chez l'éditeur et non au secrétariat. Le message se termine
+donc par le numéro de l'établissement, tiré de `schools.phone` :
+
+> Bonjour, votre enfant Aminata a été absent(e) le 12/10/2026 à
+> EPP-Worgou. **Pour joindre l'école : 76 12 34 56.**
+
+Traduit dans les trois langues, et simplement absent quand l'école n'a
+pas renseigné son numéro — jamais un « undefined » envoyé à une famille.
+
+**Conséquence pour vos modèles Meta :** le numéro voyage dans le
+paramètre `{{2}}`, celui du détail. Le squelette à trois variables ne
+change pas.
 
 ---
 
@@ -40,11 +79,26 @@ remplirait la file d'échecs qui ressembleraient à une panne.
 
 ## Les six étapes, dans l'ordre
 
-1. **Compte Meta Business** — https://business.facebook.com
+1. **Compte Meta Business** — https://business.facebook.com, au nom de
+   l'éditeur du logiciel, pas d'une école.
 2. **Vérification de l'entreprise** (Business Verification). Documents de
-   l'établissement. Comptez plusieurs jours.
-3. **Un numéro de téléphone dédié.** Il ne pourra plus servir dans
-   l'application WhatsApp ordinaire. Prenez-en un neuf.
+   l'ÉDITEUR. Comptez plusieurs jours à deux semaines. C'est l'étape la
+   plus longue et rien ne l'accélère.
+3. **Un numéro de téléphone dédié.**
+
+   ⚠️ **Ce numéro ne pourra plus JAMAIS servir dans l'application
+   WhatsApp ordinaire ni dans WhatsApp Business.** À l'inscription, Meta
+   le retire de l'application et les conversations qui s'y trouvaient
+   disparaissent. Le retour en arrière est possible mais long, et l'API
+   est perdue entre-temps.
+
+   Prenez une puce neuve. Elle doit recevoir un SMS ou un appel **une
+   seule fois**, pour la vérification ; ensuite elle peut dormir.
+
+   **Essayez avant de sacrifier une puce :** Meta fournit un numéro de
+   test gratuit qui écrit à cinq destinataires déclarés. Branchez-le
+   d'abord, envoyez-vous un message — toute la chaîne se vérifie sans
+   engager aucun vrai numéro.
 4. **Déposer les modèles** (voir ci-dessous) et attendre leur
    approbation.
 5. **Créer un jeton permanent** via un utilisateur système — *pas* le

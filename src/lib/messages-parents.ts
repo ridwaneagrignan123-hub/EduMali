@@ -231,6 +231,28 @@ export function dateDuMessage(dateIso: string, langue: Langue) {
   return new Date(valeur).toLocaleDateString(ETIQUETTES_LOCALE[langue])
 }
 
+/*
+ * LE NUMÉRO DE L'ÉCOLE, AJOUTÉ À LA FIN.
+ *
+ * Le message part du numéro de la PLATEFORME, pas de celui de l'école :
+ * un seul expéditeur sert tous les établissements. Une famille qui
+ * répondrait au message tomberait donc chez l'éditeur, et non au
+ * secrétariat qui vient de lui écrire.
+ *
+ * Un parent qui apprend que son enfant est absent veut appeler l'école
+ * dans la minute. Sans ce numéro, il ne l'a pas sous les yeux — et il
+ * appellera le mauvais interlocuteur, ou personne.
+ *
+ * Ajouté ici, à la fin, plutôt que tissé dans les vingt-et-un gabarits :
+ * une phrase de service se pose après le fait, dans toutes les langues,
+ * sans toucher à la formulation de chacun.
+ */
+const CONTACT: Record<Langue, (tel: string) => string> = {
+  fr: (tel) => `Pour joindre l'école : ${tel}.`,
+  en: (tel) => `To reach the school: ${tel}.`,
+  ar: (tel) => `للتواصل مع المدرسة: ${tel}.`,
+}
+
 /**
  * Compose le message.
  *
@@ -238,13 +260,21 @@ export function dateDuMessage(dateIso: string, langue: Langue) {
  * par `langueDuMessage()`, et c'est la même valeur qui sera écrite dans
  * `sms_logs.language`. Le texte enregistré et la langue enregistrée ne
  * peuvent donc pas se contredire.
+ *
+ * `telephoneEcole` est facultatif : une école qui n'a pas renseigné son
+ * numéro voit simplement le message se terminer sans lui, plutôt qu'une
+ * phrase de contact vide ou un « undefined » envoyé à une famille.
  */
 export function composerMessage(
   langue: Langue,
   type: TypeEvenement,
   eleve: string,
   ecole: string,
-  details: Details
+  details: Details,
+  telephoneEcole?: string | null
 ) {
-  return MESSAGES[langue][type](eleve, ecole, details)
+  const texte = MESSAGES[langue][type](eleve, ecole, details)
+  const numero = telephoneEcole?.trim()
+
+  return numero ? `${texte} ${CONTACT[langue](numero)}` : texte
 }
